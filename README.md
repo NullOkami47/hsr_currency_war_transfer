@@ -1,5 +1,7 @@
 # HSR Currency War Transfer
 
+**English** | [繁體中文](README.zh-TW.md) | [简体中文](README.zh-CN.md)
+
 This repository contains the transfer core and a local, admin-managed
 publishing connector for copying Currency War strategies from the China
 service to the global service.
@@ -14,8 +16,8 @@ Validated so far:
 - post-publish gameplay verification against the China source.
 
 The exact gameplay payload for the test strategy matches the China source.
-The local publisher is implemented and unit-tested. Its first live run still
-requires the administrator to sign in to its dedicated Chrome profile.
+The local publisher is implemented and unit-tested. Live publishing requires
+the administrator to sign in to its dedicated Chrome profile.
 
 See [docs/feasibility-spike.md](docs/feasibility-spike.md) for the evidence,
 root-cause analysis and remaining risks.
