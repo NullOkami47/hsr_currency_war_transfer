@@ -1,0 +1,22 @@
+{
+  "name": "hsr-currency-war-transfer-spike",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "connector:login": "node scripts/connector-login.mjs",
+    "dev": "node scripts/dev-server.mjs",
+    "diff:live": "node scripts/diff-live.mjs",
+    "mapping:adopt": "node scripts/adopt-mapping.mjs",
+    "probe": "node scripts/probe.mjs",
+    "search": "node scripts/search.mjs",
+    "test": "node --test",
+    "transfer": "node scripts/transfer.mjs"
+  },
+  "dependencies": {
+    "playwright-core": "^1.54.1"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

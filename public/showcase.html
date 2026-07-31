@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="zh-Hant">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="robots" content="noindex">
+    <title>Currency War Transfer — 元件展示</title>
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body>
+    <main class="showcase">
+      <header class="showcase__header">
+        <p class="showcase__eyebrow">Primitive showcase</p>
+        <h1 class="showcase__title">輝光戰略索引</h1>
+        <p class="showcase__intro">搜尋、比較並提交中國服貨幣戰爭攻略的介面元件與狀態。</p>
+      </header>
+
+      <section class="showcase__section" aria-labelledby="buttons-heading">
+        <h2 id="buttons-heading">操作與欄位</h2>
+        <div class="showcase__row">
+          <button class="button button--primary" type="button">搜尋攻略</button>
+          <button class="button button--secondary" type="button">清除條件</button>
+          <button class="button button--quiet" type="button">查看來源</button>
+          <button class="button button--primary" type="button" disabled>無法提交</button>
+          <button class="button button--primary" type="button">
+            <span class="button__spinner" aria-hidden="true"></span>
+            <span>正在搜尋</span>
+          </button>
+        </div>
+        <div class="showcase__column">
+          <label class="field">
+            <span class="field__label">中國服攻略 URL／ID</span>
+            <input class="field__input" value="6a56fe3021253d0e1a9f4761">
+            <span class="field__hint">支援米遊社分享連結或 24 位攻略 ID。</span>
+          </label>
+          <label class="field field--error">
+            <span class="field__label">名稱關鍵字</span>
+            <input class="field__input" aria-invalid="true" value="">
+            <span class="field__error">請輸入關鍵字或選擇至少一名角色。</span>
+          </label>
+        </div>
+      </section>
+
+      <section class="showcase__section" aria-labelledby="filters-heading">
+        <h2 id="filters-heading">模式與角色</h2>
+        <div class="showcase__column">
+          <div class="mode-tabs" role="tablist" aria-label="搜尋方式">
+            <button class="mode-tab" role="tab" aria-selected="true" type="button">URL／ID</button>
+            <button class="mode-tab" role="tab" aria-selected="false" type="button">名稱與角色</button>
+          </div>
+          <div class="role-picker">
+            <button class="role-picker__trigger" type="button" aria-expanded="true">
+              <span>已選擇 2 名角色</span>
+              <span aria-hidden="true">⌄</span>
+            </button>
+            <div class="role-picker__popover">
+              <div class="role-picker__toolbar">
+                <input class="role-picker__search" aria-label="篩選角色" placeholder="輸入角色名稱">
+                <button class="button button--quiet" type="button">清除</button>
+              </div>
+              <div class="role-grid">
+                <label class="role-chip">
+                  <input type="checkbox" checked>
+                  <span class="portrait" aria-hidden="true">姬</span>
+                  <span class="role-chip__name">姬子・啟行</span>
+                </label>
+                <label class="role-chip">
+                  <input type="checkbox" checked>
+                  <span class="portrait" aria-hidden="true">三</span>
+                  <span class="role-chip__name">三月七</span>
+                </label>
+                <label class="role-chip">
+                  <input type="checkbox">
+                  <span class="portrait" aria-hidden="true">瓦</span>
+                  <span class="role-chip__name">瓦爾特</span>
+                </label>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="showcase__section" aria-labelledby="candidate-heading">
+        <h2 id="candidate-heading">候選攻略</h2>
+        <article class="candidate candidate--selected">
+          <div class="candidate__index">
+            <span>01</span>
+            <input class="candidate__radio" type="radio" checked aria-label="選擇幣戰科研項目">
+          </div>
+          <div class="candidate__body">
+            <div class="candidate__heading-row">
+              <div>
+                <h3 class="candidate__title">【6列車同行3能量】幣戰科研項目：姬七貓！</h3>
+                <p class="candidate__author">作者：田宮良子ol</p>
+              </div>
+              <span class="candidate__badge">已選擇</span>
+            </div>
+            <p class="candidate__description">有無能量轉都能玩這套陣容，區別在於第三位面有能量轉可以滿血秒殺首領。前期保存經濟吃利息，後期尋找三星姬子。</p>
+            <div class="roster">
+              <div class="roster__group"><span class="roster__label">前台</span><div class="roster__portraits"><span class="portrait">姬</span><span class="portrait">拓</span><span class="portrait">砂</span></div></div>
+              <div class="roster__group"><span class="roster__label">後台</span><div class="roster__portraits"><span class="portrait">三</span><span class="portrait">日</span><span class="portrait">丹</span></div></div>
+            </div>
+          </div>
+        </article>
+      </section>
+
+      <section class="showcase__section" aria-labelledby="states-heading">
+        <h2 id="states-heading">狀態與提交</h2>
+        <div class="showcase__column">
+          <div class="status-panel">
+            <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true"><path d="M12 8v4m0 4h.01M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" stroke-width="2" stroke-linecap="round"/></svg>
+            <div><p class="status-panel__title">已掃描 20 筆攻略</p><p class="status-panel__body">仍有更多結果，可增加搜尋頁數或收窄條件。</p></div>
+          </div>
+          <div class="status-panel status-panel--error">
+            <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true"><path d="m9 9 6 6m0-6-6 6M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" stroke-width="2" stroke-linecap="round"/></svg>
+            <div><p class="status-panel__title">中國服暫時無法讀取</p><p class="status-panel__body">請稍後重試；已選擇的搜尋條件不會消失。</p></div>
+          </div>
+          <aside class="tray">
+            <div><p class="tray__eyebrow">已選攻略</p><h3 class="tray__title">幣戰科研項目：姬七貓！</h3></div>
+            <p class="tray__copy">提交後由管理員 worker 建立或更新全球服版本，完成後回傳攻略碼。</p>
+            <div class="tray__actions"><button class="button button--primary" type="button">提交轉移</button><button class="button button--quiet" type="button">取消選擇</button></div>
+          </aside>
+        </div>
+      </section>
+    </main>
+  </body>
+</html>
