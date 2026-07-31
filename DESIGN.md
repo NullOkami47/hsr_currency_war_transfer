@@ -170,7 +170,7 @@ Base unit: `4px`.
 ### Transfer tray
 
 - Appears only after selection. Desktop is sticky in the right rail; mobile is a fixed bottom sheet with safe-area padding.
-- Shows selected title, roster summary, disclaimer, and primary submit button. Loading locks duplicate submissions. Success replaces the CTA with the returned global share code and copy button. Error remains retryable.
+- Shows selected title, roster summary, disclaimer, and primary submit button. Loading locks duplicate submissions, adds the existing button spinner, and shows a working status panel with a token-coloured progress sweep. A queued transfer keeps the tray open, shows its job ID, and polls without asking the user to resubmit. Success exposes the returned global share code in the official `##…=##` wrapper and a copy button. Partial success lists every ignored item; failure and timeout states remain retryable.
 
 ### External Strategy Compendium links
 
@@ -188,6 +188,7 @@ Base unit: `4px`.
 - Animate only `transform`, `opacity`, and `filter`.
 - Candidate selection may translate the amber marker by 2px; no decorative idle motion.
 - Role popover and transfer tray enter with opacity plus 4px translate.
+- The transfer working panel uses a horizontal progress sweep driven only by `transform`; it communicates active publishing and stops as soon as a terminal result arrives.
 - `prefers-reduced-motion: reduce` removes transforms and collapses timings to near-zero.
 
 ## 7. Depth & Surface

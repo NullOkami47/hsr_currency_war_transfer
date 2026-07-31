@@ -45,6 +45,13 @@ export class TransferServiceUnavailableError extends Error {
   }
 }
 
+export class TransferJobNotFoundError extends Error {
+  constructor(message = "Transfer job was not found", options = {}) {
+    super(message, options);
+    this.name = "TransferJobNotFoundError";
+  }
+}
+
 function parseBody(request) {
   if (
     request.body &&
@@ -151,17 +158,25 @@ function publicTransferResult(value) {
     "updated",
     "unchanged",
     "partial",
+    "failed",
   ]);
   const status = String(value?.status ?? "queued");
   if (!allowedStatuses.has(status)) {
     throw new Error("Transfer worker returned an unsupported status");
   }
 
+  const rawShareCode = String(value?.shareCode ?? "");
+  const shareCode = rawShareCode
+    ? rawShareCode.startsWith("##") && rawShareCode.endsWith("##")
+      ? rawShareCode
+      : `##${rawShareCode}##`
+    : null;
+
   return {
     status,
     jobId: value?.jobId ? String(value.jobId) : null,
     globalId: value?.globalId ? String(value.globalId) : null,
-    shareCode: value?.shareCode ? String(value.shareCode) : null,
+    shareCode,
     ignored: Array.isArray(value?.ignored)
       ? value.ignored.map((item) => ({
           type: String(item?.type ?? "unknown"),
@@ -169,6 +184,12 @@ function publicTransferResult(value) {
           reason: String(item?.reason ?? "unknown"),
         }))
       : [],
+    error: status === "failed"
+      ? {
+          code: String(value?.error?.code ?? "transfer_failed"),
+          message: "The strategy could not be transferred",
+        }
+      : null,
   };
 }
 
@@ -211,21 +232,94 @@ export async function submitTransferToWorker(
   return publicTransferResult(await response.json());
 }
 
+function workerJobUrl(workerUrl, jobId) {
+  if (!/^[A-Za-z0-9_-]{1,100}$/.test(jobId)) {
+    throw new TypeError("jobId is invalid");
+  }
+  const url = new URL(workerUrl);
+  url.pathname = `${url.pathname.replace(/\/$/, "")}/${jobId}`;
+  return url.toString();
+}
+
+export async function getTransferFromWorker(
+  jobId,
+  {
+    workerUrl = process.env.CURRENCY_WAR_WORKER_URL,
+    workerToken = process.env.CURRENCY_WAR_WORKER_TOKEN,
+    fetchFn = fetch,
+  } = {},
+) {
+  if (!workerUrl || !workerToken) {
+    throw new TransferServiceUnavailableError();
+  }
+
+  let response;
+  try {
+    response = await fetchFn(workerJobUrl(workerUrl, jobId), {
+      method: "GET",
+      headers: {
+        accept: "application/json",
+        authorization: `Bearer ${workerToken}`,
+      },
+      signal: AbortSignal.timeout(10_000),
+    });
+  } catch (error) {
+    if (error instanceof TypeError && /jobId/.test(error.message)) throw error;
+    throw new TransferServiceUnavailableError(
+      "Transfer worker could not be reached",
+      { cause: error },
+    );
+  }
+
+  if (response.status === 404) throw new TransferJobNotFoundError();
+  if (!response.ok) {
+    throw new TransferServiceUnavailableError(
+      `Transfer worker returned HTTP ${response.status}`,
+    );
+  }
+  return publicTransferResult(await response.json());
+}
+
+function requestQuery(request, name) {
+  const direct = request.query?.[name];
+  if (Array.isArray(direct)) return direct[0];
+  if (direct !== undefined) return direct;
+  return new URL(request.url ?? "/", "http://local.invalid")
+    .searchParams.get(name);
+}
+
 export function createTransfersHandler({
   submitTransferFn = submitTransferToWorker,
+  getTransferFn = getTransferFromWorker,
 } = {}) {
   return async function transfersHandler(request, response) {
-    if (request.method !== "POST") {
-      methodNotAllowed(response, "POST");
+    if (!["GET", "POST"].includes(request.method)) {
+      methodNotAllowed(response, "GET, POST");
       return;
     }
 
     try {
+      if (request.method === "GET") {
+        const jobId = String(requestQuery(request, "jobId") ?? "");
+        if (!jobId) throw new TypeError("jobId is required");
+        sendJson(response, 200, publicTransferResult(await getTransferFn(jobId)));
+        return;
+      }
+
       const body = parseBody(request);
       const sourceId = parseChinaLineupInput(String(body.source ?? ""));
-      const result = await submitTransferFn(sourceId);
+      const result = publicTransferResult(await submitTransferFn(sourceId));
       sendJson(response, result.status === "queued" ? 202 : 200, result);
     } catch (error) {
+      if (error instanceof TransferJobNotFoundError) {
+        sendJson(response, 404, {
+          error: {
+            code: "transfer_job_not_found",
+            message: "Transfer job was not found",
+          },
+        });
+        return;
+      }
       if (error instanceof TransferServiceUnavailableError) {
         sendJson(response, 503, {
           error: {

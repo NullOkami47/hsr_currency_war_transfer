@@ -18,8 +18,9 @@ Admin connector (persistent Chrome profile)
 Global Currency War service
 ```
 
-The current command-line connector is the worker core. A later queue adapter can
-feed it jobs from Vercel without changing the transfer rules.
+The HTTP worker wraps the same connector core with a persistent job queue.
+Vercel creates and polls jobs using a shared bearer token; the public browser
+never receives that token or the HoYoLAB session.
 
 ## First login
 
@@ -43,6 +44,46 @@ npm run mapping:adopt -- `
 ```
 
 This prevents the first connector run from creating a duplicate.
+
+## Run the connected flow locally
+
+For a one-machine setup, the launcher creates an in-memory random token and
+starts both services in the background:
+
+```powershell
+npm run local:start
+# Open http://127.0.0.1:4173
+npm run local:stop
+```
+
+The manual equivalent is shown below when separate terminals or custom ports
+are required.
+
+Generate a long random token once:
+
+```powershell
+node -e "console.log(require('node:crypto').randomBytes(32).toString('hex'))"
+```
+
+Start the signed-in worker in one terminal:
+
+```powershell
+$env:CURRENCY_WAR_WORKER_TOKEN="paste-the-generated-token"
+$env:CURRENCY_WAR_HEADLESS="1"
+npm run worker
+```
+
+Start the website in another terminal with the same token:
+
+```powershell
+$env:CURRENCY_WAR_WORKER_TOKEN="paste-the-generated-token"
+$env:CURRENCY_WAR_WORKER_URL="http://127.0.0.1:8787/jobs"
+npm run dev
+```
+
+The website now searches anonymously, submits the selected China strategy,
+polls the job, and displays the returned global share code. The worker health
+endpoint is `GET /health`; job endpoints require the bearer token.
 
 ## Change the publishing account
 
@@ -104,11 +145,20 @@ is treated as a genuine expired login and is not retried again.
 
 ## Production queue
 
-The public API should insert one idempotent job keyed by the China strategy ID.
-A single connector worker should claim jobs sequentially, run `transferStrategy`
-and store its result. A production database should enforce a unique source ID
-and replace the local JSON mapping. This gives the website the same behaviour
-as the current local lock while allowing restarts and multiple web instances.
+Run one worker process on the administrator machine or persistent VM. Set
+`CURRENCY_WAR_WORKER_URL` on Vercel to its HTTPS `/jobs` endpoint and configure
+the same `CURRENCY_WAR_WORKER_TOKEN` on both sides. Do not expose the worker
+directly over unencrypted HTTP on the public internet; bind it to localhost
+behind a TLS reverse proxy, or use a private authenticated tunnel.
+
+The worker persists queued and completed jobs in
+`~/.hsr-currency-war-transfer/jobs.json`, recovers interrupted work after a
+restart, deduplicates active jobs by China strategy ID, and executes transfers
+sequentially. Override the path with `CURRENCY_WAR_JOB_STATE_PATH`.
+
+The JSON job and transfer stores are designed for a single worker process. If
+the service later runs multiple worker instances, replace both with a
+transactional database that enforces one active job per source ID.
 
 The browser profile must stay on persistent encrypted storage and should never
 be committed, uploaded to Vercel or returned to users.

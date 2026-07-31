@@ -619,6 +619,28 @@ html[data-theme="dark"] .button--primary {
   border-color: var(--colour-rule-strong);
 }
 
+.status-panel--working {
+  position: relative;
+  overflow: hidden;
+}
+
+.status-panel--working::after {
+  position: absolute;
+  inset-inline: 0;
+  inset-block-end: 0;
+  height: var(--space-1);
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    var(--colour-teal) 45%,
+    var(--colour-amber) 55%,
+    transparent 100%
+  );
+  content: "";
+  transform: translateX(-100%);
+  animation: working-sweep 1.4s var(--ease-standard) infinite;
+}
+
 .status-panel__title,
 .status-panel__body {
   margin: 0;
@@ -1251,6 +1273,12 @@ html[data-theme="dark"] .route-line span:last-child {
 @keyframes skeleton-shift {
   to {
     background-position: -200% 0;
+  }
+}
+
+@keyframes working-sweep {
+  to {
+    transform: translateX(100%);
   }
 }
 

@@ -31,6 +31,17 @@ const roles = [
   },
 ];
 
+const silverWolfVariants = ["15061", "15062", "15063"].map(
+  (id, index) => ({
+    id,
+    name: "银狼LV.999",
+    icon: "silver-wolf-999.png",
+    big_icon: "silver-wolf-999-big.png",
+    rarity: String(index + 3),
+    is_hide: false,
+  }),
+);
+
 function config() {
   return {
     role_list: roles,
@@ -103,6 +114,15 @@ test("builds visible China role options for a multi-select control", () => {
     ]),
   );
   assert.equal(options.some(({ id }) => id === "9999"), false);
+});
+
+test("groups upgrade variants into one searchable role option", () => {
+  const options = getChinaRoleOptions({ role_list: silverWolfVariants });
+
+  assert.equal(options.length, 1);
+  assert.equal(options[0].id, "15061");
+  assert.equal(options[0].name, "银狼LV.999");
+  assert.deepEqual(options[0].matchIds, ["15061", "15062", "15063"]);
 });
 
 test("returns role catalogue metadata from the anonymous config", async () => {
@@ -242,6 +262,27 @@ test("combines title keyword and selected roles with AND matching", async () => 
   assert.equal(result.pageInfo.truncated, true);
   assert.deepEqual(calls[0].options.roleIds, ["1510", "1001"]);
   assert.equal(calls[1].options.nextPageToken, "next");
+});
+
+test("matches any internal ID belonging to a grouped upgrade role", async () => {
+  let upstreamRoleIds;
+  const specialConfig = { role_list: silverWolfVariants };
+  const upgradedLineup = lineup({ roleIds: ["15063"] });
+
+  const result = await searchChinaStrategies(
+    { roleIds: ["15061"] },
+    {
+      fetchConfigFn: async () => specialConfig,
+      fetchLineupPageFn: async (region, options) => {
+        upstreamRoleIds = options.roleIds;
+        return { list: [upgradedLineup] };
+      },
+    },
+  );
+
+  assert.deepEqual(upstreamRoleIds, []);
+  assert.deepEqual(result.candidates.map(({ id }) => id), [upgradedLineup.id]);
+  assert.deepEqual(result.candidates[0].matchedRoleIds, ["15061"]);
 });
 
 test("filters strategies by author display name", async () => {

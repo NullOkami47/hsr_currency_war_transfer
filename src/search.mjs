@@ -31,6 +31,37 @@ function localisedRoleIndex(config) {
   );
 }
 
+function logicalRoleKey(role) {
+  return [
+    normaliseText(role.name),
+    String(role.icon ?? ""),
+    String(role.big_icon ?? ""),
+  ].join("\u0000");
+}
+
+function visibleRoleGroups(config) {
+  const groups = new Map();
+  for (const role of config?.role_list ?? []) {
+    if (role.is_hide) continue;
+    const key = logicalRoleKey(role);
+    const existing = groups.get(key);
+    if (existing) {
+      existing.roles.push(role);
+      existing.matchIds.push(String(role.id));
+    } else {
+      groups.set(key, { roles: [role], matchIds: [String(role.id)] });
+    }
+  }
+  return [...groups.values()].map((group) => {
+    const matchIds = group.matchIds.sort((left, right) =>
+      left.localeCompare(right, "en", { numeric: true }));
+    return {
+      role: group.roles.find(({ id }) => String(id) === matchIds[0]),
+      matchIds,
+    };
+  });
+}
+
 function allLineupRoleIds(lineup) {
   return new Set(
     (lineup.tourn_detail?.role_stages ?? []).flatMap((stage) =>
@@ -84,7 +115,7 @@ function candidateRoles(lineup, rolesById) {
 export function toChinaStrategyCandidate(
   lineup,
   config,
-  { selectedRoleIds = [] } = {},
+  { selectedRoleIds = [], selectedRoleGroups } = {},
 ) {
   if (!lineup?.id) {
     throw new TypeError("A China strategy lineup is required");
@@ -104,7 +135,11 @@ export function toChinaStrategyCandidate(
       certification: String(lineup.certification ?? ""),
     },
     roles: candidateRoles(lineup, rolesById),
-    matchedRoleIds: selected.filter((id) => lineupRoleIds.has(id)),
+    matchedRoleIds: selectedRoleGroups
+      ? selectedRoleGroups
+          .filter(({ matchIds }) => matchIds.some((id) => lineupRoleIds.has(id)))
+          .map(({ selectedId }) => selectedId)
+      : selected.filter((id) => lineupRoleIds.has(id)),
     createdAt: String(lineup.created_at ?? ""),
     lastEditedAt: String(lineup.last_edit ?? ""),
     isExpired: Boolean(lineup.tourn_detail?.is_expired),
@@ -120,9 +155,8 @@ export function getChinaRoleOptions(
   const traditionalRoles = localisedRoleIndex(traditionalConfig);
   const englishRoles = localisedRoleIndex(englishConfig);
 
-  return (config.role_list ?? [])
-    .filter((role) => !role.is_hide)
-    .map((role) => {
+  return visibleRoleGroups(config)
+    .map(({ role, matchIds }) => {
       const id = String(role.id);
       const simplified = simplifiedRoles.get(id);
       const traditional = traditionalRoles.get(id);
@@ -143,6 +177,7 @@ export function getChinaRoleOptions(
         bigIcon: String(
           english?.big_icon ?? traditional?.big_icon ?? role.big_icon ?? "",
         ),
+        ...(matchIds.length > 1 ? { matchIds } : {}),
       };
     })
     .sort(
@@ -193,6 +228,25 @@ function validateSearchRoleIds(config, roleIds) {
       `Unknown China role id${unknownRoleIds.length === 1 ? "" : "s"}: ${unknownRoleIds.join(", ")}`,
     );
   }
+}
+
+function selectedRoleMatchGroups(config, roleIds) {
+  validateSearchRoleIds(config, roleIds);
+  const groupByRoleId = new Map();
+  for (const group of visibleRoleGroups(config)) {
+    for (const id of group.matchIds) groupByRoleId.set(id, group.matchIds);
+  }
+
+  const seenGroups = new Set();
+  const selectedGroups = [];
+  for (const selectedId of roleIds) {
+    const matchIds = groupByRoleId.get(selectedId) ?? [selectedId];
+    const key = matchIds.join("\u0000");
+    if (seenGroups.has(key)) continue;
+    seenGroups.add(key);
+    selectedGroups.push({ selectedId, matchIds });
+  }
+  return selectedGroups;
 }
 
 export async function searchChinaStrategies(
@@ -258,7 +312,13 @@ export async function searchChinaStrategies(
   }
 
   const config = await fetchConfigFn("cn");
-  validateSearchRoleIds(config, selectedRoleIds);
+  const selectedRoleGroups = selectedRoleMatchGroups(
+    config,
+    selectedRoleIds,
+  );
+  const upstreamRoleIds = selectedRoleGroups
+    .filter(({ matchIds }) => matchIds.length === 1)
+    .map(({ matchIds }) => matchIds[0]);
 
   const normalisedKeyword = normaliseText(titleKeyword);
   const normalisedAuthorKeyword = normaliseText(authorNameKeyword);
@@ -274,7 +334,7 @@ export async function searchChinaStrategies(
       page,
       limit: pageSize,
       nextPageToken,
-      roleIds: selectedRoleIds,
+      roleIds: upstreamRoleIds,
       order,
     });
     const lineups = result.list ?? [];
@@ -295,14 +355,15 @@ export async function searchChinaStrategies(
       const matchesAuthor =
         !normalisedAuthorKeyword ||
         normaliseText(lineup.nickname).includes(normalisedAuthorKeyword);
-      const matchesAllRoles = selectedRoleIds.every((roleId) =>
-        lineupRoleIds.has(roleId),
+      const matchesAllRoles = selectedRoleGroups.every(({ matchIds }) =>
+        matchIds.some((roleId) => lineupRoleIds.has(roleId)),
       );
 
       if (matchesKeyword && matchesAuthor && matchesAllRoles) {
         candidates.push(
           toChinaStrategyCandidate(lineup, config, {
             selectedRoleIds,
+            selectedRoleGroups,
           }),
         );
       }

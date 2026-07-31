@@ -32,6 +32,10 @@ multi-select control:
 The response is shared-cacheable for one hour and may be served stale while
 Vercel refreshes it.
 
+`matchIds` is present only when the upstream config represents one visible
+character with several internal upgrade IDs. The website shows one option;
+search treats any ID in that group as a match.
+
 ## `POST /api/search`
 
 An exact URL/ID lookup:
@@ -87,3 +91,23 @@ hosted administrator worker using `CURRENCY_WAR_WORKER_URL` and
 `CURRENCY_WAR_WORKER_TOKEN`. The token remains server-side. The endpoint
 returns `503 transfer_service_unavailable` until both variables and the worker
 are available; it never launches or receives the persistent Chrome profile.
+
+When the worker accepts the request asynchronously, the endpoint returns HTTP
+202:
+
+```json
+{
+  "status": "queued",
+  "jobId": "e4509e8c-3aa8-491f-b6df-30be8f5caa6e"
+}
+```
+
+## `GET /api/transfers?jobId={jobId}`
+
+Polls the authenticated administrator worker through the server-side proxy.
+The browser never receives the worker URL or token. While processing, the
+response remains `queued`. A completed response uses `created`, `updated`,
+`unchanged`, or `partial` and includes the global `shareCode` in
+`##base64=##` format. `partial` also
+includes every omitted item in `ignored`. A worker failure is returned as a
+sanitised `failed` result without upstream account or session details.

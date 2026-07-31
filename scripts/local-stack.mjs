@@ -1,0 +1,99 @@
+import { randomBytes } from "node:crypto";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { join } from "node:path";
+import { spawn } from "node:child_process";
+
+const root = join(import.meta.dirname, "..");
+const runtimeDirectory = join(root, "var");
+const statePath = join(runtimeDirectory, "local-stack.json");
+
+function processIsRunning(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function existingStack() {
+  try {
+    const state = JSON.parse(await readFile(statePath, "utf8"));
+    return processIsRunning(state.workerPid) && processIsRunning(state.websitePid)
+      ? state
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+async function waitFor(url) {
+  for (let attempt = 0; attempt < 40; attempt += 1) {
+    try {
+      const response = await fetch(url);
+      if (response.ok) return;
+    } catch {}
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+  throw new Error(`Local service did not become ready: ${url}`);
+}
+
+const existing = await existingStack();
+if (existing) {
+  console.log("Currency War local stack is already running.");
+  console.log("Website: http://127.0.0.1:4173");
+  console.log("Worker health: http://127.0.0.1:8787/health");
+  process.exit(0);
+}
+
+const token = randomBytes(32).toString("hex");
+const commonOptions = {
+  cwd: root,
+  detached: true,
+  windowsHide: true,
+  stdio: "ignore",
+};
+const worker = spawn(process.execPath, ["scripts/worker-server.mjs"], {
+  ...commonOptions,
+  env: {
+    ...process.env,
+    CURRENCY_WAR_WORKER_TOKEN: token,
+    CURRENCY_WAR_WORKER_HOST: "127.0.0.1",
+    CURRENCY_WAR_WORKER_PORT: "8787",
+    CURRENCY_WAR_HEADLESS: process.env.CURRENCY_WAR_HEADLESS ?? "1",
+  },
+});
+const website = spawn(process.execPath, ["scripts/dev-server.mjs"], {
+  ...commonOptions,
+  env: {
+    ...process.env,
+    CURRENCY_WAR_WORKER_TOKEN: token,
+    CURRENCY_WAR_WORKER_URL: "http://127.0.0.1:8787/jobs",
+  },
+});
+worker.unref();
+website.unref();
+
+try {
+  await Promise.all([
+    waitFor("http://127.0.0.1:8787/health"),
+    waitFor("http://127.0.0.1:4173/"),
+  ]);
+} catch (error) {
+  for (const child of [worker, website]) {
+    if (processIsRunning(child.pid)) process.kill(child.pid);
+  }
+  throw error;
+}
+
+await mkdir(runtimeDirectory, { recursive: true });
+await writeFile(statePath, `${JSON.stringify({
+  workerPid: worker.pid,
+  websitePid: website.pid,
+  startedAt: new Date().toISOString(),
+}, null, 2)}\n`, "utf8");
+
+console.log("Currency War local stack is ready.");
+console.log("Website: http://127.0.0.1:4173");
+console.log("Worker health: http://127.0.0.1:8787/health");
+console.log("Stop it with: npm run local:stop");

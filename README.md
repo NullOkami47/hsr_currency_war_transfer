@@ -25,6 +25,8 @@ root-cause analysis and remaining risks.
 Node.js 20 or later is required.
 
 ```powershell
+npm run local:start
+npm run local:stop
 npm run dev
 npm test
 npm run probe -- 6a587503f4749840a14a360d
@@ -34,6 +36,7 @@ npm run search -- --keyword 姬子 --roles 1510,1001
 npm run search -- --list-roles 姬子
 npm run diff:live -- 6a587503f4749840a14a360d 6a6c461e6217fd436611cdc7
 npm run connector:login
+npm run worker
 npm run mapping:adopt -- 6a587503f4749840a14a360d 6a6c461e6217fd436611cdc7
 npm run transfer -- 6a587503f4749840a14a360d
 ```
@@ -45,11 +48,23 @@ and dark themes. Interface chrome and character names are available in
 Traditional Chinese, Simplified Chinese and English; source strategy text is
 kept unchanged.
 
+`npm run local:start` starts both the website and the authenticated worker on
+localhost with an in-memory random token. `npm run local:stop` stops both
+background processes. Run `npm run connector:login` first whenever the saved
+HoYoLAB session or publishing account needs to be changed.
+
 On Vercel, configure `CURRENCY_WAR_WORKER_URL` and
 `CURRENCY_WAR_WORKER_TOKEN` as server-side environment variables to connect
-the submit button to the separate authenticated publishing worker. The token
-is never sent to the browser. Without these variables, search and selection
-still work and transfer submission returns a clear service-unavailable state.
+the submit button to the separate authenticated publishing worker. Run
+`npm run worker` on the administrator machine or persistent VM with the same
+token. The website creates a job, polls it through the Vercel API, and returns
+the global share code without exposing the worker token or HoYoLAB session to
+the browser. Active duplicate requests for the same China strategy share one
+job; completed requests run the existing create/update/unchanged comparison.
+
+Without these variables, search and selection still work and transfer
+submission returns a clear service-unavailable state. See `.env.example` and
+`docs/admin-connector.md` for the complete local and production setup.
 
 `probe` reads and transforms without writing. `diff:live` re-fetches both
 published strategies, normalises them through the same transformer, and exits

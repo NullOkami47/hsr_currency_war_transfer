@@ -85,6 +85,14 @@ Object.assign(messages["zh-Hant"], {
   noResultsBody: "請嘗試縮短攻略或作者關鍵字、減少所選角色，或改用精確 URL／ID。",
   themeToDark: "切換至深色模式",
   themeToLight: "切換至淺色模式",
+  queuedBody: "工作編號：{id}。管理員 worker 正在建立或核對攻略，請保持此頁開啟。",
+  transferFailedTitle: "攻略轉移失敗",
+  transferFailedBody: "管理員 worker 無法完成這次轉移。請稍後重試；若問題持續，請管理員檢查登入狀態。",
+  transferTimeoutTitle: "轉移仍在處理中",
+  transferTimeoutBody: "等待時間較長，請稍後使用同一攻略再次提交以取得最新結果。",
+  ignoredItems: "未能轉移：{items}",
+  preparingTitle: "正在準備全球服攻略",
+  preparingBody: "正在整理攻略內容並連接管理員 worker。",
 });
 Object.assign(messages["zh-Hans"], {
   heroEyebrow: "Currency War Strategy Compendium / 跨服转移",
@@ -98,6 +106,14 @@ Object.assign(messages["zh-Hans"], {
   noResultsBody: "请尝试缩短攻略或作者关键词、减少所选角色，或改用精确 URL／ID。",
   themeToDark: "切换至深色模式",
   themeToLight: "切换至浅色模式",
+  queuedBody: "工作编号：{id}。管理员 worker 正在建立或核对攻略，请保持此页面开启。",
+  transferFailedTitle: "攻略转移失败",
+  transferFailedBody: "管理员 worker 无法完成本次转移。请稍后重试；若问题持续，请管理员检查登录状态。",
+  transferTimeoutTitle: "转移仍在处理中",
+  transferTimeoutBody: "等待时间较长，请稍后使用同一攻略再次提交以取得最新结果。",
+  ignoredItems: "未能转移：{items}",
+  preparingTitle: "正在准备全球服攻略",
+  preparingBody: "正在整理攻略内容并连接管理员 worker。",
 });
 Object.assign(messages.en, {
   heroEyebrow: "Currency War Strategy Compendium / Region transfer",
@@ -112,6 +128,14 @@ Object.assign(messages.en, {
   noResultsBody: "Try a shorter title or author keyword, fewer selected characters, or an exact strategy URL / ID.",
   themeToDark: "Switch to dark mode",
   themeToLight: "Switch to light mode",
+  queuedBody: "Job ID: {id}. The administrator worker is creating or checking the strategy; keep this page open.",
+  transferFailedTitle: "Strategy transfer failed",
+  transferFailedBody: "The administrator worker could not complete this transfer. Try again later; if it persists, the administrator should check the sign-in session.",
+  transferTimeoutTitle: "The transfer is still processing",
+  transferTimeoutBody: "This is taking longer than expected. Submit the same strategy again later to retrieve its latest result.",
+  ignoredItems: "Not transferred: {items}",
+  preparingTitle: "Preparing the Global strategy",
+  preparingBody: "Organising the strategy content and contacting the administrator worker.",
 });
 
 const state = {
@@ -127,6 +151,7 @@ const state = {
   theme: document.documentElement.dataset.theme === "dark" ? "dark" : "light",
   roleLoadFailed: false,
   searchController: null,
+  transferController: null,
 };
 
 const elements = Object.fromEntries([
@@ -320,6 +345,7 @@ function roster(roles) {
 }
 
 function selectCandidate(candidate) {
+  if (state.selectedCandidate?.id !== candidate.id) resetTransferUi();
   state.selectedCandidate = candidate;
   renderResults();
   renderTray();
@@ -379,6 +405,15 @@ function renderTray() {
   elements["tray-roster"].replaceChildren(roster(candidate.roles));
 }
 
+function resetTransferUi() {
+  state.transferController?.abort();
+  state.transferController = null;
+  elements["transfer-status"].replaceChildren();
+  elements["share-code"].value = "";
+  elements["share-code-wrap"].hidden = true;
+  setTransferBusy(false);
+}
+
 function showSearchLoading() {
   elements["results-header"].hidden = true;
   elements["candidate-list"].replaceChildren();
@@ -404,6 +439,17 @@ function setSearchBusy(busy) {
   }
 }
 
+function setTransferBusy(busy) {
+  elements["transfer-submit"].disabled = busy;
+  elements["transfer-submit"].replaceChildren();
+  if (busy) {
+    const spinner = document.createElement("span"); spinner.className = "button__spinner"; spinner.setAttribute("aria-hidden", "true");
+    const label = document.createElement("span"); label.textContent = t("submitting"); elements["transfer-submit"].append(spinner, label);
+  } else {
+    const label = document.createElement("span"); label.textContent = t("submit"); elements["transfer-submit"].append(label);
+  }
+}
+
 async function performSearch() {
   clearValidation();
   const source = elements["source-input"].value.trim();
@@ -416,7 +462,7 @@ async function performSearch() {
     elements["details-error"].textContent = t("detailsRequired"); elements["details-error"].hidden = false; elements["keyword-input"].focus(); return;
   }
   state.searchController?.abort(); state.searchController = new AbortController();
-  state.selectedCandidate = null; document.body.classList.remove("has-selection"); elements["transfer-tray"].hidden = true;
+  resetTransferUi(); state.selectedCandidate = null; document.body.classList.remove("has-selection"); elements["transfer-tray"].hidden = true;
   setSearchBusy(true); showSearchLoading(); closeRolePicker();
   try {
     const payload = state.mode === "direct" ? { source } : { keyword, authorKeyword, roleIds: [...state.selectedRoleIds], maxPages: 10, pageSize: 10 };
@@ -429,23 +475,91 @@ async function performSearch() {
   } finally { setSearchBusy(false); }
 }
 
-async function submitTransfer() {
-  if (!state.selectedCandidate) return;
-  elements["transfer-submit"].disabled = true; elements["transfer-submit"].textContent = t("submitting"); elements["transfer-status"].replaceChildren();
-  try {
-    const response = await fetch("/api/transfers", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ source: state.selectedCandidate.id }) });
+function waitForPoll(milliseconds, signal) {
+  return new Promise((resolve, reject) => {
+    const onAbort = () => {
+      clearTimeout(timer);
+      reject(new DOMException("Transfer polling was cancelled", "AbortError"));
+    };
+    const timer = setTimeout(() => {
+      signal.removeEventListener("abort", onAbort);
+      resolve();
+    }, milliseconds);
+    signal.addEventListener("abort", onAbort, { once: true });
+  });
+}
+
+async function pollTransfer(jobId, signal) {
+  const deadline = Date.now() + 10 * 60 * 1000;
+  while (Date.now() < deadline) {
+    await waitForPoll(1_500, signal);
+    const response = await fetch(`/api/transfers?jobId=${encodeURIComponent(jobId)}`, { signal });
     const data = await response.json();
     if (!response.ok) {
-      const unavailable = data.error?.code === "transfer_service_unavailable";
-      elements["transfer-status"].append(statusPanel("error", t(unavailable ? "transferUnavailableTitle" : "searchErrorTitle"), t(unavailable ? "transferUnavailableBody" : "searchErrorBody")));
-      return;
+      const error = new Error(data.error?.code ?? "transfer_poll_failed");
+      error.code = data.error?.code;
+      throw error;
     }
-    if (data.shareCode) { elements["share-code"].value = data.shareCode; elements["share-code-wrap"].hidden = false; }
-    const title = data.status === "partial" ? t("partialTitle") : data.status === "queued" ? t("queuedTitle") : t("completeTitle");
-    const body = data.status === "queued" ? t("queuedBody", { id: data.jobId ?? "—" }) : data.ignored?.length ? t("ignoredBody", { count: data.ignored.length }) : "";
-    elements["transfer-status"].append(statusPanel("", title, body));
-  } catch { elements["transfer-status"].append(statusPanel("error", t("transferUnavailableTitle"), t("transferUnavailableBody"))); }
-  finally { elements["transfer-submit"].disabled = false; elements["transfer-submit"].textContent = t("submit"); }
+    if (data.status !== "queued") return data;
+  }
+  const error = new Error("transfer_timeout");
+  error.code = "transfer_timeout";
+  throw error;
+}
+
+function renderTransferResult(data) {
+  elements["transfer-status"].replaceChildren();
+  if (data.status === "failed") {
+    elements["transfer-status"].append(statusPanel("error", t("transferFailedTitle"), t("transferFailedBody")));
+    return;
+  }
+  if (data.shareCode) {
+    elements["share-code"].value = data.shareCode;
+    elements["share-code-wrap"].hidden = false;
+  }
+  const ignored = data.ignored ?? [];
+  const ignoredList = ignored
+    .map((item) => [item.type, item.id].filter(Boolean).join(" "))
+    .join(state.locale === "en" ? ", " : "、");
+  const body = ignored.length
+    ? `${t("ignoredBody", { count: ignored.length })} ${t("ignoredItems", { items: ignoredList })}`
+    : "";
+  elements["transfer-status"].append(statusPanel("", data.status === "partial" ? t("partialTitle") : t("completeTitle"), body));
+}
+
+async function submitTransfer() {
+  if (!state.selectedCandidate || state.transferController) return;
+  const controller = new AbortController();
+  state.transferController = controller;
+  setTransferBusy(true); elements["transfer-status"].replaceChildren(statusPanel("working", t("preparingTitle"), t("preparingBody"))); elements["share-code-wrap"].hidden = true;
+  try {
+    const response = await fetch("/api/transfers", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ source: state.selectedCandidate.id }), signal: controller.signal });
+    let data = await response.json();
+    if (!response.ok) {
+      const error = new Error(data.error?.code ?? "transfer_failed");
+      error.code = data.error?.code;
+      throw error;
+    }
+    if (data.status === "queued") {
+      elements["transfer-status"].replaceChildren(statusPanel("working", t("queuedTitle"), t("queuedBody", { id: data.jobId ?? "—" })));
+      data = await pollTransfer(data.jobId, controller.signal);
+    }
+    renderTransferResult(data);
+  } catch (error) {
+    if (error.name === "AbortError") return;
+    const unavailable = error.code === "transfer_service_unavailable";
+    const timedOut = error.code === "transfer_timeout";
+    elements["transfer-status"].replaceChildren(statusPanel(
+      "error",
+      t(timedOut ? "transferTimeoutTitle" : unavailable ? "transferUnavailableTitle" : "transferFailedTitle"),
+      t(timedOut ? "transferTimeoutBody" : unavailable ? "transferUnavailableBody" : "transferFailedBody"),
+    ));
+  } finally {
+    if (state.transferController === controller) {
+      state.transferController = null;
+      setTransferBusy(false);
+    }
+  }
 }
 
 elements["locale-select"].value = state.locale;
@@ -461,7 +575,7 @@ elements["role-clear"].addEventListener("click", () => { state.selectedRoleIds.c
 document.addEventListener("click", (event) => { if (!event.target.closest(".role-picker")) closeRolePicker(); });
 document.addEventListener("keydown", (event) => { if (event.key === "Escape" && !elements["role-popover"].hidden) { closeRolePicker(); elements["role-trigger"].focus(); } });
 elements["search-form"].addEventListener("submit", (event) => { event.preventDefault(); performSearch(); });
-elements["selection-clear"].addEventListener("click", () => { state.selectedCandidate = null; document.body.classList.remove("has-selection"); renderResults(); renderTray(); });
+elements["selection-clear"].addEventListener("click", () => { resetTransferUi(); state.selectedCandidate = null; document.body.classList.remove("has-selection"); renderResults(); renderTray(); });
 elements["transfer-submit"].addEventListener("click", submitTransfer);
 elements["copy-code"].addEventListener("click", async () => { await navigator.clipboard.writeText(elements["share-code"].value); elements["copy-code"].textContent = t("copied"); setTimeout(() => { elements["copy-code"].textContent = t("copy"); }, 1200); });
 

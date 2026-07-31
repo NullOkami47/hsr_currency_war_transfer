@@ -5,6 +5,7 @@ import {
   createRolesHandler,
   createSearchHandler,
   createTransfersHandler,
+  getTransferFromWorker,
   submitTransferToWorker,
   TransferServiceUnavailableError,
 } from "../src/http.mjs";
@@ -132,7 +133,7 @@ test("submits a validated China strategy ID to the worker", async () => {
       return {
         status: "unchanged",
         globalId: "6a6c694a2a5c4702d0b47b26",
-        shareCode: "share-code",
+        shareCode: "share-code=",
         ignored: [],
       };
     },
@@ -149,7 +150,7 @@ test("submits a validated China strategy ID to the worker", async () => {
 
   assert.equal(receivedId, "6a56fe3021253d0e1a9f4761");
   assert.equal(response.statusCode, 200);
-  assert.equal(response.json().shareCode, "share-code");
+  assert.equal(response.json().shareCode, "##share-code=##");
 });
 
 test("reports an unconfigured transfer worker without leaking details", async () => {
@@ -199,4 +200,82 @@ test("authenticates worker requests on the server only", async () => {
   assert.deepEqual(JSON.parse(request.options.body), {
     sourceId: "6a56fe3021253d0e1a9f4761",
   });
+});
+
+test("polls a queued transfer through the server-side worker token", async () => {
+  let request;
+  const result = await getTransferFromWorker("job-1", {
+    workerUrl: "https://worker.example/jobs",
+    workerToken: "server-secret",
+    fetchFn: async (url, options) => {
+      request = { url, options };
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          status: "created",
+          jobId: "job-1",
+          shareCode: "global-code=",
+          ignored: [],
+        }),
+      };
+    },
+  });
+
+  assert.equal(result.status, "created");
+  assert.equal(result.shareCode, "##global-code=##");
+  assert.equal(request.url, "https://worker.example/jobs/job-1");
+  assert.equal(request.options.method, "GET");
+  assert.equal(request.options.headers.authorization, "Bearer server-secret");
+});
+
+test("serves transfer polling from the public API", async () => {
+  let receivedJobId;
+  const handler = createTransfersHandler({
+    getTransferFn: async (jobId) => {
+      receivedJobId = jobId;
+      return { status: "queued", jobId };
+    },
+  });
+  const response = responseRecorder();
+
+  await handler(
+    { method: "GET", url: "/api/transfers?jobId=job-2" },
+    response,
+  );
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(receivedJobId, "job-2");
+  assert.deepEqual(response.json(), {
+    status: "queued",
+    jobId: "job-2",
+    globalId: null,
+    shareCode: null,
+    ignored: [],
+    error: null,
+  });
+});
+
+test("sanitises a failed worker result", async () => {
+  const result = await getTransferFromWorker("job-3", {
+    workerUrl: "https://worker.example/jobs",
+    workerToken: "server-secret",
+    fetchFn: async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        status: "failed",
+        jobId: "job-3",
+        error: {
+          code: "publishing_session_error",
+          message: "sensitive upstream account detail",
+        },
+      }),
+    }),
+  });
+
+  assert.equal(result.status, "failed");
+  assert.equal(result.error.code, "publishing_session_error");
+  assert.equal(result.error.message, "The strategy could not be transferred");
+  assert.doesNotMatch(JSON.stringify(result), /sensitive/);
 });

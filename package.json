@@ -7,11 +7,14 @@
     "connector:login": "node scripts/connector-login.mjs",
     "dev": "node scripts/dev-server.mjs",
     "diff:live": "node scripts/diff-live.mjs",
+    "local:start": "node scripts/local-stack.mjs",
+    "local:stop": "node scripts/stop-local-stack.mjs",
     "mapping:adopt": "node scripts/adopt-mapping.mjs",
     "probe": "node scripts/probe.mjs",
     "search": "node scripts/search.mjs",
     "test": "node --test",
-    "transfer": "node scripts/transfer.mjs"
+    "transfer": "node scripts/transfer.mjs",
+    "worker": "node scripts/worker-server.mjs"
   },
   "dependencies": {
     "playwright-core": "^1.54.1"
