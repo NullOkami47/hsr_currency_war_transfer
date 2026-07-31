@@ -93,6 +93,10 @@ Object.assign(messages["zh-Hant"], {
   ignoredItems: "未能轉移：{items}",
   preparingTitle: "正在準備全球服攻略",
   preparingBody: "正在整理攻略內容並連接管理員 worker。",
+  roleFilterTagsLabel: "角色分類",
+  rolesAll: "全部角色",
+  roleCost: "{cost} 費角色",
+  expertConsultant: "專家顧問",
 });
 Object.assign(messages["zh-Hans"], {
   heroEyebrow: "Currency War Strategy Compendium / 跨服转移",
@@ -114,6 +118,10 @@ Object.assign(messages["zh-Hans"], {
   ignoredItems: "未能转移：{items}",
   preparingTitle: "正在准备全球服攻略",
   preparingBody: "正在整理攻略内容并连接管理员 worker。",
+  roleFilterTagsLabel: "角色分类",
+  rolesAll: "全部角色",
+  roleCost: "{cost} 费角色",
+  expertConsultant: "专家顾问",
 });
 Object.assign(messages.en, {
   heroEyebrow: "Currency War Strategy Compendium / Region transfer",
@@ -136,6 +144,10 @@ Object.assign(messages.en, {
   ignoredItems: "Not transferred: {items}",
   preparingTitle: "Preparing the Global strategy",
   preparingBody: "Organising the strategy content and contacting the administrator worker.",
+  roleFilterTagsLabel: "Character categories",
+  rolesAll: "All characters",
+  roleCost: "Cost {cost} characters",
+  expertConsultant: "Expert Consultant",
 });
 
 const state = {
@@ -150,12 +162,13 @@ const state = {
   searchBusy: false,
   theme: document.documentElement.dataset.theme === "dark" ? "dark" : "light",
   roleLoadFailed: false,
+  roleCategoryFilter: "all",
   searchController: null,
   transferController: null,
 };
 
 const elements = Object.fromEntries([
-  "locale-select", "theme-toggle", "global-archive-link", "search-form", "source-input", "source-field", "source-error", "keyword-input", "author-input", "details-error", "role-trigger", "role-trigger-label", "role-popover", "role-filter", "role-clear", "role-grid", "role-status", "search-button", "search-status", "results-header", "result-count", "candidate-list", "transfer-tray", "tray-title", "tray-roster", "transfer-status", "selection-clear", "transfer-submit", "share-code-wrap", "share-code", "copy-code",
+  "locale-select", "theme-toggle", "global-archive-link", "search-form", "source-input", "source-field", "source-error", "keyword-input", "author-input", "details-error", "role-trigger", "role-trigger-label", "role-popover", "role-filter", "role-clear", "role-filters", "role-grid", "role-status", "search-button", "search-status", "results-header", "result-count", "candidate-list", "transfer-tray", "tray-title", "tray-roster", "transfer-status", "selection-clear", "transfer-submit", "share-code-wrap", "share-code", "copy-code",
 ].map((id) => [id, document.getElementById(id)]));
 
 function t(key, variables = {}) {
@@ -209,9 +222,28 @@ function roleAliases(role) {
     .join(" ");
 }
 
+function roleCosts(role) {
+  return [...new Set((role.costs ?? []).map(String))].filter((cost) => /^[1-5]$/.test(cost));
+}
+
+function roleMatchesCategory(role) {
+  if (state.roleCategoryFilter === "all") return true;
+  if (state.roleCategoryFilter === "expert") return Boolean(role.isExpert);
+  return roleCosts(role).includes(state.roleCategoryFilter.replace("cost-", ""));
+}
+
 function localisedRole(role) {
   const catalogueRole = state.rolesById?.get(String(role.id));
-  return catalogueRole ? { ...role, ...catalogueRole, position: role.position, star: role.star } : role;
+  return catalogueRole
+    ? {
+        ...role,
+        ...catalogueRole,
+        id: role.id,
+        displayCost: role.displayCost ?? catalogueRole.displayCost,
+        position: role.position,
+        star: role.star,
+      }
+    : role;
 }
 
 function setMode(mode, focus = false) {
@@ -251,10 +283,14 @@ function closeRolePicker() {
   elements["role-trigger"].setAttribute("aria-expanded", "false");
 }
 
-function portrait(role, size = "normal") {
+function portrait(role, size = "normal", costOverride = "") {
   const displayName = roleName(role);
   const wrapper = document.createElement("span");
   wrapper.className = "portrait";
+  const displayCost = String(costOverride || role.displayCost || roleCosts(role)[0] || "");
+  if (/^[1-5]$/.test(displayCost)) {
+    wrapper.classList.add(`portrait--cost-${displayCost}`);
+  }
   wrapper.title = displayName;
   const fallback = document.createElement("span");
   fallback.setAttribute("aria-hidden", "true");
@@ -276,9 +312,63 @@ function portrait(role, size = "normal") {
   return wrapper;
 }
 
+function roleFilterIcon(kind) {
+  const icon = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  icon.setAttribute("class", "icon");
+  icon.setAttribute("viewBox", "0 0 24 24");
+  icon.setAttribute("fill", "none");
+  icon.setAttribute("stroke", "currentColor");
+  icon.setAttribute("aria-hidden", "true");
+  if (kind === "all") {
+    icon.innerHTML = '<rect x="4" y="4" width="6" height="6" rx="1"/><rect x="14" y="4" width="6" height="6" rx="1"/><rect x="4" y="14" width="6" height="6" rx="1"/><rect x="14" y="14" width="6" height="6" rx="1"/>';
+  } else if (kind === "cost") {
+    icon.innerHTML = '<path d="M7 4h10l4 8-4 8H7l-4-8 4-8Z"/><path d="M8.5 9.5h7m-7 3h7m-7 3h5"/>';
+  } else {
+    icon.innerHTML = '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M8 3v4m8-4v4M7 11h4v4H7zm7 0h3m-3 4h3"/>';
+  }
+  return icon;
+}
+
+function renderRoleFilters() {
+  const filters = [
+    { id: "all", label: t("rolesAll"), icon: "all", compact: true },
+    ...[1, 2, 3, 4, 5].map((cost) => ({
+      id: `cost-${cost}`,
+      label: t("roleCost", { cost }),
+      icon: "cost",
+      text: String(cost),
+    })),
+    { id: "expert", label: t("expertConsultant"), icon: "expert", text: t("expertConsultant") },
+  ];
+  elements["role-filters"].setAttribute("aria-label", t("roleFilterTagsLabel"));
+  elements["role-filters"].replaceChildren();
+  for (const filter of filters) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = `role-filter-tag${filter.compact ? " role-filter-tag--compact" : ""}`;
+    button.setAttribute("aria-pressed", String(state.roleCategoryFilter === filter.id));
+    button.setAttribute("aria-label", filter.label);
+    button.append(roleFilterIcon(filter.icon));
+    if (filter.text) {
+      const text = document.createElement("span");
+      text.textContent = filter.text;
+      button.append(text);
+    }
+    button.addEventListener("click", (event) => {
+      event.stopPropagation();
+      state.roleCategoryFilter = filter.id;
+      renderRoleGrid();
+    });
+    elements["role-filters"].append(button);
+  }
+}
+
 function renderRoleGrid() {
   const query = elements["role-filter"].value.normalize("NFKC").trim().toLocaleLowerCase("zh-CN");
-  const visible = state.roles.filter((role) => roleAliases(role).normalize("NFKC").toLocaleLowerCase("zh-CN").includes(query));
+  const visible = state.roles.filter((role) =>
+    roleMatchesCategory(role) &&
+    roleAliases(role).normalize("NFKC").toLocaleLowerCase("zh-CN").includes(query));
+  renderRoleFilters();
   elements["role-grid"].replaceChildren();
   for (const role of visible) {
     const label = document.createElement("label");
@@ -294,7 +384,10 @@ function renderRoleGrid() {
     const name = document.createElement("span");
     name.className = "role-chip__name";
     name.textContent = roleName(role);
-    label.append(input, portrait(role, "small"), name);
+    const categoryCost = state.roleCategoryFilter.startsWith("cost-")
+      ? state.roleCategoryFilter.replace("cost-", "")
+      : "";
+    label.append(input, portrait(role, "small", categoryCost), name);
     elements["role-grid"].append(label);
   }
   elements["role-status"].textContent = visible.length ? "" : t("rolesNone");
@@ -303,11 +396,12 @@ function renderRoleGrid() {
 
 async function loadRoles() {
   try {
-    const response = await fetch("/api/roles?schema=2");
+    const response = await fetch("/api/roles?schema=4");
     if (!response.ok) throw new Error("roles");
     const data = await response.json();
     state.roles = data.roles ?? [];
-    state.rolesById = new Map(state.roles.map((role) => [String(role.id), role]));
+    state.rolesById = new Map(state.roles.flatMap((role) =>
+      [...new Set([role.id, ...(role.matchIds ?? [])])].map((id) => [String(id), role])));
     state.roleLoadFailed = false;
     renderRoleGrid();
   } catch {
@@ -572,7 +666,11 @@ for (const tab of document.querySelectorAll("[data-mode]")) {
 elements["role-trigger"].addEventListener("click", () => elements["role-popover"].hidden ? openRolePicker() : closeRolePicker());
 elements["role-filter"].addEventListener("input", renderRoleGrid);
 elements["role-clear"].addEventListener("click", () => { state.selectedRoleIds.clear(); renderRoleGrid(); updateRoleTrigger(); });
-document.addEventListener("click", (event) => { if (!event.target.closest(".role-picker")) closeRolePicker(); });
+document.addEventListener("click", (event) => {
+  const clickedInsideRolePicker = event.composedPath().some((node) =>
+    node instanceof Element && node.classList.contains("role-picker"));
+  if (!clickedInsideRolePicker) closeRolePicker();
+});
 document.addEventListener("keydown", (event) => { if (event.key === "Escape" && !elements["role-popover"].hidden) { closeRolePicker(); elements["role-trigger"].focus(); } });
 elements["search-form"].addEventListener("submit", (event) => { event.preventDefault(); performSearch(); });
 elements["selection-clear"].addEventListener("click", () => { resetTransferUi(); state.selectedCandidate = null; document.body.classList.remove("has-selection"); renderResults(); renderTray(); });

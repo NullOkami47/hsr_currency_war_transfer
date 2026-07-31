@@ -55,9 +55,14 @@ function visibleRoleGroups(config) {
   return [...groups.values()].map((group) => {
     const matchIds = group.matchIds.sort((left, right) =>
       left.localeCompare(right, "en", { numeric: true }));
+    const costs = uniqueStrings(group.roles.map(({ rarity }) => rarity)).sort(
+      (left, right) => left.localeCompare(right, "en", { numeric: true }),
+    );
     return {
       role: group.roles.find(({ id }) => String(id) === matchIds[0]),
       matchIds,
+      costs,
+      isExpert: group.roles.some(({ is_expert: isExpert }) => Boolean(isExpert)),
     };
   });
 }
@@ -106,6 +111,7 @@ function candidateRoles(lineup, rolesById) {
         name: String(configRole?.name ?? role.name ?? ""),
         icon: String(configRole?.icon ?? role.icon ?? ""),
         bigIcon: String(configRole?.big_icon ?? ""),
+        displayCost: String(configRole?.rarity ?? ""),
         position,
         star: Number(role.star ?? 0),
       };
@@ -156,7 +162,7 @@ export function getChinaRoleOptions(
   const englishRoles = localisedRoleIndex(englishConfig);
 
   return visibleRoleGroups(config)
-    .map(({ role, matchIds }) => {
+    .map(({ role, matchIds, costs, isExpert }) => {
       const id = String(role.id);
       const simplified = simplifiedRoles.get(id);
       const traditional = traditionalRoles.get(id);
@@ -177,6 +183,9 @@ export function getChinaRoleOptions(
         bigIcon: String(
           english?.big_icon ?? traditional?.big_icon ?? role.big_icon ?? "",
         ),
+        displayCost: String(role.rarity ?? ""),
+        costs,
+        isExpert,
         ...(matchIds.length > 1 ? { matchIds } : {}),
       };
     })

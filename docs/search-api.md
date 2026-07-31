@@ -20,7 +20,10 @@ multi-select control:
       },
       "name": "姬子•启行",
       "icon": "https://...",
-      "bigIcon": "https://..."
+      "bigIcon": "https://...",
+      "displayCost": "4",
+      "costs": ["4"],
+      "isExpert": false
     }
   ],
   "version": "4.4",
@@ -34,7 +37,14 @@ Vercel refreshes it.
 
 `matchIds` is present only when the upstream config represents one visible
 character with several internal upgrade IDs. The website shows one option;
-search treats any ID in that group as a match.
+search treats any ID in that group as a match. `displayCost` is the visible
+character's cost and drives its portrait colour. `costs` retains all costs
+represented by the grouped internal IDs and drives the catalogue filters.
+Therefore, Silver Wolf LV.999 has a blue cost-3 portrait, appears under the
+cost-3, cost-4, and cost-5 filters, and its portrait follows the active filter
+(blue, purple, or yellow). In a strategy lineup, its portrait follows the
+actual internal variant's cost. Strategy search matches all three internal
+IDs. `isExpert` drives the Expert Consultant catalogue filter.
 
 ## `POST /api/search`
 
@@ -74,7 +84,8 @@ author's public display information, the final-stage role cards and a canonical
 China source URL. Account UIDs and other non-display identifiers are omitted.
 Role catalogue entries also contain Simplified Chinese, Traditional Chinese
 and English names merged by stable game-data ID, plus their source portrait
-icons.
+icons. Character data is shared across the China and Global configurations;
+the Global locale variants are used only to supply localised display names.
 
 ## `POST /api/transfers`
 

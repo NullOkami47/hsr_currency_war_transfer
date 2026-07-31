@@ -35,6 +35,11 @@ The memorable moment is selection: choosing a strategy draws an amber line throu
 | `--colour-danger-pale` | `#f5ded9` | Error wash |
 | `--colour-focus` | `#185f9d` | Focus ring |
 | `--colour-white` | `#ffffff` | Avatar/keyline contrast |
+| `--colour-cost-1` | `#5b6275` | Cost-1 portrait field |
+| `--colour-cost-2` | `#4f9179` | Cost-2 portrait field (green) |
+| `--colour-cost-3` | `#5f73a8` | Cost-3 portrait field (blue) |
+| `--colour-cost-4` | `#80699d` | Cost-4 portrait field |
+| `--colour-cost-5` | `#b58a3a` | Cost-5 portrait field (yellow) |
 
 ### Dark theme override
 
@@ -63,6 +68,11 @@ system feedback. Components keep consuming the semantic tokens above;
 | `--colour-danger-pale` | `#3b211f` | Dark error wash |
 | `--colour-focus` | `#7fc2ff` | Dark focus ring |
 | `--colour-white` | `#f8f4ea` | Portrait keyline contrast |
+| `--colour-cost-1` | `#434a5c` | Dark cost-1 portrait field |
+| `--colour-cost-2` | `#38725f` | Dark cost-2 portrait field (green) |
+| `--colour-cost-3` | `#485d91` | Dark cost-3 portrait field (blue) |
+| `--colour-cost-4` | `#654f82` | Dark cost-4 portrait field |
+| `--colour-cost-5` | `#8a692d` | Dark cost-5 portrait field (yellow) |
 
 The browser colour scheme and `theme-color` metadata follow the active theme.
 An explicit user choice is stored locally; otherwise the first visit follows
@@ -111,6 +121,7 @@ Base unit: `4px`.
 | `--content-width` | `90rem` | Main page maximum |
 | `--filter-width` | `21rem` | Desktop search rail |
 | `--action-width` | `19rem` | Desktop selected tray |
+| `--role-popover-width` | `36rem` | Desktop role catalogue and one-row category tags |
 
 ## 5. Reusable Primitives & States
 
@@ -135,6 +146,15 @@ Base unit: `4px`.
   Simplified Chinese, Traditional Chinese, and English aliases regardless of
   the active language. Every chip uses the source portrait icon with a textual
   fallback.
+- A single-choice tag row filters the catalogue by all characters, costs 1–5,
+  or expert consultant status. Tags use native buttons with `aria-pressed`, a
+  visible selected state, and SVG icons. Text filtering and the selected tag
+  combine with AND semantics; selected characters remain selected when hidden.
+- A logical character may have several internal upgrade IDs. Silver Wolf
+  LV.999 is displayed once, appears in the cost-3, cost-4, and cost-5 filters,
+  and retains all three IDs for strategy matching. Its picker portrait follows
+  the active filter (blue, purple, or yellow); lineup portraits use the actual
+  internal variant's cost.
 - The search rail owns a stacking layer above result records, and the role
   popover owns the highest layer inside that rail. Result cards must never
   paint over an open role picker.
@@ -147,8 +167,8 @@ Base unit: `4px`.
 - Toggling updates `data-theme`, `color-scheme`, browser `theme-color`, and the
   local preference without reloading or losing search state.
 
-- Trigger exposes selected count and expands a popover containing a text filter and checkbox grid.
-- Each role chip contains a 32px portrait, original Chinese name, and visible checked state. Hover uses amber-pale wash; focus is explicit; disabled roles cannot be selected. Empty and load-error states are textual.
+- Trigger exposes selected count and expands a popover containing a text filter, tag row, and checkbox grid.
+- Each role chip contains a 32px portrait, localised name, and visible checked state. Portrait fields use the visible character's `displayCost`; when a grouped upgrade role is shown under a specific cost filter, that active cost controls the picker portrait colour. Cost filters use every value in `costs`. Hover uses amber-pale wash; focus is explicit; disabled roles cannot be selected. Empty and load-error states are textual.
 
 ### Strategy candidate
 

@@ -14,14 +14,18 @@ const roles = [
     name: "姬子•启行",
     icon: "himeko.png",
     big_icon: "himeko-big.png",
+    rarity: "4",
     is_hide: false,
+    is_expert: true,
   },
   {
     id: "1001",
     name: "三月七",
     icon: "march.png",
     big_icon: "march-big.png",
+    rarity: "2",
     is_hide: false,
+    is_expert: false,
   },
   {
     id: "9999",
@@ -100,6 +104,9 @@ test("builds visible China role options for a multi-select control", () => {
           name: "三月七",
           icon: "march.png",
           bigIcon: "march-big.png",
+          displayCost: "2",
+          costs: ["2"],
+          isExpert: false,
         },
       ],
       [
@@ -109,6 +116,9 @@ test("builds visible China role options for a multi-select control", () => {
           name: "姬子•启行",
           icon: "himeko.png",
           bigIcon: "himeko-big.png",
+          displayCost: "4",
+          costs: ["4"],
+          isExpert: true,
         },
       ],
     ]),
@@ -122,6 +132,9 @@ test("groups upgrade variants into one searchable role option", () => {
   assert.equal(options.length, 1);
   assert.equal(options[0].id, "15061");
   assert.equal(options[0].name, "银狼LV.999");
+  assert.equal(options[0].displayCost, "3");
+  assert.deepEqual(options[0].costs, ["3", "4", "5"]);
+  assert.equal(options[0].isExpert, false);
   assert.deepEqual(options[0].matchIds, ["15061", "15062", "15063"]);
 });
 
@@ -283,6 +296,7 @@ test("matches any internal ID belonging to a grouped upgrade role", async () => 
   assert.deepEqual(upstreamRoleIds, []);
   assert.deepEqual(result.candidates.map(({ id }) => id), [upgradedLineup.id]);
   assert.deepEqual(result.candidates[0].matchedRoleIds, ["15061"]);
+  assert.equal(result.candidates[0].roles[0].displayCost, "5");
 });
 
 test("filters strategies by author display name", async () => {

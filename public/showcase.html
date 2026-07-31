@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="robots" content="noindex">
     <title>Currency War Transfer — 元件展示</title>
-    <link rel="stylesheet" href="/styles.css">
+    <link rel="stylesheet" href="/styles.css?v=10">
   </head>
   <body>
     <main class="showcase">
@@ -58,20 +58,26 @@
                 <input class="role-picker__search" aria-label="篩選角色" placeholder="輸入角色名稱">
                 <button class="button button--quiet" type="button">清除</button>
               </div>
+              <div class="role-filter-tags" role="group" aria-label="角色分類">
+                <button class="role-filter-tag role-filter-tag--compact" type="button" aria-label="全部角色" aria-pressed="true"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true"><rect x="4" y="4" width="6" height="6" rx="1"/><rect x="14" y="4" width="6" height="6" rx="1"/><rect x="4" y="14" width="6" height="6" rx="1"/><rect x="14" y="14" width="6" height="6" rx="1"/></svg></button>
+                <button class="role-filter-tag" type="button" aria-label="1 費角色" aria-pressed="false"><span>1</span></button>
+                <button class="role-filter-tag" type="button" aria-label="2 費角色" aria-pressed="false"><span>2</span></button>
+                <button class="role-filter-tag" type="button" aria-label="專家顧問" aria-pressed="false"><span>專家顧問</span></button>
+              </div>
               <div class="role-grid">
                 <label class="role-chip">
                   <input type="checkbox" checked>
-                  <span class="portrait" aria-hidden="true">姬</span>
+                  <span class="portrait portrait--small portrait--cost-4" aria-hidden="true">姬</span>
                   <span class="role-chip__name">姬子・啟行</span>
                 </label>
                 <label class="role-chip">
                   <input type="checkbox" checked>
-                  <span class="portrait" aria-hidden="true">三</span>
+                  <span class="portrait portrait--small portrait--cost-2" aria-hidden="true">三</span>
                   <span class="role-chip__name">三月七</span>
                 </label>
                 <label class="role-chip">
                   <input type="checkbox">
-                  <span class="portrait" aria-hidden="true">瓦</span>
+                  <span class="portrait portrait--small portrait--cost-1" aria-hidden="true">瓦</span>
                   <span class="role-chip__name">瓦爾特</span>
                 </label>
               </div>
