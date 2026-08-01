@@ -49,6 +49,7 @@
   --filter-width: 21rem;
   --action-width: 19rem;
   --role-popover-width: 36rem;
+  --role-popover-max-height: 26rem;
   --duration-fast: 120ms;
   --duration-normal: 180ms;
   --ease-standard: cubic-bezier(0.2, 0, 0, 1);
@@ -351,9 +352,14 @@ html[data-theme="dark"] .button--primary {
   top: calc(100% + var(--space-2));
   left: 0;
   width: min(var(--role-popover-width), calc(100vw - var(--space-8)));
-  max-height: 26rem;
+  max-height: min(
+    var(--role-popover-max-height),
+    var(--role-popover-available-height, var(--role-popover-max-height))
+  );
+  display: flex;
+  flex-direction: column;
   padding: var(--space-4);
-  overflow: auto;
+  overflow: hidden;
   background: var(--colour-paper);
   border: 1px solid var(--colour-rule-strong);
   border-radius: var(--radius-panel);
@@ -364,6 +370,12 @@ html[data-theme="dark"] .button--primary {
 
 .role-picker__popover[hidden] {
   display: none;
+}
+
+.role-picker__popover[data-placement="top"] {
+  top: auto;
+  bottom: calc(100% + var(--space-2));
+  transform-origin: bottom left;
 }
 
 .role-picker__toolbar {
@@ -423,9 +435,14 @@ html[data-theme="dark"] .button--primary {
 }
 
 .role-grid {
+  min-height: 0;
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(8.5rem, 1fr));
   gap: var(--space-2);
+  padding-inline-end: var(--space-1);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
 }
 
 .role-chip {

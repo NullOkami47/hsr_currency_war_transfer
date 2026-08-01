@@ -258,6 +258,30 @@ function selectedRoleMatchGroups(config, roleIds) {
   return selectedGroups;
 }
 
+async function fetchLineupPageWithRetry(
+  fetchLineupPageFn,
+  options,
+  {
+    attempts = 2,
+    retryDelayMs = 150,
+    waitFn = (milliseconds) =>
+      new Promise((resolve) => setTimeout(resolve, milliseconds)),
+  } = {},
+) {
+  let lastError;
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      return await fetchLineupPageFn("cn", options);
+    } catch (error) {
+      lastError = error;
+      if (attempt < attempts && retryDelayMs > 0) {
+        await waitFn(retryDelayMs);
+      }
+    }
+  }
+  throw lastError;
+}
+
 export async function searchChinaStrategies(
   {
     source,
@@ -272,6 +296,9 @@ export async function searchChinaStrategies(
     fetchConfigFn = fetchConfig,
     fetchLineupDetailFn = fetchLineupDetail,
     fetchLineupPageFn = fetchLineupPage,
+    pageRetryAttempts = 2,
+    pageRetryDelayMs = 150,
+    waitFn,
   } = {},
 ) {
   const directSource = String(source ?? "").trim();
@@ -304,6 +331,7 @@ export async function searchChinaStrategies(
         scannedPages: 0,
         scannedStrategies: 1,
         truncated: false,
+        partial: false,
       },
     };
   }
@@ -337,15 +365,31 @@ export async function searchChinaStrategies(
   let scannedPages = 0;
   let scannedStrategies = 0;
   let hasMore = false;
+  let failedPage = null;
 
   for (let page = 1; page <= maxPages; page += 1) {
-    const result = await fetchLineupPageFn("cn", {
-      page,
-      limit: pageSize,
-      nextPageToken,
-      roleIds: upstreamRoleIds,
-      order,
-    });
+    let result;
+    try {
+      result = await fetchLineupPageWithRetry(
+        fetchLineupPageFn,
+        {
+          page,
+          limit: pageSize,
+          nextPageToken,
+          roleIds: upstreamRoleIds,
+          order,
+        },
+        {
+          attempts: pageRetryAttempts,
+          retryDelayMs: pageRetryDelayMs,
+          ...(waitFn ? { waitFn } : {}),
+        },
+      );
+    } catch (error) {
+      if (scannedPages === 0) throw error;
+      failedPage = page;
+      break;
+    }
     const lineups = result.list ?? [];
     scannedPages += 1;
     scannedStrategies += lineups.length;
@@ -399,7 +443,9 @@ export async function searchChinaStrategies(
     pageInfo: {
       scannedPages,
       scannedStrategies,
-      truncated: hasMore && scannedPages === maxPages,
+      truncated: Boolean(failedPage) || (hasMore && scannedPages === maxPages),
+      partial: Boolean(failedPage),
+      ...(failedPage ? { failedPage } : {}),
     },
   };
 }

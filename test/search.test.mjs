@@ -277,6 +277,78 @@ test("combines title keyword and selected roles with AND matching", async () => 
   assert.equal(calls[1].options.nextPageToken, "next");
 });
 
+test("retries one failed recommendation page and continues the search", async () => {
+  let pageCalls = 0;
+
+  const result = await searchChinaStrategies(
+    { keyword: "科研" },
+    {
+      fetchConfigFn: async () => config(),
+      fetchLineupPageFn: async () => {
+        pageCalls += 1;
+        if (pageCalls === 1) throw new Error("temporary China timeout");
+        return { list: [lineup()] };
+      },
+      pageRetryDelayMs: 0,
+    },
+  );
+
+  assert.equal(pageCalls, 2);
+  assert.deepEqual(result.candidates.map(({ id }) => id), [lineup().id]);
+  assert.equal(result.pageInfo.partial, false);
+});
+
+test("returns collected candidates when a later page still fails", async () => {
+  const first = lineup();
+  const calls = [];
+
+  const result = await searchChinaStrategies(
+    { keyword: "科研", maxPages: 3 },
+    {
+      fetchConfigFn: async () => config(),
+      fetchLineupPageFn: async (region, options) => {
+        calls.push([region, options.page]);
+        if (options.page === 1) {
+          return { list: [first], next_page_token: "next" };
+        }
+        throw new Error("temporary China timeout");
+      },
+      pageRetryDelayMs: 0,
+    },
+  );
+
+  assert.deepEqual(calls, [["cn", 1], ["cn", 2], ["cn", 2]]);
+  assert.deepEqual(result.candidates.map(({ id }) => id), [first.id]);
+  assert.deepEqual(result.pageInfo, {
+    scannedPages: 1,
+    scannedStrategies: 1,
+    truncated: true,
+    partial: true,
+    failedPage: 2,
+  });
+});
+
+test("still rejects when the first page fails after its bounded retry", async () => {
+  let pageCalls = 0;
+
+  await assert.rejects(
+    searchChinaStrategies(
+      { keyword: "科研" },
+      {
+        fetchConfigFn: async () => config(),
+        fetchLineupPageFn: async () => {
+          pageCalls += 1;
+          throw new Error("temporary China timeout");
+        },
+        pageRetryDelayMs: 0,
+      },
+    ),
+    /temporary China timeout/,
+  );
+
+  assert.equal(pageCalls, 2);
+});
+
 test("matches any internal ID belonging to a grouped upgrade role", async () => {
   let upstreamRoleIds;
   const specialConfig = { role_list: silverWolfVariants };

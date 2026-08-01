@@ -79,6 +79,27 @@ Public requests are capped at 10 pages and 20 strategies per page. The response
 includes `pageInfo.truncated`; when true, the candidate list is a bounded
 result rather than an exhaustive index.
 
+Each recommendation page is attempted at most twice. If the first page still
+fails, the endpoint returns its existing `502 china_service_error` because no
+usable search result exists. If a later page still fails, the endpoint returns
+HTTP 200 with every candidate already collected and marks the response as a
+partial search:
+
+```json
+{
+  "pageInfo": {
+    "scannedPages": 3,
+    "scannedStrategies": 30,
+    "truncated": true,
+    "partial": true,
+    "failedPage": 4
+  }
+}
+```
+
+Successful exhaustive or normally bounded searches set `partial` to `false`
+and omit `failedPage`.
+
 Candidates contain the original Chinese title and operation description, the
 author's public display information, the final-stage role cards and a canonical
 China source URL. Account UIDs and other non-display identifiers are omitted.

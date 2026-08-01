@@ -122,6 +122,7 @@ Base unit: `4px`.
 | `--filter-width` | `21rem` | Desktop search rail |
 | `--action-width` | `19rem` | Desktop selected tray |
 | `--role-popover-width` | `36rem` | Desktop role catalogue and one-row category tags |
+| `--role-popover-max-height` | `26rem` | Maximum role catalogue height before internal scrolling |
 
 ## 5. Reusable Primitives & States
 
@@ -158,6 +159,11 @@ Base unit: `4px`.
 - The search rail owns a stacking layer above result records, and the role
   popover owns the highest layer inside that rail. Result cards must never
   paint over an open role picker.
+- The popover is capped by both its height token and the live visual viewport.
+  It opens towards the larger available region when the preferred height does
+  not fit below the trigger. Its toolbar and category filters stay visible while
+  only the character grid scrolls, so every character remains reachable without
+  moving the search rail.
 
 ### Theme toggle
 

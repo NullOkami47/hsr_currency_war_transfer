@@ -36,6 +36,8 @@ const messages = {
     scanned: "已掃描 {count} 筆中國服攻略。",
     truncatedTitle: "搜尋範圍仍有更多攻略",
     truncatedBody: "目前顯示限定頁數內的結果；可收窄關鍵字或角色條件。",
+    partialSearchTitle: "只顯示已取得的部分結果",
+    partialSearchBody: "第 {page} 頁重試後仍無法讀取；已保留先前成功讀取的結果，請稍後再試。",
     noResultsTitle: "找不到符合條件的攻略",
     noResultsBody: "請縮短關鍵字、減少所選角色，或改用攻略 URL／ID。",
     searchErrorTitle: "暫時無法讀取中國服攻略",
@@ -122,6 +124,8 @@ Object.assign(messages["zh-Hans"], {
   rolesAll: "全部角色",
   roleCost: "{cost} 费角色",
   expertConsultant: "专家顾问",
+  partialSearchTitle: "仅显示已取得的部分结果",
+  partialSearchBody: "第 {page} 页重试后仍无法读取；已保留此前成功读取的结果，请稍后重试。",
 });
 Object.assign(messages.en, {
   heroEyebrow: "Currency War Strategy Compendium / Region transfer",
@@ -148,6 +152,8 @@ Object.assign(messages.en, {
   rolesAll: "All characters",
   roleCost: "Cost {cost} characters",
   expertConsultant: "Expert Consultant",
+  partialSearchTitle: "Only the retrieved results are shown",
+  partialSearchBody: "Page {page} could not be read after retrying. Results from the successfully read pages have been kept; try again later.",
 });
 
 const state = {
@@ -275,12 +281,50 @@ function updateRoleTrigger() {
 function openRolePicker() {
   elements["role-popover"].hidden = false;
   elements["role-trigger"].setAttribute("aria-expanded", "true");
+  constrainRolePopoverToViewport();
   elements["role-filter"].focus();
 }
 
 function closeRolePicker() {
   elements["role-popover"].hidden = true;
   elements["role-trigger"].setAttribute("aria-expanded", "false");
+  delete elements["role-popover"].dataset.placement;
+  elements["role-popover"].style.removeProperty("--role-popover-available-height");
+}
+
+function constrainRolePopoverToViewport() {
+  const popover = elements["role-popover"];
+  if (popover.hidden) return;
+  delete popover.dataset.placement;
+  popover.style.removeProperty("--role-popover-available-height");
+  const triggerRect = elements["role-trigger"].getBoundingClientRect();
+  const initialRect = popover.getBoundingClientRect();
+  const styles = getComputedStyle(popover);
+  const visualViewport = window.visualViewport;
+  const viewportTop = visualViewport?.offsetTop ?? 0;
+  const viewportBottom = visualViewport
+    ? visualViewport.offsetTop + visualViewport.height
+    : window.innerHeight;
+  const viewportGap = Number.parseFloat(styles.paddingBottom) || 0;
+  const surfaceGap = Math.max(0, initialRect.top - triggerRect.bottom);
+  const availableBelow = Math.max(
+    0,
+    viewportBottom - triggerRect.bottom - surfaceGap - viewportGap,
+  );
+  const availableAbove = Math.max(
+    0,
+    triggerRect.top - viewportTop - surfaceGap - viewportGap,
+  );
+  const maxHeightToken = styles.getPropertyValue("--role-popover-max-height").trim();
+  const maxHeightValue = Number.parseFloat(maxHeightToken);
+  const rootFontSize = Number.parseFloat(getComputedStyle(document.documentElement).fontSize);
+  const preferredHeight = maxHeightToken.endsWith("rem")
+    ? maxHeightValue * rootFontSize
+    : maxHeightValue;
+  const placeAbove = availableBelow < preferredHeight && availableAbove > availableBelow;
+  if (placeAbove) popover.dataset.placement = "top";
+  const availableHeight = placeAbove ? availableAbove : availableBelow;
+  popover.style.setProperty("--role-popover-available-height", `${availableHeight}px`);
 }
 
 function portrait(role, size = "normal", costOverride = "") {
@@ -481,14 +525,25 @@ function renderResults() {
   elements["results-header"].hidden = false;
   elements["result-count"].textContent = t("resultCount", { count: candidates.length });
   elements["search-status"].replaceChildren();
+  const pageInfo = state.searchResult.pageInfo ?? {};
+  const partialWarning = () => statusPanel(
+    "",
+    t("partialSearchTitle"),
+    t("partialSearchBody", { page: pageInfo.failedPage ?? "—" }),
+  );
   if (!candidates.length) {
     elements["search-status"].append(statusPanel("empty", t("noResultsTitle"), t("noResultsBody")));
+    if (pageInfo.partial) elements["search-status"].append(partialWarning());
     return;
   }
   candidates.forEach((candidate, index) => elements["candidate-list"].append(candidateCard(candidate, index)));
-  const info = document.createElement("p"); info.className = "result-summary"; info.textContent = t("scanned", { count: state.searchResult.pageInfo.scannedStrategies });
+  const info = document.createElement("p"); info.className = "result-summary"; info.textContent = t("scanned", { count: pageInfo.scannedStrategies });
   elements["search-status"].append(info);
-  if (state.searchResult.pageInfo.truncated) elements["search-status"].append(statusPanel("", t("truncatedTitle"), t("truncatedBody")));
+  if (pageInfo.partial) {
+    elements["search-status"].append(partialWarning());
+  } else if (pageInfo.truncated) {
+    elements["search-status"].append(statusPanel("", t("truncatedTitle"), t("truncatedBody")));
+  }
 }
 
 function renderTray() {
@@ -672,6 +727,8 @@ document.addEventListener("click", (event) => {
   if (!clickedInsideRolePicker) closeRolePicker();
 });
 document.addEventListener("keydown", (event) => { if (event.key === "Escape" && !elements["role-popover"].hidden) { closeRolePicker(); elements["role-trigger"].focus(); } });
+window.addEventListener("resize", constrainRolePopoverToViewport);
+window.visualViewport?.addEventListener("resize", constrainRolePopoverToViewport);
 elements["search-form"].addEventListener("submit", (event) => { event.preventDefault(); performSearch(); });
 elements["selection-clear"].addEventListener("click", () => { resetTransferUi(); state.selectedCandidate = null; document.body.classList.remove("has-selection"); renderResults(); renderTray(); });
 elements["transfer-submit"].addEventListener("click", submitTransfer);
