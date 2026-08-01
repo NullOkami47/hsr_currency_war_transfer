@@ -148,6 +148,24 @@ function normalisePublished(lineup, globalConfig) {
   };
 }
 
+async function retryRead(
+  operation,
+  { attempts = 2, retryDelayMs = 250 } = {},
+) {
+  let lastError;
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      return await operation();
+    } catch (error) {
+      lastError = error;
+      if (attempt < attempts && retryDelayMs > 0) {
+        await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
+      }
+    }
+  }
+  throw lastError;
+}
+
 async function fetchPublished(
   fetchLineupDetailFn,
   lineupId,
@@ -231,6 +249,7 @@ async function transferResolved(
     fetchLineupDetailFn = fetchLineupDetail,
     now = () => new Date(),
     verification,
+    readRetry,
     attributionLimits = GLOBAL_TEXT_LIMITS,
   },
 ) {
@@ -239,11 +258,14 @@ async function transferResolved(
   }
 
   const [globalConfig, globalTitleConfig, sourceResult] = await Promise.all([
-    fetchConfigFn("global"),
-    fetchConfigFn("global", {
-      authenticatedHeaders: { "x-rpc-lang": "zh-tw" },
-    }),
-    fetchLineupDetailFn("cn", sourceId),
+    retryRead(() => fetchConfigFn("global"), readRetry),
+    retryRead(
+      () => fetchConfigFn("global", {
+        authenticatedHeaders: { "x-rpc-lang": "zh-tw" },
+      }),
+      readRetry,
+    ),
+    retryRead(() => fetchLineupDetailFn("cn", sourceId), readRetry),
   ]);
   const sourceLineup = sourceResult?.lineup;
   if (!sourceLineup) {

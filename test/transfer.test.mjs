@@ -173,6 +173,24 @@ test("creates once with a translated bond prefix and Chinese attribution", async
   assert.equal(calls.set.length, 1);
 });
 
+test("retries a transient initial read without repeating the publish write", async () => {
+  const { calls, options } = dependencies();
+  const fetchConfigFn = options.fetchConfigFn;
+  let configCalls = 0;
+  options.fetchConfigFn = async (...arguments_) => {
+    configCalls += 1;
+    if (configCalls === 1) throw new TypeError("fetch failed");
+    return fetchConfigFn(...arguments_);
+  };
+  options.readRetry = { attempts: 2, retryDelayMs: 0 };
+
+  const result = await transferStrategy(SOURCE_ID, options);
+
+  assert.equal(result.status, "created");
+  assert.equal(configCalls, 3);
+  assert.equal(calls.create.length, 1);
+});
+
 test("only adds attribution to fields with enough remaining space", () => {
   const result = applySourceAttribution(
     {

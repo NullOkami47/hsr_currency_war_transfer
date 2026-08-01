@@ -238,3 +238,78 @@ test("reloads the event page once to recover from retcode -100", async () => {
   assert.equal(visitedUrls.length, 2);
   assert.equal(visitedUrls[0], visitedUrls[1]);
 });
+
+test("rebuilds a stale browser context when page reload cannot recover retcode -100", async () => {
+  let launches = 0;
+  let staleContextCloses = 0;
+  let waited = 0;
+  const stalePage = {
+    async goto() {},
+    async waitForTimeout(milliseconds) {
+      waited += milliseconds;
+    },
+    async evaluate() {
+      return {
+        status: 200,
+        body: {
+          retcode: -100,
+          message: "Login expired. Please log in again",
+        },
+      };
+    },
+  };
+  const recoveredPage = {
+    async goto() {},
+    async waitForTimeout(milliseconds) {
+      waited += milliseconds;
+    },
+    async evaluate() {
+      return {
+        status: 200,
+        body: {
+          retcode: 0,
+          data: { id: "6a6c63da6217fd436611cdcd" },
+        },
+      };
+    },
+  };
+  const contexts = [
+    {
+      pages: () => [stalePage],
+      async newPage() {
+        return stalePage;
+      },
+      async close() {
+        staleContextCloses += 1;
+      },
+    },
+    {
+      pages: () => [recoveredPage],
+      async newPage() {
+        return recoveredPage;
+      },
+      async close() {},
+    },
+  ];
+  const publisher = new BrowserSessionPublisher({
+    profileDir: "test-profile",
+    authRecoveryDelayMs: 8_000,
+    launchPersistentContext: async () => {
+      const context = contexts[launches];
+      launches += 1;
+      return context;
+    },
+  });
+
+  const result = await publisher.create({
+    title: "攻略｜作者",
+    description: "原文\n來源：作者",
+    lineup_type: "Tourn",
+    tourn_detail: {},
+  });
+
+  assert.equal(result.lineupId, "6a6c63da6217fd436611cdcd");
+  assert.equal(launches, 2);
+  assert.equal(staleContextCloses, 1);
+  assert.equal(waited, 16_000);
+});

@@ -151,11 +151,18 @@ export class BrowserSessionPublisher {
     }
     if (
       envelope.body?.retcode === -100 &&
-      authRecoveryAttempt === 0
+      authRecoveryAttempt < 2
     ) {
-      await this.page.goto(APP_URL, { waitUntil: "domcontentloaded" });
+      if (authRecoveryAttempt === 0) {
+        await this.page.goto(APP_URL, { waitUntil: "domcontentloaded" });
+      } else {
+        await this.close();
+        await this.start();
+      }
       await this.page.waitForTimeout(this.authRecoveryDelayMs);
-      return this.request(path, payload, { authRecoveryAttempt: 1 });
+      return this.request(path, payload, {
+        authRecoveryAttempt: authRecoveryAttempt + 1,
+      });
     }
     if (envelope.body?.retcode !== 0) {
       throw new PublishingSessionError(

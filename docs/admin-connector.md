@@ -140,8 +140,10 @@ recovers the newest exact title-and-description match, preventing a duplicate.
 
 When a headless browser has just started, HoYoLAB can temporarily return
 `retcode -100` before its account component restores the saved session. The
-connector waits eight seconds and retries that request once. A second `-100`
-is treated as a genuine expired login and is not retried again.
+connector first reloads the event page, waits eight seconds, and retries. If
+that page context is stale and still returns `-100`, it closes and rebuilds the
+persistent browser context once, waits another eight seconds, and makes one
+final request. A third `-100` is treated as a genuine expired login.
 
 ## Production queue
 
@@ -155,6 +157,11 @@ The worker persists queued and completed jobs in
 `~/.hsr-currency-war-transfer/jobs.json`, recovers interrupted work after a
 restart, deduplicates active jobs by China strategy ID, and executes transfers
 sequentially. Override the path with `CURRENCY_WAR_JOB_STATE_PATH`.
+
+The three anonymous reads that initialise a transfer (Global configuration,
+Traditional Chinese configuration and China source detail) are each attempted
+at most twice. This absorbs a single transient connection failure without ever
+repeating a create or edit write.
 
 The JSON job and transfer stores are designed for a single worker process. If
 the service later runs multiple worker instances, replace both with a
