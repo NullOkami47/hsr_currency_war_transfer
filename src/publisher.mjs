@@ -1,5 +1,3 @@
-import { randomUUID } from "node:crypto";
-
 import { REGIONS } from "./api.mjs";
 
 const APP_URL =
@@ -59,7 +57,6 @@ export class BrowserSessionPublisher {
     this.headless = headless;
     this.authRecoveryDelayMs = authRecoveryDelayMs;
     this.launchPersistentContext = launchPersistentContext;
-    this.deviceId = randomUUID();
     this.context = null;
     this.page = null;
   }
@@ -100,7 +97,24 @@ export class BrowserSessionPublisher {
     const endpoint = `${REGIONS.global.baseUrl}${path}`;
 
     const envelope = await this.page.evaluate(
-      async ({ endpoint: url, payload: body, deviceId: id }) => {
+      async ({ endpoint: url, payload: body }) => {
+        const cookies = Object.fromEntries(
+          globalThis.document.cookie
+            .split(";")
+            .map((part) => part.trim())
+            .filter(Boolean)
+            .map((part) => {
+              const separator = part.indexOf("=");
+              const name = separator < 0 ? part : part.slice(0, separator);
+              const value = separator < 0 ? "" : part.slice(separator + 1);
+              return [name, decodeURIComponent(value)];
+            }),
+        );
+        const deviceId = cookies._HYVUUID ?? cookies._MHYUUID;
+        if (!deviceId) {
+          return { deviceIdentityAvailable: false };
+        }
+
         const response = await globalThis.fetch(url, {
           method: "POST",
           credentials: "include",
@@ -108,7 +122,7 @@ export class BrowserSessionPublisher {
             accept: "application/json, text/plain, */*",
             "content-type": "application/json",
             "x-rpc-currencywar-tourn": "tourn",
-            "x-rpc-device_id": id,
+            "x-rpc-device_id": deviceId,
             "x-rpc-lang": "en-us",
             "x-rpc-platform": "pc",
           },
@@ -116,13 +130,19 @@ export class BrowserSessionPublisher {
         });
 
         return {
+          deviceIdentityAvailable: true,
           status: response.status,
           body: await response.json(),
         };
       },
-      { endpoint, payload, deviceId: this.deviceId },
+      { endpoint, payload },
     );
 
+    if (envelope.deviceIdentityAvailable === false) {
+      throw new PublishingSessionError(
+        "Browser device identity is unavailable. Please log in again",
+      );
+    }
     if (envelope.status < 200 || envelope.status >= 300) {
       throw new PublishingSessionError(
         `Global publish API returned HTTP ${envelope.status}`,

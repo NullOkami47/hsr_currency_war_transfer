@@ -58,30 +58,50 @@ test("publishes through the signed-in page without exposing session data", async
   assert.equal("storageState" in calls[1].argument, false);
 });
 
-test("keeps the authenticated session valid across consecutive creates", async () => {
+test("uses the browser device cookie across consecutive creates", async () => {
+  const officialDeviceId = "11111111-2222-4333-8444-555555555555";
   const requestArguments = [];
-  let sessionDeviceId;
+  let requestCount = 0;
   const page = {
     async goto() {},
-    async evaluate(_callback, argument) {
+    async evaluate(callback, argument) {
       requestArguments.push(argument);
-      sessionDeviceId ??= argument.deviceId;
-      if (argument.deviceId !== sessionDeviceId) {
+      const originalDocument = globalThis.document;
+      const originalFetch = globalThis.fetch;
+      globalThis.document = {
+        cookie: `_HYVUUID=${officialDeviceId}`,
+      };
+      globalThis.fetch = async (_url, options) => {
+        requestCount += 1;
+        const deviceMatches =
+          options.headers["x-rpc-device_id"] === officialDeviceId;
         return {
           status: 200,
-          body: {
-            retcode: -100,
-            message: "Login expired. Please log in again",
+          async json() {
+            if (requestCount > 1 && !deviceMatches) {
+              return {
+                retcode: -100,
+                message: "Login expired. Please log in again",
+              };
+            }
+            return {
+              retcode: 0,
+              data: { id: "6a4dfde2ce98d01a5bac0999" },
+            };
           },
         };
-      }
-      return {
-        status: 200,
-        body: {
-          retcode: 0,
-          data: { id: "6a4dfde2ce98d01a5bac0999" },
-        },
       };
+
+      try {
+        return await callback(argument);
+      } finally {
+        globalThis.fetch = originalFetch;
+        if (originalDocument === undefined) {
+          delete globalThis.document;
+        } else {
+          globalThis.document = originalDocument;
+        }
+      }
     },
     async waitForTimeout() {},
   };
@@ -108,6 +128,8 @@ test("keeps the authenticated session valid across consecutive creates", async (
   await publisher.create(payload);
 
   assert.equal(requestArguments.length, 2);
+  assert.equal("deviceId" in requestArguments[0], false);
+  assert.equal("deviceId" in requestArguments[1], false);
 });
 
 test("recovers a created lineup id from My Posts when create returns none", async () => {
