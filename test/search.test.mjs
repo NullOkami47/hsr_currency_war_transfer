@@ -69,6 +69,12 @@ function lineup({
     certification: "攻略作者",
     created_at: "10",
     last_edit: "20",
+    game_data: {
+      interact: {
+        like: "12345",
+        favour: "6789",
+      },
+    },
     tourn_detail: {
       is_expired: false,
       role_stages: [
@@ -194,6 +200,7 @@ test("normalises a China strategy into a safe candidate shape", () => {
 
   assert.equal(result.id, "6a56fe3021253d0e1a9f4761");
   assert.equal(result.author.nickname, "田宫良子ol");
+  assert.deepEqual(result.engagement, { likes: 12345, saves: 6789 });
   assert.deepEqual(result.matchedRoleIds, ["1510", "1001"]);
   assert.deepEqual(
     result.roles.map(({ id, position }) => ({ id, position })),
@@ -204,6 +211,17 @@ test("normalises a China strategy into a safe candidate shape", () => {
   );
   assert.match(result.sourceUrl, /#\/lineup\/6a56fe3021253d0e1a9f4761$/);
   assert.equal("account_uid" in result, false);
+});
+
+test("uses zero for missing or invalid China strategy engagement totals", () => {
+  const source = lineup();
+  source.game_data.interact.like = "not-a-number";
+  source.game_data.interact.favour = "-1";
+
+  assert.deepEqual(toChinaStrategyCandidate(source, config()).engagement, {
+    likes: 0,
+    saves: 0,
+  });
 });
 
 test("resolves a URL or ID directly to one candidate", async () => {

@@ -182,7 +182,10 @@ Base unit: `4px`.
   with AND matching. At least one criterion is required.
 
 - A semantic radio card presented as a full-width tactical record, not a generic floating tile.
-- Anatomy: selection control, Chinese title, author line, description excerpt, final roster, and source link.
+- Anatomy: selection control, Chinese title, author line, engagement statistics,
+  description excerpt, final roster, and source link. Engagement statistics show
+  the source strategy's like and save totals as labelled, read-only metadata with
+  inline SVG icons; missing upstream totals resolve to zero.
 - Default uses paper and a left index column. Hover darkens the rule. Selected uses amber keyline, pale wash, and a visible `已選擇` label. Focus-within uses the focus outline. Expired cards remain readable but disabled. Loading uses structured skeleton rows. Empty and error are separate status panels.
 
 ### Character portrait

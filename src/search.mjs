@@ -118,6 +118,11 @@ function candidateRoles(lineup, rolesById) {
     });
 }
 
+function interactionCount(value) {
+  const count = Number(value);
+  return Number.isSafeInteger(count) && count >= 0 ? count : 0;
+}
+
 export function toChinaStrategyCandidate(
   lineup,
   config,
@@ -139,6 +144,10 @@ export function toChinaStrategyCandidate(
       nickname: String(lineup.nickname ?? ""),
       avatarUrl: String(lineup.avatar_url ?? ""),
       certification: String(lineup.certification ?? ""),
+    },
+    engagement: {
+      likes: interactionCount(lineup.game_data?.interact?.like),
+      saves: interactionCount(lineup.game_data?.interact?.favour),
     },
     roles: candidateRoles(lineup, rolesById),
     matchedRoleIds: selectedRoleGroups

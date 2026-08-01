@@ -656,6 +656,49 @@ html[data-theme="dark"] .button--primary {
   font-size: var(--text-0);
 }
 
+.candidate__meta-row,
+.candidate__engagement,
+.candidate__engagement-item,
+.candidate__engagement-item dt {
+  display: flex;
+  align-items: center;
+}
+
+.candidate__meta-row {
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-3);
+}
+
+.candidate__engagement {
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  margin: 0;
+  color: var(--colour-ink-faint);
+  font-size: var(--text-0);
+}
+
+.candidate__engagement-item,
+.candidate__engagement-item dt {
+  gap: var(--space-1);
+}
+
+.candidate__engagement-item dd {
+  margin: 0;
+  color: var(--colour-ink-soft);
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.candidate__engagement svg {
+  width: var(--space-4);
+  height: var(--space-4);
+  fill: none;
+  stroke: currentcolor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2;
+}
+
 .candidate__description {
   display: -webkit-box;
   overflow: hidden;

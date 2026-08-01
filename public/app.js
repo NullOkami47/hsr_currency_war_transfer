@@ -111,6 +111,8 @@ Object.assign(messages["zh-Hant"], {
   rolesAll: "全部角色",
   roleCost: "{cost} 費角色",
   expertConsultant: "專家顧問",
+  likes: "按讚",
+  saves: "收藏",
 });
 Object.assign(messages["zh-Hans"], {
   searchInputErrorTitle: "请修正搜索条件",
@@ -143,6 +145,8 @@ Object.assign(messages["zh-Hans"], {
   rolesAll: "全部角色",
   roleCost: "{cost} 费角色",
   expertConsultant: "专家顾问",
+  likes: "点赞",
+  saves: "收藏",
   partialSearchTitle: "仅显示已取得的部分结果",
   partialSearchBody: "第 {page} 页重试后仍无法读取；已保留此前成功读取的结果，请稍后重试。",
 });
@@ -178,6 +182,8 @@ Object.assign(messages.en, {
   rolesAll: "All characters",
   roleCost: "Cost {cost} characters",
   expertConsultant: "Expert Consultant",
+  likes: "Likes",
+  saves: "Saves",
   partialSearchTitle: "Only the retrieved results are shown",
   partialSearchBody: "Page {page} could not be read after retrying. Results from the successfully read pages have been kept; try again later.",
 });
@@ -512,6 +518,40 @@ function roster(roles) {
   return root;
 }
 
+function engagementIcon(pathData) {
+  const namespace = "http://www.w3.org/2000/svg";
+  const svg = document.createElementNS(namespace, "svg");
+  svg.setAttribute("viewBox", "0 0 24 24");
+  svg.setAttribute("aria-hidden", "true");
+  svg.setAttribute("focusable", "false");
+  const path = document.createElementNS(namespace, "path");
+  path.setAttribute("d", pathData);
+  svg.append(path);
+  return svg;
+}
+
+function engagementStat(label, count, iconPath) {
+  const item = document.createElement("div");
+  item.className = "candidate__engagement-item";
+  const term = document.createElement("dt");
+  term.append(engagementIcon(iconPath), label);
+  const value = document.createElement("dd");
+  const locale = state.locale === "zh-Hant" ? "zh-Hant-TW" : state.locale === "zh-Hans" ? "zh-CN" : "en-GB";
+  value.textContent = new Intl.NumberFormat(locale).format(Number.isSafeInteger(count) ? count : 0);
+  item.append(term, value);
+  return item;
+}
+
+function candidateEngagement(engagement = {}) {
+  const root = document.createElement("dl");
+  root.className = "candidate__engagement";
+  root.append(
+    engagementStat(t("likes"), engagement.likes, "M7 10v12 M15 5.88 14 10h5.83a2 2 0 0 1 1.92 2.56l-2.33 8A2 2 0 0 1 17.5 22H4a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2h2.76a2 2 0 0 0 1.79-1.11L12 2h0a3.13 3.13 0 0 1 3 3.88Z"),
+    engagementStat(t("saves"), engagement.saves, "M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"),
+  );
+  return root;
+}
+
 function selectCandidate(candidate) {
   if (state.selectedCandidate?.id !== candidate.id) resetTransferUi();
   state.selectedCandidate = candidate;
@@ -534,7 +574,8 @@ function candidateCard(candidate, index) {
   const heading = document.createElement("div");
   const title = document.createElement("h3"); title.className = "candidate__title"; title.textContent = candidate.title;
   const author = document.createElement("p"); author.className = "candidate__author"; author.textContent = t("author", { name: candidate.author.nickname || "—" });
-  heading.append(title, author);
+  const metadata = document.createElement("div"); metadata.className = "candidate__meta-row"; metadata.append(author, candidateEngagement(candidate.engagement));
+  heading.append(title, metadata);
   const badge = document.createElement("span"); badge.className = "candidate__badge"; badge.textContent = t("selected"); badge.hidden = state.selectedCandidate?.id !== candidate.id;
   headingRow.append(heading, badge);
   const description = document.createElement("p"); description.className = "candidate__description"; description.textContent = candidate.description || t("descriptionEmpty");
