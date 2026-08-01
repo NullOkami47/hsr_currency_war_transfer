@@ -211,7 +211,8 @@ export function parseChinaLineupInput(value) {
 
   let url;
   try {
-    url = new URL(input);
+    const sharedUrl = input.match(/https:\/\/act\.miyoushe\.com\/\S+/i)?.[0];
+    url = new URL(sharedUrl ?? input);
   } catch {
     throw new TypeError("Input is neither a lineup id nor a valid URL");
   }

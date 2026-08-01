@@ -68,6 +68,7 @@ const server = createServer(async (request, response) => {
     ["/showcase", "showcase.html"],
     ["/styles.css", "styles.css"],
     ["/app.js", "app.js"],
+    ["/search-error.js", "search-error.js"],
     ["/theme-init.js", "theme-init.js"],
   ]);
   const fileName = staticRoutes.get(url.pathname);

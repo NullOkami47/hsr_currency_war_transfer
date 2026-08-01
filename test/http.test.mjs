@@ -101,7 +101,26 @@ test("rejects an excessive public search before calling China", async () => {
 
   assert.equal(response.statusCode, 400);
   assert.equal(response.json().error.code, "invalid_request");
+  assert.equal(response.json().error.reason, "invalid_pagination");
   assert.equal(called, false);
+});
+
+test("classifies stale role ids as refreshable input", async () => {
+  const handler = createSearchHandler({
+    searchChinaStrategiesFn: async () => {
+      throw new TypeError("Unknown China role id: removed");
+    },
+  });
+  const response = responseRecorder();
+
+  await handler(
+    { method: "POST", body: { roleIds: ["removed"] } },
+    response,
+  );
+
+  assert.equal(response.statusCode, 400);
+  assert.equal(response.json().error.code, "invalid_request");
+  assert.equal(response.json().error.reason, "stale_role_ids");
 });
 
 test("does not expose upstream error details", async () => {
@@ -123,6 +142,24 @@ test("does not expose upstream error details", async () => {
     "Unable to read China strategies right now",
   );
   assert.doesNotMatch(response.body, /sensitive/);
+});
+
+test("does not misclassify a fetch TypeError as invalid user input", async () => {
+  const handler = createSearchHandler({
+    searchChinaStrategiesFn: async () => {
+      throw new TypeError("fetch failed");
+    },
+  });
+  const response = responseRecorder();
+
+  await handler(
+    { method: "POST", body: { keyword: "姬子" } },
+    response,
+  );
+
+  assert.equal(response.statusCode, 502);
+  assert.equal(response.json().error.code, "china_service_error");
+  assert.equal(response.json().error.reason, undefined);
 });
 
 test("submits a validated China strategy ID to the worker", async () => {

@@ -258,9 +258,8 @@ function selectedRoleMatchGroups(config, roleIds) {
   return selectedGroups;
 }
 
-async function fetchLineupPageWithRetry(
-  fetchLineupPageFn,
-  options,
+async function fetchReadWithRetry(
+  readFn,
   {
     attempts = 2,
     retryDelayMs = 150,
@@ -271,7 +270,7 @@ async function fetchLineupPageWithRetry(
   let lastError;
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
     try {
-      return await fetchLineupPageFn("cn", options);
+      return await readFn();
     } catch (error) {
       lastError = error;
       if (attempt < attempts && retryDelayMs > 0) {
@@ -280,6 +279,13 @@ async function fetchLineupPageWithRetry(
     }
   }
   throw lastError;
+}
+
+function fetchLineupPageWithRetry(fetchLineupPageFn, options, retryOptions) {
+  return fetchReadWithRetry(
+    () => fetchLineupPageFn("cn", options),
+    retryOptions,
+  );
 }
 
 export async function searchChinaStrategies(
@@ -298,6 +304,8 @@ export async function searchChinaStrategies(
     fetchLineupPageFn = fetchLineupPage,
     pageRetryAttempts = 2,
     pageRetryDelayMs = 150,
+    initialReadRetryAttempts = 3,
+    initialReadRetryDelayMs = 250,
     waitFn,
   } = {},
 ) {
@@ -308,9 +316,17 @@ export async function searchChinaStrategies(
 
   if (directSource) {
     const sourceId = parseChinaLineupInput(directSource);
+    const initialRetryOptions = {
+      attempts: initialReadRetryAttempts,
+      retryDelayMs: initialReadRetryDelayMs,
+      ...(waitFn ? { waitFn } : {}),
+    };
     const [config, detail] = await Promise.all([
-      fetchConfigFn("cn"),
-      fetchLineupDetailFn("cn", sourceId),
+      fetchReadWithRetry(() => fetchConfigFn("cn"), initialRetryOptions),
+      fetchReadWithRetry(
+        () => fetchLineupDetailFn("cn", sourceId),
+        initialRetryOptions,
+      ),
     ]);
     if (!detail?.lineup) {
       throw new Error(`China strategy ${sourceId} was not found`);
@@ -348,7 +364,11 @@ export async function searchChinaStrategies(
     throw new TypeError("pageSize must be an integer from 1 to 50");
   }
 
-  const config = await fetchConfigFn("cn");
+  const config = await fetchReadWithRetry(() => fetchConfigFn("cn"), {
+    attempts: initialReadRetryAttempts,
+    retryDelayMs: initialReadRetryDelayMs,
+    ...(waitFn ? { waitFn } : {}),
+  });
   const selectedRoleGroups = selectedRoleMatchGroups(
     config,
     selectedRoleIds,

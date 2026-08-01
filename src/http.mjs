@@ -27,15 +27,37 @@ function methodNotAllowed(response, allowed) {
 }
 
 function errorResponse(response, error) {
-  const isInputError = error instanceof TypeError;
+  const inputReason = classifyInputError(error);
+  const isInputError = Boolean(inputReason);
   sendJson(response, isInputError ? 400 : 502, {
     error: {
       code: isInputError ? "invalid_request" : "china_service_error",
+      ...(inputReason ? { reason: inputReason } : {}),
       message: isInputError
         ? error.message
         : "Unable to read China strategies right now",
     },
   });
+}
+
+function classifyInputError(error) {
+  if (!(error instanceof TypeError)) return null;
+  const message = String(error.message ?? "");
+  if (/^Unknown China role ids?:/.test(message)) return "stale_role_ids";
+  if (
+    /^(Invalid lineup id:|Input is neither a lineup id nor a valid URL|Only act\.miyoushe\.com lineup URLs are accepted|The URL does not contain a directly readable China lineup id)/.test(
+      message,
+    )
+  ) {
+    return "invalid_source";
+  }
+  if (/^Provide a China strategy/.test(message)) return "missing_criteria";
+  if (/^(maxPages|pageSize) must be an integer/.test(message)) {
+    return "invalid_pagination";
+  }
+  if (/^roleIds must be an array$/.test(message)) return "invalid_roles";
+  if (/^Request body must be valid JSON$/.test(message)) return "invalid_request";
+  return null;
 }
 
 export class TransferServiceUnavailableError extends Error {

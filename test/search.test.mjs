@@ -298,6 +298,47 @@ test("retries one failed recommendation page and continues the search", async ()
   assert.equal(result.pageInfo.partial, false);
 });
 
+test("retries a transient initial China config read", async () => {
+  let configCalls = 0;
+
+  const result = await searchChinaStrategies(
+    { keyword: "科研" },
+    {
+      fetchConfigFn: async () => {
+        configCalls += 1;
+        if (configCalls < 3) throw new TypeError("fetch failed");
+        return config();
+      },
+      fetchLineupPageFn: async () => ({ list: [lineup()] }),
+      initialReadRetryDelayMs: 0,
+    },
+  );
+
+  assert.equal(configCalls, 3);
+  assert.equal(result.pageInfo.scannedPages, 1);
+});
+
+test("retries a transient direct strategy detail read", async () => {
+  let detailCalls = 0;
+  const sourceLineup = lineup();
+
+  const result = await searchChinaStrategies(
+    { source: sourceLineup.id },
+    {
+      fetchConfigFn: async () => config(),
+      fetchLineupDetailFn: async () => {
+        detailCalls += 1;
+        if (detailCalls === 1) throw new TypeError("fetch failed");
+        return { lineup: sourceLineup };
+      },
+      initialReadRetryDelayMs: 0,
+    },
+  );
+
+  assert.equal(detailCalls, 2);
+  assert.equal(result.candidates[0].id, sourceLineup.id);
+});
+
 test("returns collected candidates when a later page still fails", async () => {
   const first = lineup();
   const calls = [];

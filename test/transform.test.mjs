@@ -181,6 +181,12 @@ test("parses a direct China lineup URL or id", () => {
     ),
     id,
   );
+  assert.equal(
+    parseChinaLineupInput(
+      `推薦這份攻略： https://act.miyoushe.com/sr/event/currency-wars/index.html#/lineup/${id}?source_tab=StrategyGuide 請查收`,
+    ),
+    id,
+  );
 });
 
 test("rejects a global URL as a China source", () => {

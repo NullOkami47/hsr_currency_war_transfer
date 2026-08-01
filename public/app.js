@@ -1,3 +1,8 @@
+import {
+  getSearchErrorPresentation,
+  retainKnownRoleIds,
+} from "./search-error.js?v=1";
+
 const messages = {
   "zh-Hant": {
     appName: "貨幣戰爭攻略轉移",
@@ -77,6 +82,13 @@ const messages = {
 };
 
 Object.assign(messages["zh-Hant"], {
+  searchInputErrorTitle: "請修正搜尋條件",
+  searchInvalidSource: "請貼上有效的中國服攻略 URL 或 24 字元攻略 ID。也可以直接貼上包含米遊社連結的分享文字。",
+  searchInvalidCriteria: "請輸入攻略名稱、作者名稱，或至少選擇一名角色。",
+  searchStaleRoles: "角色資料已更新；失效的角色條件已移除。請重新選擇角色後再搜尋。",
+  searchInvalidPagination: "搜尋頁數設定無效，請重新整理頁面後再試。",
+  searchInvalidRoles: "角色條件格式無效，請重新選擇角色。",
+  searchInvalidGeneric: "請檢查搜尋條件後再試。",
   globalArchive: "開啟全球服攻略站",
   modeDetails: "名稱、作者與角色",
   authorLabel: "作者名稱",
@@ -101,6 +113,13 @@ Object.assign(messages["zh-Hant"], {
   expertConsultant: "專家顧問",
 });
 Object.assign(messages["zh-Hans"], {
+  searchInputErrorTitle: "请修正搜索条件",
+  searchInvalidSource: "请粘贴有效的中国服攻略 URL 或 24 字符攻略 ID。也可以直接粘贴包含米游社链接的分享文字。",
+  searchInvalidCriteria: "请输入攻略名称、作者名称，或至少选择一名角色。",
+  searchStaleRoles: "角色数据已更新；失效的角色条件已移除。请重新选择角色后再搜索。",
+  searchInvalidPagination: "搜索页数设置无效，请刷新页面后重试。",
+  searchInvalidRoles: "角色条件格式无效，请重新选择角色。",
+  searchInvalidGeneric: "请检查搜索条件后重试。",
   heroEyebrow: "Currency War Strategy Compendium / 跨服转移",
   globalArchive: "打开全球服攻略站",
   modeDetails: "名称、作者与角色",
@@ -128,6 +147,13 @@ Object.assign(messages["zh-Hans"], {
   partialSearchBody: "第 {page} 页重试后仍无法读取；已保留此前成功读取的结果，请稍后重试。",
 });
 Object.assign(messages.en, {
+  searchInputErrorTitle: "Check the search criteria",
+  searchInvalidSource: "Paste a valid China strategy URL or 24-character strategy ID. Shared text containing a Miyoushe link is also accepted.",
+  searchInvalidCriteria: "Enter a strategy title, author name, or select at least one character.",
+  searchStaleRoles: "The character data changed and outdated criteria were removed. Select the characters again, then search.",
+  searchInvalidPagination: "The search page settings are invalid. Refresh the page, then try again.",
+  searchInvalidRoles: "The character criteria are invalid. Select the characters again.",
+  searchInvalidGeneric: "Check the search criteria, then try again.",
   heroEyebrow: "Currency War Strategy Compendium / Region transfer",
   chinaArchive: "Open the China Strategy Compendium",
   globalArchive: "Open the Global Strategy Compendium",
@@ -449,12 +475,15 @@ async function loadRoles() {
       [...new Set([role.id, ...(role.matchIds ?? [])])].map((id) => [String(id), role])));
     state.roleLoadFailed = false;
     renderRoleGrid();
+    updateRoleTrigger();
+    return true;
   } catch {
     state.roleLoadFailed = true;
     elements["role-status"].textContent = t("rolesFailed");
     elements["role-status"].hidden = false;
+    updateRoleTrigger();
+    return false;
   }
-  updateRoleTrigger();
 }
 
 function statusPanel(variant, title, body) {
@@ -617,11 +646,20 @@ async function performSearch() {
   try {
     const payload = state.mode === "direct" ? { source } : { keyword, authorKeyword, roleIds: [...state.selectedRoleIds], maxPages: 10, pageSize: 10 };
     const response = await fetch("/api/search", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(payload), signal: state.searchController.signal });
-    if (!response.ok) throw new Error("search");
-    state.searchResult = await response.json(); state.candidates = state.searchResult.candidates ?? []; renderResults();
+    const data = await response.json();
+    if (!response.ok) {
+      const presentation = getSearchErrorPresentation(response.status, data);
+      if (presentation.refreshRoles && await loadRoles()) {
+        state.selectedRoleIds = new Set(retainKnownRoleIds(state.selectedRoleIds, state.rolesById));
+        renderRoleGrid(); updateRoleTrigger();
+      }
+      const searchError = new Error("search"); searchError.presentation = presentation; throw searchError;
+    }
+    state.searchResult = data; state.candidates = state.searchResult.candidates ?? []; renderResults();
   } catch (error) {
     if (error.name === "AbortError") return;
-    state.searchResult = null; state.candidates = []; elements["results-header"].hidden = true; elements["candidate-list"].replaceChildren(); elements["search-status"].replaceChildren(statusPanel("error", t("searchErrorTitle"), t("searchErrorBody")));
+    const presentation = error.presentation ?? getSearchErrorPresentation(0, null);
+    state.searchResult = null; state.candidates = []; elements["results-header"].hidden = true; elements["candidate-list"].replaceChildren(); elements["search-status"].replaceChildren(statusPanel("error", t(presentation.titleKey), t(presentation.bodyKey)));
   } finally { setSearchBusy(false); }
 }
 

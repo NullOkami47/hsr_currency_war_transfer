@@ -56,6 +56,10 @@ An exact URL/ID lookup:
 }
 ```
 
+The direct field also accepts ordinary share text containing one
+`https://act.miyoushe.com/...` strategy link; the server extracts and validates
+the China URL rather than requiring the user to remove the surrounding text.
+
 A combined title, author and role search:
 
 ```json
@@ -79,8 +83,11 @@ Public requests are capped at 10 pages and 20 strategies per page. The response
 includes `pageInfo.truncated`; when true, the candidate list is a bounded
 result rather than an exhaustive index.
 
-Each recommendation page is attempted at most twice. If the first page still
-fails, the endpoint returns its existing `502 china_service_error` because no
+The initial China configuration and direct strategy detail reads are attempted
+at most three times. Each recommendation page is attempted at most twice. A
+network `TypeError` such as Node's `fetch failed` remains an upstream failure;
+it is never misclassified as invalid user input. If the first recommendation
+page still fails, the endpoint returns `502 china_service_error` because no
 usable search result exists. If a later page still fails, the endpoint returns
 HTTP 200 with every candidate already collected and marks the response as a
 partial search:
@@ -99,6 +106,13 @@ partial search:
 
 Successful exhaustive or normally bounded searches set `partial` to `false`
 and omit `failedPage`.
+
+Input failures return HTTP 400 with `error.code: "invalid_request"` and a stable
+`error.reason`. The website uses that reason to distinguish an invalid URL/ID,
+missing criteria, invalid pagination, and stale character IDs from a temporary
+China service failure. When character IDs are stale, it refreshes the catalogue
+and removes only the unavailable selections; it does not silently broaden and
+repeat the search.
 
 Candidates contain the original Chinese title and operation description, the
 author's public display information, the final-stage role cards and a canonical
