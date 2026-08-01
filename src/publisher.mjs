@@ -59,6 +59,7 @@ export class BrowserSessionPublisher {
     this.headless = headless;
     this.authRecoveryDelayMs = authRecoveryDelayMs;
     this.launchPersistentContext = launchPersistentContext;
+    this.deviceId = randomUUID();
     this.context = null;
     this.page = null;
   }
@@ -97,7 +98,6 @@ export class BrowserSessionPublisher {
   async request(path, payload, { authRecoveryAttempt = 0 } = {}) {
     await this.start();
     const endpoint = `${REGIONS.global.baseUrl}${path}`;
-    const deviceId = randomUUID();
 
     const envelope = await this.page.evaluate(
       async ({ endpoint: url, payload: body, deviceId: id }) => {
@@ -120,7 +120,7 @@ export class BrowserSessionPublisher {
           body: await response.json(),
         };
       },
-      { endpoint, payload, deviceId },
+      { endpoint, payload, deviceId: this.deviceId },
     );
 
     if (envelope.status < 200 || envelope.status >= 300) {

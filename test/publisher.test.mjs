@@ -58,6 +58,58 @@ test("publishes through the signed-in page without exposing session data", async
   assert.equal("storageState" in calls[1].argument, false);
 });
 
+test("keeps the authenticated session valid across consecutive creates", async () => {
+  const requestArguments = [];
+  let sessionDeviceId;
+  const page = {
+    async goto() {},
+    async evaluate(_callback, argument) {
+      requestArguments.push(argument);
+      sessionDeviceId ??= argument.deviceId;
+      if (argument.deviceId !== sessionDeviceId) {
+        return {
+          status: 200,
+          body: {
+            retcode: -100,
+            message: "Login expired. Please log in again",
+          },
+        };
+      }
+      return {
+        status: 200,
+        body: {
+          retcode: 0,
+          data: { id: "6a4dfde2ce98d01a5bac0999" },
+        },
+      };
+    },
+    async waitForTimeout() {},
+  };
+  const context = {
+    pages: () => [page],
+    async newPage() {
+      return page;
+    },
+    async close() {},
+  };
+  const publisher = new BrowserSessionPublisher({
+    profileDir: "test-profile",
+    authRecoveryDelayMs: 0,
+    launchPersistentContext: async () => context,
+  });
+  const payload = {
+    title: "Consecutive publish",
+    description: "Device identity must remain stable",
+    lineup_type: "Tourn",
+    tourn_detail: {},
+  };
+
+  await publisher.create(payload);
+  await publisher.create(payload);
+
+  assert.equal(requestArguments.length, 2);
+});
+
 test("recovers a created lineup id from My Posts when create returns none", async () => {
   const responses = [
     {
