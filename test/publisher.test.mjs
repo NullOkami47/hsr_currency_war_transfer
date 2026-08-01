@@ -184,31 +184,33 @@ test("recovers a created lineup id from My Posts when create returns none", asyn
   assert.equal(responses.length, 0);
 });
 
-test("waits once for the browser login session to recover from retcode -100", async () => {
-  const responses = [
-    {
-      status: 200,
-      body: {
-        retcode: -100,
-        message: "Login expired. Please log in again",
-      },
-    },
-    {
-      status: 200,
-      body: {
-        retcode: 0,
-        data: { id: "6a6c63da6217fd436611cdcd" },
-      },
-    },
-  ];
+test("reloads the event page once to recover from retcode -100", async () => {
   let waited = 0;
+  const visitedUrls = [];
   const page = {
-    async goto() {},
+    async goto(url) {
+      visitedUrls.push(url);
+    },
     async waitForTimeout(milliseconds) {
       waited += milliseconds;
     },
     async evaluate() {
-      return responses.shift();
+      if (visitedUrls.length < 2) {
+        return {
+          status: 200,
+          body: {
+            retcode: -100,
+            message: "Login expired. Please log in again",
+          },
+        };
+      }
+      return {
+        status: 200,
+        body: {
+          retcode: 0,
+          data: { id: "6a6c63da6217fd436611cdcd" },
+        },
+      };
     },
   };
   const context = {
@@ -233,5 +235,6 @@ test("waits once for the browser login session to recover from retcode -100", as
 
   assert.equal(result.lineupId, "6a6c63da6217fd436611cdcd");
   assert.equal(waited, 8_000);
-  assert.equal(responses.length, 0);
+  assert.equal(visitedUrls.length, 2);
+  assert.equal(visitedUrls[0], visitedUrls[1]);
 });

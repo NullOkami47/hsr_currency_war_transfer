@@ -153,6 +153,7 @@ export class BrowserSessionPublisher {
       envelope.body?.retcode === -100 &&
       authRecoveryAttempt === 0
     ) {
+      await this.page.goto(APP_URL, { waitUntil: "domcontentloaded" });
       await this.page.waitForTimeout(this.authRecoveryDelayMs);
       return this.request(path, payload, { authRecoveryAttempt: 1 });
     }
