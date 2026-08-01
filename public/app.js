@@ -297,6 +297,7 @@ function constrainRolePopoverToViewport() {
   if (popover.hidden) return;
   delete popover.dataset.placement;
   popover.style.removeProperty("--role-popover-available-height");
+  const pickerRect = popover.parentElement.getBoundingClientRect();
   const triggerRect = elements["role-trigger"].getBoundingClientRect();
   const initialRect = popover.getBoundingClientRect();
   const styles = getComputedStyle(popover);
@@ -313,7 +314,7 @@ function constrainRolePopoverToViewport() {
   );
   const availableAbove = Math.max(
     0,
-    triggerRect.top - viewportTop - surfaceGap - viewportGap,
+    pickerRect.top - viewportTop - surfaceGap - viewportGap,
   );
   const maxHeightToken = styles.getPropertyValue("--role-popover-max-height").trim();
   const maxHeightValue = Number.parseFloat(maxHeightToken);
