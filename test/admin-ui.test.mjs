@@ -34,6 +34,10 @@ test("administrator script keeps credentials out of browser storage", async () =
 
   assert.match(script, /"x-csrf-token": state\.csrfToken/);
   assert.match(script, /elements\["admin-token"\]\.value = ""/);
+  assert.match(
+    script,
+    /state\.csrfToken = session\.csrfToken;\s+showConsole\(\);\s+await loadDashboard/,
+  );
   assert.doesNotMatch(script, /localStorage\.setItem\([^)]*token/i);
   assert.doesNotMatch(script, /sessionStorage/i);
 });

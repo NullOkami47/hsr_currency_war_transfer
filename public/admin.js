@@ -205,6 +205,7 @@ elements["admin-login-form"].addEventListener("submit", async (event) => {
       body: JSON.stringify({ token }),
     });
     state.csrfToken = session.csrfToken;
+    showConsole();
     await loadDashboard({ discardDirty: true });
   } catch (error) {
     showLogin(error.message);
@@ -258,6 +259,7 @@ try {
   const session = await jsonRequest("/api/admin/session");
   if (session.authenticated) {
     state.csrfToken = session.csrfToken;
+    showConsole();
     await loadDashboard({ discardDirty: true });
   } else {
     showLogin();
