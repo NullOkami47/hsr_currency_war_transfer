@@ -41,6 +41,46 @@ test("uses another China CDN address after a connect timeout", async () => {
   assert.equal(result.lineup.id, SOURCE_ID);
 });
 
+test("uses an official China API hostname when every primary edge times out", async () => {
+  const primaryAddresses = ["103.78.127.144", "103.78.127.145"];
+  const timeoutCause = Object.assign(
+    new Error(
+      `Connect Timeout Error (attempted addresses: ${primaryAddresses
+        .map((address) => `${address}:443`)
+        .join(", ")}, timeout: 10000ms)`,
+    ),
+    { code: "UND_ERR_CONNECT_TIMEOUT" },
+  );
+  const attemptedHostnames = [];
+
+  const result = await fetchLineupDetail("cn", SOURCE_ID, {
+    fetchFn: async (url) => {
+      attemptedHostnames.push(url.hostname);
+      if (url.hostname === "act-api-takumi.miyoushe.com") {
+        throw new TypeError("fetch failed", { cause: timeoutCause });
+      }
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          retcode: 0,
+          data: { lineup: { id: SOURCE_ID } },
+        }),
+      };
+    },
+    resolve4Fn: async () => primaryAddresses,
+    addressRequestFn: async () => {
+      throw new Error("Every primary address should already be exhausted");
+    },
+  });
+
+  assert.deepEqual(attemptedHostnames, [
+    "act-api-takumi.miyoushe.com",
+    "act-api-takumi.mihoyo.com",
+  ]);
+  assert.equal(result.lineup.id, SOURCE_ID);
+});
+
 test("uses another Global CDN address for a safe detail read", async () => {
   const timeoutCause = Object.assign(
     new Error(

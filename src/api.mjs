@@ -8,6 +8,10 @@ export const REGIONS = Object.freeze({
   cn: Object.freeze({
     baseUrl:
       "https://act-api-takumi.miyoushe.com/event/rpgcurrencywar",
+    safeReadFallbackHostnames: Object.freeze([
+      "act-api-takumi.mihoyo.com",
+      "api-takumi.mihoyo.com",
+    ]),
     language: "zh-cn",
     origin: "https://act.miyoushe.com",
   }),
@@ -115,6 +119,7 @@ async function fetchWithEdgeFallback(
     resolve4Fn,
     addressRequestFn,
     edgeFallbackLimit,
+    fallbackHostnames = [],
   },
 ) {
   try {
@@ -140,6 +145,19 @@ async function fetchWithEdgeFallback(
         return await addressRequestFn(url, options, address);
       } catch (candidateError) {
         lastError = candidateError;
+      }
+    }
+
+    for (const hostname of fallbackHostnames) {
+      const fallbackUrl = new URL(url);
+      fallbackUrl.hostname = hostname;
+      try {
+        return await fetchFn(fallbackUrl, options);
+      } catch (fallbackError) {
+        if (!TRANSIENT_CONNECTION_CODES.has(connectionCode(fallbackError))) {
+          throw fallbackError;
+        }
+        lastError = fallbackError;
       }
     }
     throw lastError;
@@ -210,6 +228,7 @@ async function request(
         resolve4Fn,
         addressRequestFn,
         edgeFallbackLimit,
+        fallbackHostnames: config.safeReadFallbackHostnames,
       })
     : await fetchFn(url, requestOptions);
 
