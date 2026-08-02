@@ -1,4 +1,6 @@
 import { randomUUID } from "node:crypto";
+import { resolve4 } from "node:dns/promises";
+import { request as httpsRequest } from "node:https";
 
 import { PublicInputError } from "./errors.mjs";
 
@@ -23,6 +25,124 @@ export class CurrencyWarApiError extends Error {
     this.name = "CurrencyWarApiError";
     this.retcode = options.retcode;
     this.status = options.status;
+  }
+}
+
+const TRANSIENT_CONNECTION_CODES = new Set([
+  "ECONNREFUSED",
+  "ECONNRESET",
+  "EHOSTUNREACH",
+  "ENETUNREACH",
+  "ENOTFOUND",
+  "ETIMEDOUT",
+  "UND_ERR_CONNECT_TIMEOUT",
+]);
+
+function connectionCode(error) {
+  return error?.cause?.code ?? error?.code;
+}
+
+function failedAddresses(error) {
+  const message = String(error?.cause?.message ?? error?.message ?? "");
+  return new Set(
+    [...message.matchAll(/(\d{1,3}(?:\.\d{1,3}){3}):\d+/gu)]
+      .map((match) => match[1]),
+  );
+}
+
+function normaliseAddresses(records) {
+  return [...new Set(
+    (records ?? [])
+      .map((record) => typeof record === "string" ? record : record?.address)
+      .filter(Boolean),
+  )];
+}
+
+function requestAddress(
+  url,
+  { method, headers, body, signal },
+  address,
+  { timeoutMs = 5_000 } = {},
+) {
+  return new Promise((resolve, reject) => {
+    const request = httpsRequest({
+      protocol: url.protocol,
+      hostname: address,
+      port: url.port || 443,
+      path: `${url.pathname}${url.search}`,
+      method,
+      headers: {
+        ...headers,
+        host: url.host,
+      },
+      servername: url.hostname,
+      signal,
+      timeout: timeoutMs,
+    }, (response) => {
+      const chunks = [];
+      response.on("data", (chunk) => chunks.push(chunk));
+      response.once("error", reject);
+      response.once("end", () => {
+        const payload = Buffer.concat(chunks).toString("utf8");
+        resolve({
+          ok: Number(response.statusCode) >= 200
+            && Number(response.statusCode) < 300,
+          status: Number(response.statusCode ?? 0),
+          json: async () => JSON.parse(payload),
+        });
+      });
+    });
+
+    request.once("timeout", () => {
+      request.destroy(Object.assign(
+        new Error(
+          `Currency War API edge ${address} timed out after ${timeoutMs}ms`,
+        ),
+        { code: "ETIMEDOUT" },
+      ));
+    });
+    request.once("error", reject);
+    if (body !== undefined) request.write(body);
+    request.end();
+  });
+}
+
+async function fetchWithEdgeFallback(
+  url,
+  options,
+  {
+    fetchFn,
+    resolve4Fn,
+    addressRequestFn,
+    edgeFallbackLimit,
+  },
+) {
+  try {
+    return await fetchFn(url, options);
+  } catch (error) {
+    if (!TRANSIENT_CONNECTION_CODES.has(connectionCode(error))) throw error;
+
+    let addresses;
+    try {
+      addresses = normaliseAddresses(await resolve4Fn(url.hostname));
+    } catch {
+      throw error;
+    }
+
+    const alreadyFailed = failedAddresses(error);
+    const candidates = addresses
+      .filter((address) => !alreadyFailed.has(address))
+      .slice(0, edgeFallbackLimit);
+    let lastError = error;
+
+    for (const address of candidates) {
+      try {
+        return await addressRequestFn(url, options, address);
+      } catch (candidateError) {
+        lastError = candidateError;
+      }
+    }
+    throw lastError;
   }
 }
 
@@ -62,6 +182,10 @@ async function request(
     authenticatedHeaders,
     language,
     signal,
+    fetchFn = fetch,
+    resolve4Fn = resolve4,
+    addressRequestFn = requestAddress,
+    edgeFallbackLimit = 4,
   } = {},
 ) {
   const config = regionConfig(region);
@@ -73,12 +197,21 @@ async function request(
     }
   }
 
-  const response = await fetch(url, {
+  const requestOptions = {
     method,
     headers: requestHeaders(region, { authenticatedHeaders, language }),
     body: body === undefined ? undefined : JSON.stringify(body),
     signal,
-  });
+  };
+  const safeToRetry = method === "GET" || path === "/game/lineup/index";
+  const response = safeToRetry
+    ? await fetchWithEdgeFallback(url, requestOptions, {
+        fetchFn,
+        resolve4Fn,
+        addressRequestFn,
+        edgeFallbackLimit,
+      })
+    : await fetchFn(url, requestOptions);
 
   if (!response.ok) {
     throw new CurrencyWarApiError(
