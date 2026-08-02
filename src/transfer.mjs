@@ -3,6 +3,9 @@ import {
   fetchLineupDetail,
   parseChinaLineupInput,
 } from "./api.mjs";
+import { PublicInputError } from "./errors.mjs";
+import { finalStage } from "./lineup.mjs";
+import { retryRead } from "./retry.mjs";
 import { contentHash, toGlobalPublishPayload } from "./transform.mjs";
 import { diffPayloads, verifyTransferPayload } from "./verify.mjs";
 
@@ -11,9 +14,11 @@ export const GLOBAL_TEXT_LIMITS = Object.freeze({
   description: 800,
 });
 
-function finalStage(lineup) {
-  const stages = lineup.tourn_detail?.role_stages ?? [];
-  return stages.find((stage) => stage.stage === "Final") ?? stages.at(-1);
+class PublishedStrategyNotFoundError extends Error {
+  constructor(lineupId, options = {}) {
+    super(`Published global strategy ${lineupId} was not found`, options);
+    this.name = "PublishedStrategyNotFoundError";
+  }
 }
 
 export function buildGlobalTitlePrefix(sourceLineup, globalTitleConfig) {
@@ -148,51 +153,26 @@ function normalisePublished(lineup, globalConfig) {
   };
 }
 
-async function retryRead(
-  operation,
-  { attempts = 2, retryDelayMs = 250 } = {},
-) {
-  let lastError;
-  for (let attempt = 1; attempt <= attempts; attempt += 1) {
-    try {
-      return await operation();
-    } catch (error) {
-      lastError = error;
-      if (attempt < attempts && retryDelayMs > 0) {
-        await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
-      }
-    }
-  }
-  throw lastError;
-}
-
 async function fetchPublished(
   fetchLineupDetailFn,
   lineupId,
-  {
-    attempts = 5,
-    retryDelayMs = 500,
-  } = {},
+  retryOptions = { attempts: 3, retryDelayMs: 500 },
 ) {
-  let lastError;
-  let lastActualPayload;
-
-  for (let attempt = 1; attempt <= attempts; attempt += 1) {
-    try {
+  try {
+    return await retryRead(async () => {
       const result = await fetchLineupDetailFn("global", lineupId);
-      if (result?.lineup) {
-        return result.lineup;
+      if (!result?.lineup) {
+        throw new PublishedStrategyNotFoundError(lineupId);
       }
-    } catch (error) {
-      lastError = error;
+      return result.lineup;
+    }, retryOptions);
+  } catch (error) {
+    if (error instanceof PublishedStrategyNotFoundError) throw error;
+    if (error?.status === 404) {
+      throw new PublishedStrategyNotFoundError(lineupId, { cause: error });
     }
-
-    if (attempt < attempts) {
-      await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
-    }
+    throw error;
   }
-
-  throw lastError ?? new Error("Published global strategy was not readable");
 }
 
 async function fetchVerifiedPublication(
@@ -206,6 +186,7 @@ async function fetchVerifiedPublication(
   } = {},
 ) {
   let lastError;
+  let lastActualPayload;
 
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
     try {
@@ -250,6 +231,7 @@ async function transferResolved(
     now = () => new Date(),
     verification,
     readRetry,
+    mappedReadRetry,
     attributionLimits = GLOBAL_TEXT_LIMITS,
   },
 ) {
@@ -270,6 +252,12 @@ async function transferResolved(
   const sourceLineup = sourceResult?.lineup;
   if (!sourceLineup) {
     throw new Error(`China strategy ${sourceId} was not found`);
+  }
+  if (sourceLineup.tourn_detail?.is_expired) {
+    throw new PublicInputError(
+      "The China strategy has expired and cannot be transferred",
+      "expired_source",
+    );
   }
 
   const transformed = toGlobalPublishPayload(sourceLineup, globalConfig);
@@ -295,9 +283,10 @@ async function transferResolved(
       existingLineup = await fetchPublished(
         fetchLineupDetailFn,
         previous.globalId,
-        { attempts: 1 },
+        mappedReadRetry,
       );
-    } catch {
+    } catch (error) {
+      if (!(error instanceof PublishedStrategyNotFoundError)) throw error;
       existingLineup = null;
     }
   }
@@ -310,8 +299,12 @@ async function transferResolved(
     const differences = diffPayloads(payload, currentPayload);
 
     if (previous.sourceHash === sourceHash && differences.length === 0) {
-      const shareCode =
-        existingLineup.tourn_detail?.share_code ?? previous.shareCode;
+      const shareCode = String(
+        existingLineup.tourn_detail?.share_code ?? previous.shareCode ?? "",
+      );
+      if (!shareCode) {
+        throw new Error("Published global strategy did not return a share code");
+      }
       return {
         status: "unchanged",
         sourceId,
@@ -340,7 +333,10 @@ async function transferResolved(
   const actualPayload = normalisePublished(published, globalConfig);
   verifyTransferPayload(payload, actualPayload);
 
-  const shareCode = published.tourn_detail?.share_code;
+  const shareCode = String(published.tourn_detail?.share_code ?? "");
+  if (!shareCode) {
+    throw new Error("Published global strategy did not return a share code");
+  }
   await store.set(sourceId, {
     globalId,
     sourceHash,

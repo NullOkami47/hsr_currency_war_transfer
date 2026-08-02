@@ -62,7 +62,19 @@ const queue = new TransferJobQueue({
 });
 
 await queue.start();
-const server = createServer(createWorkerHandler({ queue, token }));
+if (process.env.CURRENCY_WAR_PUBLIC_SUBMISSIONS === "1") {
+  await jobStore.updateSettings({
+    publicSubmissionsEnabled: true,
+    sourceAllowlistEnabled:
+      process.env.CURRENCY_WAR_SOURCE_ALLOWLIST_ENABLED !== "0",
+  });
+}
+const server = createServer(createWorkerHandler({
+  queue,
+  store: jobStore,
+  token,
+  instanceId: process.env.CURRENCY_WAR_LOCAL_INSTANCE_ID,
+}));
 
 server.listen(port, host, () => {
   console.log(`Currency War worker listening on http://${host}:${port}`);

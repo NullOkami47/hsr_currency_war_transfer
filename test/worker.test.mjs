@@ -139,3 +139,132 @@ test("protects worker jobs with a bearer token", async () => {
   assert.equal(authorised.statusCode, 202);
   assert.equal(authorised.json().jobId, "job-1");
 });
+
+test("keeps public publishing disabled until an administrator enables it", async (t) => {
+  const directory = await mkdtemp(join(tmpdir(), "currency-war-worker-"));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const store = new JsonWorkerJobStore(join(directory, "jobs.json"));
+  const queue = new TransferJobQueue({
+    store,
+    transferFn: async () => ({ status: "unchanged", shareCode: "code" }),
+  });
+
+  await assert.rejects(
+    () => queue.submit(SOURCE_ID, { public: true, clientKey: "ip:one" }),
+    (error) => error.code === "public_submissions_disabled",
+  );
+
+  await store.updateSettings({
+    publicSubmissionsEnabled: true,
+    sourceAllowlistEnabled: true,
+    sourceAllowlist: [SOURCE_ID],
+  });
+  const accepted = await queue.submit(
+    SOURCE_ID,
+    { public: true, clientKey: "ip:one" },
+  );
+  assert.equal(accepted.status, "queued");
+  await waitForResult(queue, accepted.jobId);
+});
+
+test("enforces source allow-list, per-IP limit, account quota and queue capacity", async (t) => {
+  const directory = await mkdtemp(join(tmpdir(), "currency-war-worker-"));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const allowed = [
+    SOURCE_ID,
+    "6a4e123858aa043bf1070a99",
+    "6a4e123858aa043bf1070a98",
+  ];
+  const store = new JsonWorkerJobStore(join(directory, "jobs.json"));
+  await store.updateSettings({
+    publicSubmissionsEnabled: true,
+    sourceAllowlistEnabled: true,
+    sourceAllowlist: allowed,
+    perIpLimit: 1,
+    perIpWindowMinutes: 60,
+    dailyAccountQuota: 2,
+    maxPendingJobs: 2,
+  });
+  const queue = new TransferJobQueue({
+    store,
+    transferFn: async () => new Promise(() => {}),
+  });
+
+  await assert.rejects(
+    () => queue.submit(
+      "6a4e123858aa043bf1070a97",
+      { public: true, clientKey: "ip:blocked" },
+    ),
+    (error) => error.code === "source_not_allowed",
+  );
+
+  await queue.submit(SOURCE_ID, { public: true, clientKey: "ip:one" });
+  await assert.rejects(
+    () => queue.submit(allowed[1], { public: true, clientKey: "ip:one" }),
+    (error) => error.code === "rate_limited" && error.status === 429,
+  );
+
+  await queue.submit(allowed[1], { public: true, clientKey: "ip:two" });
+  await assert.rejects(
+    () => queue.submit(allowed[2], { public: true, clientKey: "ip:three" }),
+    (error) => ["daily_quota_reached", "queue_full"].includes(error.code),
+  );
+});
+
+test("updates settings and returns bounded administrator records", async (t) => {
+  const directory = await mkdtemp(join(tmpdir(), "currency-war-worker-"));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const store = new JsonWorkerJobStore(join(directory, "jobs.json"));
+  const queue = new TransferJobQueue({
+    store,
+    transferFn: async (sourceId) => ({
+      status: "created",
+      sourceId,
+      globalId: "6a6c694a2a5c4702d0b47b26",
+      shareCode: "share-code",
+      ignored: [],
+    }),
+  });
+  const handler = createWorkerHandler({
+    queue,
+    store,
+    token: "a-long-worker-token-for-tests",
+  });
+  const update = responseRecorder();
+  await handler(
+    {
+      method: "PUT",
+      url: "/admin",
+      headers: { authorization: "Bearer a-long-worker-token-for-tests" },
+      body: {
+        publicSubmissionsEnabled: true,
+        sourceAllowlistEnabled: false,
+        dailyAccountQuota: 12,
+        maxStoredJobs: 5,
+      },
+    },
+    update,
+  );
+  assert.equal(update.statusCode, 200);
+  assert.equal(update.json().settings.dailyAccountQuota, 12);
+
+  for (let index = 0; index < 7; index += 1) {
+    const sourceId = `6a56fe3021253d0e1a9f${String(index).padStart(4, "0")}`;
+    const job = await queue.submit(sourceId);
+    await waitForResult(queue, job.jobId);
+  }
+
+  const dashboard = responseRecorder();
+  await handler(
+    {
+      method: "GET",
+      url: "/admin",
+      headers: { authorization: "Bearer a-long-worker-token-for-tests" },
+    },
+    dashboard,
+  );
+  assert.equal(dashboard.statusCode, 200);
+  assert.equal(dashboard.json().settings.maxStoredJobs, 5);
+  assert.equal(dashboard.json().jobs.length, 5);
+  assert.equal("clientKey" in dashboard.json().jobs[0], false);
+});

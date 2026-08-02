@@ -188,6 +188,28 @@ Object.assign(messages.en, {
   partialSearchBody: "Page {page} could not be read after retrying. Results from the successfully read pages have been kept; try again later.",
 });
 
+Object.assign(messages["zh-Hant"], {
+  adminConsole: "管理員控制台",
+  expired: "已過期",
+  expiredCandidate: "此攻略已過期，無法轉移。",
+  transferPolicyTitle: "管理員安全政策已阻止提交",
+  transferPolicyBody: "此攻略目前不符合公開提交、來源清單、限流、每日配額或佇列容量設定。",
+});
+Object.assign(messages["zh-Hans"], {
+  adminConsole: "管理员控制台",
+  expired: "已过期",
+  expiredCandidate: "此攻略已过期，无法转移。",
+  transferPolicyTitle: "管理员安全策略已阻止提交",
+  transferPolicyBody: "此攻略目前不符合公开提交、来源列表、限流、每日配额或队列容量设置。",
+});
+Object.assign(messages.en, {
+  adminConsole: "Administrator console",
+  expired: "Expired",
+  expiredCandidate: "This strategy has expired and cannot be transferred.",
+  transferPolicyTitle: "The administrator safety policy blocked this request",
+  transferPolicyBody: "This strategy does not currently meet the public submission, source list, rate, daily quota or queue capacity policy.",
+});
+
 const state = {
   locale: navigator.language.toLowerCase().startsWith("zh-cn") ? "zh-Hans" : navigator.language.toLowerCase().startsWith("en") ? "en" : "zh-Hant",
   mode: "direct",
@@ -569,10 +591,11 @@ function candidateCard(candidate, index) {
   const article = document.createElement("article");
   article.className = "candidate";
   article.dataset.candidateId = candidate.id;
+  if (candidate.isExpired) article.classList.add("candidate--expired");
   if (state.selectedCandidate?.id === candidate.id) article.classList.add("candidate--selected");
   const indexColumn = document.createElement("div"); indexColumn.className = "candidate__index";
   const number = document.createElement("span"); number.textContent = String(index + 1).padStart(2, "0");
-  const radio = document.createElement("input"); radio.className = "candidate__radio"; radio.type = "radio"; radio.name = "candidate"; radio.value = candidate.id; radio.checked = state.selectedCandidate?.id === candidate.id; radio.setAttribute("aria-label", candidate.title);
+  const radio = document.createElement("input"); radio.className = "candidate__radio"; radio.type = "radio"; radio.name = "candidate"; radio.value = candidate.id; radio.checked = state.selectedCandidate?.id === candidate.id; radio.disabled = Boolean(candidate.isExpired); radio.setAttribute("aria-label", candidate.isExpired ? `${candidate.title} — ${t("expiredCandidate")}` : candidate.title);
   radio.addEventListener("change", () => selectCandidate(candidate)); indexColumn.append(number, radio);
   const body = document.createElement("div"); body.className = "candidate__body";
   const headingRow = document.createElement("div"); headingRow.className = "candidate__heading-row";
@@ -582,7 +605,8 @@ function candidateCard(candidate, index) {
   const metadata = document.createElement("div"); metadata.className = "candidate__meta-row"; metadata.append(author, candidateEngagement(candidate.engagement));
   heading.append(title, metadata);
   const badge = document.createElement("span"); badge.className = "candidate__badge"; badge.textContent = t("selected"); badge.hidden = state.selectedCandidate?.id !== candidate.id;
-  headingRow.append(heading, badge);
+  const expiredBadge = document.createElement("span"); expiredBadge.className = "candidate__badge candidate__badge--expired"; expiredBadge.textContent = t("expired"); expiredBadge.hidden = !candidate.isExpired;
+  headingRow.append(heading, expiredBadge, badge);
   const description = document.createElement("p"); description.className = "candidate__description"; description.textContent = candidate.description || t("descriptionEmpty");
   const footer = document.createElement("div"); footer.className = "candidate__footer";
   const source = document.createElement("a"); source.href = candidate.sourceUrl; source.target = "_blank"; source.rel = "noreferrer"; source.textContent = t("viewSource");
@@ -590,7 +614,7 @@ function candidateCard(candidate, index) {
   expand.addEventListener("click", () => { const expanded = description.dataset.expanded === "true"; description.dataset.expanded = String(!expanded); expand.textContent = t(expanded ? "expand" : "collapse"); });
   footer.append(source, expand); body.append(headingRow, description, roster(candidate.roles), footer);
   article.append(indexColumn, body);
-  article.addEventListener("click", (event) => { if (!event.target.closest("a, button, input")) selectCandidate(candidate); });
+  article.addEventListener("click", (event) => { if (!candidate.isExpired && !event.target.closest("a, button, input")) selectCandidate(candidate); });
   return article;
 }
 
@@ -783,10 +807,17 @@ async function submitTransfer() {
     if (error.name === "AbortError") return;
     const unavailable = error.code === "transfer_service_unavailable";
     const timedOut = error.code === "transfer_timeout";
+    const policyBlocked = [
+      "public_submissions_disabled",
+      "source_not_allowed",
+      "rate_limited",
+      "daily_quota_reached",
+      "queue_full",
+    ].includes(error.code);
     elements["transfer-status"].replaceChildren(statusPanel(
       "error",
-      t(timedOut ? "transferTimeoutTitle" : unavailable ? "transferUnavailableTitle" : "transferFailedTitle"),
-      t(timedOut ? "transferTimeoutBody" : unavailable ? "transferUnavailableBody" : "transferFailedBody"),
+      t(timedOut ? "transferTimeoutTitle" : unavailable ? "transferUnavailableTitle" : policyBlocked ? "transferPolicyTitle" : "transferFailedTitle"),
+      t(timedOut ? "transferTimeoutBody" : unavailable ? "transferUnavailableBody" : policyBlocked ? "transferPolicyBody" : "transferFailedBody"),
     ));
   } finally {
     if (state.transferController === controller) {

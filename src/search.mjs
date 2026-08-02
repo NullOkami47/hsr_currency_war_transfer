@@ -4,6 +4,9 @@ import {
   fetchLineupPage,
   parseChinaLineupInput,
 } from "./api.mjs";
+import { PublicInputError } from "./errors.mjs";
+import { finalStage } from "./lineup.mjs";
+import { retryRead } from "./retry.mjs";
 
 const CHINA_LINEUP_URL =
   "https://act.miyoushe.com/sr/event/currency-wars/index.html";
@@ -75,11 +78,6 @@ function allLineupRoleIds(lineup) {
       ),
     ),
   );
-}
-
-function finalStage(lineup) {
-  const stages = lineup.tourn_detail?.role_stages ?? [];
-  return stages.find((stage) => stage.stage === "Final") ?? stages.at(-1);
 }
 
 function candidateRoles(lineup, rolesById) {
@@ -242,8 +240,9 @@ function validateSearchRoleIds(config, roleIds) {
   const known = roleIndex(config);
   const unknownRoleIds = roleIds.filter((id) => !known.has(id));
   if (unknownRoleIds.length > 0) {
-    throw new TypeError(
+    throw new PublicInputError(
       `Unknown China role id${unknownRoleIds.length === 1 ? "" : "s"}: ${unknownRoleIds.join(", ")}`,
+      "stale_role_ids",
     );
   }
 }
@@ -267,31 +266,8 @@ function selectedRoleMatchGroups(config, roleIds) {
   return selectedGroups;
 }
 
-async function fetchReadWithRetry(
-  readFn,
-  {
-    attempts = 2,
-    retryDelayMs = 150,
-    waitFn = (milliseconds) =>
-      new Promise((resolve) => setTimeout(resolve, milliseconds)),
-  } = {},
-) {
-  let lastError;
-  for (let attempt = 1; attempt <= attempts; attempt += 1) {
-    try {
-      return await readFn();
-    } catch (error) {
-      lastError = error;
-      if (attempt < attempts && retryDelayMs > 0) {
-        await waitFn(retryDelayMs);
-      }
-    }
-  }
-  throw lastError;
-}
-
 function fetchLineupPageWithRetry(fetchLineupPageFn, options, retryOptions) {
-  return fetchReadWithRetry(
+  return retryRead(
     () => fetchLineupPageFn("cn", options),
     retryOptions,
   );
@@ -331,8 +307,8 @@ export async function searchChinaStrategies(
       ...(waitFn ? { waitFn } : {}),
     };
     const [config, detail] = await Promise.all([
-      fetchReadWithRetry(() => fetchConfigFn("cn"), initialRetryOptions),
-      fetchReadWithRetry(
+      retryRead(() => fetchConfigFn("cn"), initialRetryOptions),
+      retryRead(
         () => fetchLineupDetailFn("cn", sourceId),
         initialRetryOptions,
       ),
@@ -362,18 +338,25 @@ export async function searchChinaStrategies(
   }
 
   if (!titleKeyword && !authorNameKeyword && selectedRoleIds.length === 0) {
-    throw new TypeError(
+    throw new PublicInputError(
       "Provide a China strategy URL/ID, title keyword, author name or at least one role",
+      "missing_criteria",
     );
   }
   if (!Number.isInteger(maxPages) || maxPages < 1 || maxPages > 100) {
-    throw new TypeError("maxPages must be an integer from 1 to 100");
+    throw new PublicInputError(
+      "maxPages must be an integer from 1 to 100",
+      "invalid_pagination",
+    );
   }
   if (!Number.isInteger(pageSize) || pageSize < 1 || pageSize > 50) {
-    throw new TypeError("pageSize must be an integer from 1 to 50");
+    throw new PublicInputError(
+      "pageSize must be an integer from 1 to 50",
+      "invalid_pagination",
+    );
   }
 
-  const config = await fetchReadWithRetry(() => fetchConfigFn("cn"), {
+  const config = await retryRead(() => fetchConfigFn("cn"), {
     attempts: initialReadRetryAttempts,
     retryDelayMs: initialReadRetryDelayMs,
     ...(waitFn ? { waitFn } : {}),

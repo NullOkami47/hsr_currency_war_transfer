@@ -22,6 +22,19 @@ The HTTP worker wraps the same connector core with a persistent job queue.
 Vercel creates and polls jobs using a shared bearer token; the public browser
 never receives that token or the HoYoLAB session.
 
+The administrator console at `/admin` is a separate server-side boundary. The
+administrator token is exchanged for an eight-hour, signed, HTTP-only,
+SameSite=Strict cookie. Settings changes additionally require the session's
+CSRF token. Neither credential is written to local storage. The console proxy
+uses the worker bearer token server-side, and non-loopback worker URLs must use
+HTTPS and must not contain URL credentials.
+
+`CURRENCY_WAR_ADMIN_PASSWORD_HASH` may be used instead of a raw administrator
+token. It stores a PBKDF2-SHA256 hash in the deployment environment while the
+administrator enters the original password in `/admin`. Never commit either a
+real token or password hash. A long random password remains preferable because
+a hash cannot prevent online guessing of a weak password.
+
 ## First login
 
 Install Node.js 20 or later and Google Chrome, then run:
@@ -47,14 +60,20 @@ This prevents the first connector run from creating a duplicate.
 
 ## Run the connected flow locally
 
-For a one-machine setup, the launcher creates an in-memory random token and
-starts both services in the background:
+For a one-machine setup, the launcher creates an in-memory random token and an
+independent administrator token, then starts both services in the background:
 
 ```powershell
 npm run local:start
 # Open http://127.0.0.1:4173
+# Open http://127.0.0.1:4173/admin and use the one-time token printed above
 npm run local:stop
 ```
+
+The local launcher enables public submission on loopback and disables the
+allow-list for development. Its state file contains only process IDs and a
+random instance nonce, never either token. If the one-time administrator token
+is lost, stop and restart the local stack.
 
 The manual equivalent is shown below when separate terminals or custom ports
 are required.
@@ -78,12 +97,49 @@ Start the website in another terminal with the same token:
 ```powershell
 $env:CURRENCY_WAR_WORKER_TOKEN="paste-the-generated-token"
 $env:CURRENCY_WAR_WORKER_URL="http://127.0.0.1:8787/jobs"
+$env:CURRENCY_WAR_ADMIN_TOKEN="paste-a-different-32-byte-random-token"
 npm run dev
 ```
 
 The website now searches anonymously, submits the selected China strategy,
 polls the job, and displays the returned global share code. The worker health
 endpoint is `GET /health`; job endpoints require the bearer token.
+
+## Administrator console and safety policy
+
+On first production start, public submission is disabled and the source
+allow-list is enabled but empty. Sign in at `/admin`, configure the policy,
+then explicitly enable public submission. The settings are persisted with the
+job store and enforced inside the worker, not merely hidden in the website:
+
+| Setting | Default | Allowed range / effect |
+| --- | ---: | --- |
+| Public submissions | Off | Master switch for requests originating from the public API |
+| Source allow-list | On, empty | Up to 500 valid 24-character China strategy IDs |
+| Per-IP limit | 5 per 60 minutes | 1–1,000 requests over a 1–1,440 minute sliding window |
+| Publishing-account daily quota | 25 | 1–10,000 accepted jobs per UTC day |
+| Pending queue capacity | 20 | 1–1,000 queued or running jobs |
+| Record retention | 30 days | 1–365 days |
+| Maximum stored records | 1,000 | 5–10,000 terminal records; active jobs are always retained |
+
+One worker uses one Global publishing account, so the daily account quota
+applies to that worker's publishing identity. There is no separate end-user
+account system. The IP limiter uses a keyed HMAC of the address supplied by the
+trusted deployment proxy; raw addresses are not sent to or stored by the
+worker. Set `CURRENCY_WAR_CLIENT_HASH_SECRET` to a stable random secret if the
+rate-limit identity must survive worker-token rotation. For a non-Vercel
+reverse proxy, set `CURRENCY_WAR_TRUST_PROXY=1` only after configuring it to
+overwrite, rather than append, untrusted client forwarding headers.
+
+Active duplicate requests for the same China strategy reuse the existing job
+before quota checks, preventing refreshes from consuming additional quota.
+Rejected policies return stable 403 or 429 codes and never start a browser
+publication.
+
+The console shows source IDs, public Global strategy IDs/share codes, status,
+timestamps, and sanitised errors. It never returns client rate-limit keys,
+network addresses, worker credentials, browser-profile paths, cookies, or
+HoYoLAB session data.
 
 ## Change the publishing account
 
@@ -149,14 +205,16 @@ final request. A third `-100` is treated as a genuine expired login.
 
 Run one worker process on the administrator machine or persistent VM. Set
 `CURRENCY_WAR_WORKER_URL` on Vercel to its HTTPS `/jobs` endpoint and configure
-the same `CURRENCY_WAR_WORKER_TOKEN` on both sides. Do not expose the worker
+the same `CURRENCY_WAR_WORKER_TOKEN` on both sides. Set a different random
+`CURRENCY_WAR_ADMIN_TOKEN` of at least 32 characters on Vercel. Do not expose the worker
 directly over unencrypted HTTP on the public internet; bind it to localhost
 behind a TLS reverse proxy, or use a private authenticated tunnel.
 
 The worker persists queued and completed jobs in
 `~/.hsr-currency-war-transfer/jobs.json`, recovers interrupted work after a
 restart, deduplicates active jobs by China strategy ID, and executes transfers
-sequentially. Override the path with `CURRENCY_WAR_JOB_STATE_PATH`.
+sequentially. Terminal records are pruned by age and count according to the
+administrator policy. Override the path with `CURRENCY_WAR_JOB_STATE_PATH`.
 
 The three anonymous reads that initialise a transfer (Global configuration,
 Traditional Chinese configuration and China source detail) are each attempted

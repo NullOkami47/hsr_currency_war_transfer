@@ -1,14 +1,34 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
+import { PublicInputError } from "../src/errors.mjs";
+
 import {
   createRolesHandler,
   createSearchHandler,
   createTransfersHandler,
   getTransferFromWorker,
+  publicClientKey,
   submitTransferToWorker,
   TransferServiceUnavailableError,
 } from "../src/http.mjs";
+
+test("hashes a trusted client address and ignores spoofable forwarding headers", () => {
+  const request = {
+    headers: { "x-forwarded-for": "203.0.113.10" },
+    socket: { remoteAddress: "127.0.0.1" },
+  };
+  const localKey = publicClientKey(request, "test-hash-secret");
+  const vercelKey = publicClientKey({
+    ...request,
+    headers: { "x-vercel-forwarded-for": "203.0.113.10" },
+  }, "test-hash-secret");
+
+  assert.match(localKey, /^[a-f0-9]{64}$/);
+  assert.notEqual(localKey, vercelKey);
+  assert.doesNotMatch(localKey, /127\.0\.0\.1/);
+  assert.doesNotMatch(vercelKey, /203\.0\.113\.10/);
+});
 
 function responseRecorder() {
   const headers = new Map();
@@ -108,7 +128,10 @@ test("rejects an excessive public search before calling China", async () => {
 test("classifies stale role ids as refreshable input", async () => {
   const handler = createSearchHandler({
     searchChinaStrategiesFn: async () => {
-      throw new TypeError("Unknown China role id: removed");
+      throw new PublicInputError(
+        "Unknown China role id: removed",
+        "stale_role_ids",
+      );
     },
   });
   const response = responseRecorder();
@@ -188,6 +211,7 @@ test("submits a validated China strategy ID to the worker", async () => {
   assert.equal(receivedId, "6a56fe3021253d0e1a9f4761");
   assert.equal(response.statusCode, 200);
   assert.equal(response.json().shareCode, "##share-code=##");
+  assert.equal("globalId" in response.json(), false);
 });
 
 test("reports an unconfigured transfer worker without leaking details", async () => {
@@ -286,11 +310,43 @@ test("serves transfer polling from the public API", async () => {
   assert.deepEqual(response.json(), {
     status: "queued",
     jobId: "job-2",
-    globalId: null,
     shareCode: null,
     ignored: [],
     error: null,
   });
+});
+
+test("rejects a public plaintext worker URL before sending the token", async () => {
+  let called = false;
+  await assert.rejects(
+    () => submitTransferToWorker(
+      "6a56fe3021253d0e1a9f4761",
+      {
+        workerUrl: "http://worker.example/jobs",
+        workerToken: "server-secret",
+        fetchFn: async () => {
+          called = true;
+        },
+      },
+    ),
+    /HTTPS/,
+  );
+  assert.equal(called, false);
+});
+
+test("allows plaintext worker traffic only on loopback", async () => {
+  const result = await submitTransferToWorker(
+    "6a56fe3021253d0e1a9f4761",
+    {
+      workerUrl: "http://127.0.0.1:8787/jobs",
+      workerToken: "server-secret",
+      fetchFn: async () => ({
+        ok: true,
+        json: async () => ({ status: "queued", jobId: "local-job" }),
+      }),
+    },
+  );
+  assert.equal(result.jobId, "local-job");
 });
 
 test("sanitises a failed worker result", async () => {
@@ -315,4 +371,34 @@ test("sanitises a failed worker result", async () => {
   assert.equal(result.error.code, "publishing_session_error");
   assert.equal(result.error.message, "The strategy could not be transferred");
   assert.doesNotMatch(JSON.stringify(result), /sensitive/);
+});
+
+test("rejects a completed worker result without a share code", async () => {
+  await assert.rejects(
+    () => getTransferFromWorker("job-4", {
+      workerUrl: "https://worker.example/jobs",
+      workerToken: "server-secret",
+      fetchFn: async () => ({
+        ok: true,
+        status: 200,
+        json: async () => ({ status: "created", jobId: "job-4" }),
+      }),
+    }),
+    /without a share code/,
+  );
+});
+
+test("reports a malformed completed worker result as unavailable", async () => {
+  const handler = createTransfersHandler({
+    getTransferFn: async () => ({ status: "created", jobId: "job-5" }),
+  });
+  const response = responseRecorder();
+
+  await handler(
+    { method: "GET", url: "/api/transfers?jobId=job-5" },
+    response,
+  );
+
+  assert.equal(response.statusCode, 503);
+  assert.equal(response.json().error.code, "transfer_service_unavailable");
 });

@@ -55,9 +55,10 @@ localhost with an in-memory random token. `npm run local:stop` stops both
 background processes. Run `npm run connector:login` first whenever the saved
 HoYoLAB session or publishing account needs to be changed.
 
-On Vercel, configure `CURRENCY_WAR_WORKER_URL` and
-`CURRENCY_WAR_WORKER_TOKEN` as server-side environment variables to connect
-the submit button to the separate authenticated publishing worker. Run
+On Vercel, configure `CURRENCY_WAR_WORKER_URL`,
+`CURRENCY_WAR_WORKER_TOKEN`, and a separate `CURRENCY_WAR_ADMIN_TOKEN` as
+server-side environment variables to connect the submit button to the separate
+authenticated publishing worker and enable the `/admin` console. Run
 `npm run worker` on the administrator machine or persistent VM with the same
 token. The website creates a job, polls it through the Vercel API, and returns
 the global share code without exposing the worker token or HoYoLAB session to
@@ -67,6 +68,13 @@ job; completed requests run the existing create/update/unchanged comparison.
 Without these variables, search and selection still work and transfer
 submission returns a clear service-unavailable state. See `.env.example` and
 `docs/admin-connector.md` for the complete local and production setup.
+
+After signing in at `/admin`, an administrator can inspect publishing records
+and change the public-submission switch, source strategy allow-list, per-IP
+rate limit, publishing-account daily quota, pending queue capacity, and record
+retention policy. Public submissions are disabled by default and the source
+allow-list starts enabled and empty. Here, “per account” means the single
+Global publishing account attached to that worker.
 
 `probe` reads and transforms without writing. `diff:live` re-fetches both
 published strategies, normalises them through the same transformer, and exits

@@ -1,5 +1,7 @@
 import { randomUUID } from "node:crypto";
 
+import { PublicInputError } from "./errors.mjs";
+
 export const REGIONS = Object.freeze({
   cn: Object.freeze({
     baseUrl:
@@ -105,7 +107,7 @@ export function fetchConfig(region, options = {}) {
 
 export function fetchLineupDetail(region, id, options = {}) {
   if (!/^[a-f0-9]{24}$/i.test(id)) {
-    throw new TypeError(`Invalid lineup id: ${id}`);
+    throw new PublicInputError(`Invalid lineup id: ${id}`, "invalid_source");
   }
 
   return request(region, "/game/lineup/detail", {
@@ -129,7 +131,7 @@ export function fetchLineupPage(
   options = {},
 ) {
   if (!["Hot", "CreatedTime"].includes(order)) {
-    throw new TypeError(`Unsupported order: ${order}`);
+    throw new PublicInputError(`Unsupported order: ${order}`, "invalid_order");
   }
 
   return request(region, "/game/lineup/index", {
@@ -206,7 +208,7 @@ export async function searchLineupsByTitle(
 export function parseChinaLineupInput(value) {
   const input = value.trim();
   if (/^[a-f0-9]{24}$/i.test(input)) {
-    return input;
+    return input.toLowerCase();
   }
 
   let url;
@@ -214,25 +216,32 @@ export function parseChinaLineupInput(value) {
     const sharedUrl = input.match(/https:\/\/act\.miyoushe\.com\/\S+/i)?.[0];
     url = new URL(sharedUrl ?? input);
   } catch {
-    throw new TypeError("Input is neither a lineup id nor a valid URL");
+    throw new PublicInputError(
+      "Input is neither a lineup id nor a valid URL",
+      "invalid_source",
+    );
   }
 
   if (url.hostname !== "act.miyoushe.com") {
-    throw new TypeError("Only act.miyoushe.com lineup URLs are accepted");
+    throw new PublicInputError(
+      "Only act.miyoushe.com lineup URLs are accepted",
+      "invalid_source",
+    );
   }
 
   const routeMatch = url.hash.match(/#\/lineup\/([a-f0-9]{24})(?:[/?]|$)/i);
   if (routeMatch) {
-    return routeMatch[1];
+    return routeMatch[1].toLowerCase();
   }
 
   const directId = url.searchParams.get("lineup_id");
   if (directId && /^[a-f0-9]{24}$/i.test(directId)) {
-    return directId;
+    return directId.toLowerCase();
   }
 
-  throw new TypeError(
+  throw new PublicInputError(
     "The URL does not contain a directly readable China lineup id",
+    "invalid_source",
   );
 }
 

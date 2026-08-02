@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="robots" content="noindex">
     <title>Currency War Transfer — 元件展示</title>
-    <link rel="stylesheet" href="/styles.css?v=11">
+    <link rel="stylesheet" href="/styles.css?v=13">
   </head>
   <body>
     <main class="showcase">
@@ -114,6 +114,24 @@
             </div>
           </div>
         </article>
+        <article class="candidate candidate--expired">
+          <div class="candidate__index"><span>02</span><input class="candidate__radio" type="radio" disabled aria-label="已過期，無法選擇"></div>
+          <div class="candidate__body"><div class="candidate__heading-row"><h3 class="candidate__title">已失效的來源攻略</h3><span class="candidate__badge candidate__badge--expired">已過期</span></div><p class="candidate__description">保留在搜尋結果供辨識，但無法選擇或提交。</p></div>
+        </article>
+      </section>
+
+      <section class="showcase__section" aria-labelledby="admin-heading">
+        <h2 id="admin-heading">管理員安全控制</h2>
+        <div class="admin-stats">
+          <article class="admin-stat"><p>處理中</p><strong>2</strong><span>上限 20</span></article>
+          <article class="admin-stat"><p>今日提交</p><strong>8</strong><span>剩餘 17</span></article>
+          <article class="admin-stat"><p>已保存紀錄</p><strong>128</strong><span>上限 1,000</span></article>
+          <article class="admin-stat"><p>公開提交</p><strong>啟用</strong><span>使用 allow-list</span></article>
+        </div>
+        <div class="admin-setting-grid">
+          <fieldset class="admin-setting-group"><legend>公開服務</legend><label class="admin-check"><input type="checkbox" checked><span>允許公開網站提交轉移工作</span></label><label class="admin-check"><input type="checkbox" checked><span>只接受來源 allow-list 內的攻略</span></label></fieldset>
+          <fieldset class="admin-setting-group"><legend>限流與每日配額</legend><div class="admin-number-grid"><label class="field"><span class="field__label">每 IP 提交上限</span><input class="field__input" type="number" value="5"></label><label class="field"><span class="field__label">帳戶每日配額</span><input class="field__input" type="number" value="25"></label></div></fieldset>
+        </div>
       </section>
 
       <section class="showcase__section" aria-labelledby="states-heading">

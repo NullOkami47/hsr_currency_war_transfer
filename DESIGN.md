@@ -207,6 +207,35 @@ Base unit: `4px`.
 - The footer presents the China and Global Strategy Compendiums as peer text links in
   a wrapping group. Both open in a new tab and use locale-specific labels.
 
+### Administrator console
+
+- `/admin` is an operational companion to the public compendium and reuses the
+  same parchment, ink, amber, teal, rule, typography, spacing and focus tokens.
+  It must not introduce a second visual language or expose administrator or
+  worker secrets after sign-in.
+- The signed-out state is a single-purpose authentication panel with a password
+  field, submit button, useful error copy and no operational data in the HTML.
+  Authentication uses an HTTP-only session cookie; the credential is never
+  persisted by browser JavaScript.
+- The signed-in state has three regions in reading order: current service
+  status and usage, safety settings, then recent transfer records. Destructive
+  or service-enabling settings use a danger callout and explicit explanatory
+  text rather than colour alone.
+- Settings are grouped by intent: submission access, source allow-list,
+  per-IP limits, publishing-account daily quota, queue capacity and history
+  retention. Every numeric field shows its unit and accepted range. Save,
+  saving, success, validation-error and worker-unavailable states are explicit.
+- The record table uses semantic table markup on wide screens and remains
+  horizontally scrollable at narrow widths. Status is always text-labelled;
+  IDs and timestamps use the mono token. Empty, loading and error states use
+  the existing status-panel primitive.
+- Authentication expiry returns focus to the sign-in heading. Successful save
+  keeps focus on the save status, and refresh never discards unsaved changes
+  without confirmation.
+- A compact text link connects the public page and administrator console. The
+  administrator route is intentionally discoverable but reveals no data until
+  authenticated.
+
 ## 6. Motion & Interaction
 
 | Token | Value | Use |
@@ -271,10 +300,14 @@ Paper texture is created with subtle CSS radial/linear gradients using declared 
 - A mobile player pasting a shared URL with one hand: exact lookup must be the shortest path.
 - A desktop theory-crafter comparing several lineups: title, author, description, and final roster must be scannable without opening each source page.
 - A keyboard or screen-reader user: every role choice, candidate selection, and transfer state must be announced and operable without pointer input.
+- An administrator operating the publishing account: current limits, queue
+  pressure and recent failures must be understandable without inspecting JSON
+  files or revealing credentials; keyboard-only operation and 200% zoom must
+  preserve every setting and record action.
 
 ### Accepted Debt
 
 | Item | Location | Why accepted | Owner / Exit |
 | --- | --- | --- | --- |
-| Public transfer submission requires an external admin worker queue | `/api/transfers` | Vercel must not receive or launch the administrator's persistent browser profile | Connect `CURRENCY_WAR_WORKER_URL` and token before public launch |
+| Public transfer submission requires an external admin worker queue | `/api/transfers` | Vercel must not receive or launch the administrator's persistent browser profile | Keep submissions disabled until the worker and administrator console are configured; enforce allow-list, quota, rate and queue limits before enabling |
 | Full Lighthouse audit against deployed CDN is pending | Deployment | No deployed URL exists yet | Run mobile and desktop audits after Vercel deployment |

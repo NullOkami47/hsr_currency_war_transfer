@@ -293,3 +293,111 @@ test("waits for the public detail cache to reflect an edit", async () => {
   assert.equal(result.status, "updated");
   assert.equal(second.calls.edit.length, 1);
 });
+
+test("does not create a duplicate when a mapped strategy read fails", async () => {
+  const previous = {
+    globalId: GLOBAL_ID,
+    sourceHash: "previous-hash",
+    shareCode: "existing-code",
+  };
+  const transfer = dependencies({ previous, published: publishedFrom({
+    title: "existing",
+    description: "",
+    lineup_type: "Tourn",
+    tourn_detail: config(),
+  }) });
+  const originalFetch = transfer.options.fetchLineupDetailFn;
+  transfer.options.fetchLineupDetailFn = async (region, id) => {
+    if (region === "global" && id === GLOBAL_ID) {
+      throw new TypeError("fetch failed");
+    }
+    return originalFetch(region, id);
+  };
+  transfer.options.mappedReadRetry = { attempts: 2, retryDelayMs: 0 };
+
+  await assert.rejects(
+    () => transferStrategy(SOURCE_ID, transfer.options),
+    /fetch failed/,
+  );
+  assert.equal(transfer.calls.create.length, 0);
+  assert.equal(transfer.calls.edit.length, 0);
+});
+
+test("creates a replacement only when a mapped strategy is confirmed missing", async () => {
+  const previous = {
+    globalId: GLOBAL_ID,
+    sourceHash: "previous-hash",
+    shareCode: "old-code",
+  };
+  const transfer = dependencies({ previous });
+  const originalFetch = transfer.options.fetchLineupDetailFn;
+  transfer.options.fetchLineupDetailFn = async (region, id) => {
+    if (region === "global" && transfer.calls.create.length === 0) {
+      const error = new Error("not found");
+      error.status = 404;
+      throw error;
+    }
+    return originalFetch(region, id);
+  };
+  transfer.options.mappedReadRetry = { attempts: 1, retryDelayMs: 0 };
+
+  const result = await transferStrategy(SOURCE_ID, transfer.options);
+
+  assert.equal(result.status, "created");
+  assert.equal(transfer.calls.create.length, 1);
+  assert.equal(transfer.calls.edit.length, 0);
+});
+
+test("reports exact differences when every verification read stays stale", async () => {
+  const transfer = dependencies();
+  const originalFetch = transfer.options.fetchLineupDetailFn;
+  transfer.options.fetchLineupDetailFn = async (region, id) => {
+    const result = await originalFetch(region, id);
+    if (region !== "global") return result;
+    return {
+      lineup: {
+        ...structuredClone(result.lineup),
+        description: "stale description",
+      },
+    };
+  };
+  transfer.options.verification = { attempts: 2, retryDelayMs: 0 };
+
+  await assert.rejects(
+    () => transferStrategy(SOURCE_ID, transfer.options),
+    (error) =>
+      error.name === "TransferVerificationError"
+      && error.differences.some(({ path }) => path.endsWith("description")),
+  );
+});
+
+test("does not report completion without a global share code", async () => {
+  const transfer = dependencies();
+  const originalFetch = transfer.options.fetchLineupDetailFn;
+  transfer.options.fetchLineupDetailFn = async (region, id) => {
+    const result = await originalFetch(region, id);
+    if (region !== "global") return result;
+    const lineup = structuredClone(result.lineup);
+    delete lineup.tourn_detail.share_code;
+    return { lineup };
+  };
+  transfer.options.verification = { attempts: 1, retryDelayMs: 0 };
+
+  await assert.rejects(
+    () => transferStrategy(SOURCE_ID, transfer.options),
+    /share code/i,
+  );
+  assert.equal(transfer.calls.set.length, 0);
+});
+
+test("rejects an expired China strategy before publishing", async () => {
+  const sourceLineup = source();
+  sourceLineup.tourn_detail.is_expired = true;
+  const transfer = dependencies({ sourceLineup });
+
+  await assert.rejects(
+    () => transferStrategy(SOURCE_ID, transfer.options),
+    (error) => error.reason === "expired_source",
+  );
+  assert.equal(transfer.calls.create.length, 0);
+});
