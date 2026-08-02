@@ -35,6 +35,28 @@ administrator enters the original password in `/admin`. Never commit either a
 real token or password hash. A long random password remains preferable because
 a hash cannot prevent online guessing of a weak password.
 
+Set `CURRENCY_WAR_ADMIN_TOTP_SECRET` to require a second, RFC 6238-compatible
+time-based code for every new administrator session. Enabling or rotating this
+secret immediately invalidates sessions signed without the current TOTP key.
+The setup key remains server-side and the browser sends only the current
+six-digit code. A successfully used code cannot create a second session within
+the same running API instance. Failed sign-ins share one generic response and
+are limited to five failures per client over ten minutes within each instance.
+
+Generate an independent setup key locally:
+
+```powershell
+npm run admin:totp:generate
+```
+
+In Google Authenticator choose **Enter a setup key**, use `Currency War Admin`
+as the account name, paste the displayed key, and select **Time based**. Store
+the unspaced key as `CURRENCY_WAR_ADMIN_TOTP_SECRET` in Vercel Production,
+Preview and Development environments. Never reuse the password, worker token,
+or administrator session secret as the TOTP key. If the phone is lost, an
+authorised Vercel administrator must rotate this environment variable and
+enrol the replacement Authenticator before attempting another sign-in.
+
 ## First login
 
 Install Node.js 20 or later and Google Chrome, then run:

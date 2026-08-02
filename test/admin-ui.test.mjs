@@ -9,6 +9,7 @@ test("administrator page exposes labelled safety controls and an audit table", a
   );
 
   for (const id of [
+    "admin-totp",
     "setting-public-enabled",
     "setting-allowlist-enabled",
     "setting-allowlist",
@@ -34,6 +35,8 @@ test("administrator script keeps credentials out of browser storage", async () =
 
   assert.match(script, /"x-csrf-token": state\.csrfToken/);
   assert.match(script, /elements\["admin-token"\]\.value = ""/);
+  assert.match(script, /elements\["admin-totp"\]\.value = ""/);
+  assert.match(script, /JSON\.stringify\(\{ token, totp \}\)/);
   assert.match(
     script,
     /state\.csrfToken = session\.csrfToken;\s+showConsole\(\);\s+await loadDashboard/,

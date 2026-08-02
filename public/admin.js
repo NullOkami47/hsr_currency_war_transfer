@@ -1,5 +1,6 @@
 const elements = Object.fromEntries([
   "admin-theme-toggle", "admin-login", "admin-login-form", "admin-token",
+  "admin-totp-field", "admin-totp",
   "admin-login-status", "admin-console", "admin-title", "admin-refresh",
   "admin-logout", "admin-stats", "admin-settings-form", "admin-save",
   "admin-save-status", "setting-public-enabled", "setting-allowlist-enabled",
@@ -13,6 +14,7 @@ const state = {
   csrfToken: null,
   dirty: false,
   loading: false,
+  totpRequired: false,
 };
 
 function setTheme(theme, persist = false) {
@@ -32,6 +34,23 @@ function setTheme(theme, persist = false) {
 function status(element, message, variant = "") {
   element.textContent = message;
   element.dataset.variant = variant;
+}
+
+function applyTotpRequirement(required) {
+  state.totpRequired = Boolean(required);
+  elements["admin-totp-field"].hidden = !state.totpRequired;
+  elements["admin-totp"].required = state.totpRequired;
+  if (!state.totpRequired) elements["admin-totp"].value = "";
+}
+
+function loginErrorMessage(error) {
+  if (error.code === "too_many_attempts") {
+    return "登入嘗試過多，請稍後再試。";
+  }
+  if (error.status === 401) {
+    return "登入失敗，請確認管理員密碼與 Authenticator 驗證碼。";
+  }
+  return error.message;
 }
 
 async function jsonRequest(url, options = {}) {
@@ -198,17 +217,20 @@ elements["admin-login-form"].addEventListener("submit", async (event) => {
   button.disabled = true;
   status(elements["admin-login-status"], "正在驗證…");
   const token = elements["admin-token"].value;
+  const totp = elements["admin-totp"].value;
   elements["admin-token"].value = "";
+  elements["admin-totp"].value = "";
   try {
     const session = await jsonRequest("/api/admin/session", {
       method: "POST",
-      body: JSON.stringify({ token }),
+      body: JSON.stringify({ token, totp }),
     });
+    applyTotpRequirement(session.totpRequired);
     state.csrfToken = session.csrfToken;
     showConsole();
     await loadDashboard({ discardDirty: true });
   } catch (error) {
-    showLogin(error.message);
+    showLogin(loginErrorMessage(error));
   } finally {
     button.disabled = false;
   }
@@ -257,6 +279,7 @@ elements["admin-logout"].addEventListener("click", async () => {
 setTheme(document.documentElement.dataset.theme === "dark" ? "dark" : "light");
 try {
   const session = await jsonRequest("/api/admin/session");
+  applyTotpRequirement(session.totpRequired);
   if (session.authenticated) {
     state.csrfToken = session.csrfToken;
     showConsole();

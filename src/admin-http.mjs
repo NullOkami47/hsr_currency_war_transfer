@@ -7,9 +7,12 @@ import {
 } from "node:crypto";
 
 import { validatedWorkerUrl } from "./http.mjs";
+import { decodeTotpSecret, verifyTotpCode } from "./totp.mjs";
 
 const SESSION_COOKIE = "currency_war_admin";
 const SESSION_TTL_SECONDS = 8 * 60 * 60;
+const LOGIN_WINDOW_MS = 10 * 60 * 1000;
+const LOGIN_MAX_FAILURES = 5;
 
 function sendJson(response, status, body) {
   response.statusCode = status;
@@ -75,6 +78,112 @@ function configuredAdminCredentials(adminToken, adminPasswordHash) {
   return credentials;
 }
 
+function configuredTotp(secret) {
+  const value = String(secret ?? "").trim();
+  if (!value) return { required: false, secret: null, key: null, invalid: false };
+  try {
+    return {
+      required: true,
+      secret: value,
+      key: decodeTotpSecret(value),
+      invalid: false,
+    };
+  } catch {
+    return { required: true, secret: null, key: null, invalid: true };
+  }
+}
+
+function sessionCredentials(credentials, totp) {
+  return credentials.map((credential) => ({
+    ...credential,
+    sessionSecret: totp.required
+      ? createHmac("sha256", credential.secret)
+          .update("currency-war-admin-totp-session\0")
+          .update(totp.key)
+          .digest("base64url")
+      : credential.secret,
+  }));
+}
+
+function loginClientKey(request) {
+  const trustedForwarded = request.headers?.["x-vercel-forwarded-for"]
+    ?? (process.env.CURRENCY_WAR_TRUST_PROXY === "1"
+      ? request.headers?.["x-forwarded-for"]
+      : undefined);
+  const forwarded = Array.isArray(trustedForwarded)
+    ? trustedForwarded[0]
+    : String(trustedForwarded ?? "").split(",", 1)[0];
+  const address = String(
+    forwarded
+    || request.socket?.remoteAddress
+    || "unknown",
+  ).trim().slice(0, 200);
+  return createHash("sha256").update(address).digest("base64url");
+}
+
+export function createAdminLoginLimiter({
+  maxFailures = LOGIN_MAX_FAILURES,
+  windowMs = LOGIN_WINDOW_MS,
+  maxEntries = 5_000,
+} = {}) {
+  if (
+    !Number.isInteger(maxFailures) || maxFailures < 1
+    || !Number.isInteger(windowMs) || windowMs < 1
+    || !Number.isInteger(maxEntries) || maxEntries < 1
+  ) {
+    throw new TypeError("Administrator login limiter options are invalid");
+  }
+  const attempts = new Map();
+  const usedOtps = new Map();
+
+  function activeEntry(key, nowMs) {
+    const entry = attempts.get(key);
+    if (!entry || entry.resetAt <= nowMs) {
+      attempts.delete(key);
+      return null;
+    }
+    return entry;
+  }
+
+  return {
+    retryAfter(key, nowMs) {
+      const entry = activeEntry(key, nowMs);
+      return entry && entry.failures >= maxFailures
+        ? Math.max(1, Math.ceil((entry.resetAt - nowMs) / 1000))
+        : 0;
+    },
+    failure(key, nowMs) {
+      const entry = activeEntry(key, nowMs) ?? {
+        failures: 0,
+        resetAt: nowMs + windowMs,
+      };
+      entry.failures += 1;
+      attempts.delete(key);
+      attempts.set(key, entry);
+      while (attempts.size > maxEntries) {
+        attempts.delete(attempts.keys().next().value);
+      }
+    },
+    success(key) {
+      attempts.delete(key);
+    },
+    consumeOtp(fingerprint, nowMs, expiresAt) {
+      for (const [key, expiry] of usedOtps) {
+        if (expiry <= nowMs) usedOtps.delete(key);
+      }
+      if ((usedOtps.get(fingerprint) ?? 0) > nowMs) return false;
+      usedOtps.delete(fingerprint);
+      usedOtps.set(fingerprint, expiresAt);
+      while (usedOtps.size > maxEntries) {
+        usedOtps.delete(usedOtps.keys().next().value);
+      }
+      return true;
+    },
+  };
+}
+
+const defaultAdminLoginLimiter = createAdminLoginLimiter();
+
 function parseCookies(request) {
   return Object.fromEntries(
     String(request.headers?.cookie ?? "")
@@ -110,8 +219,8 @@ function verifySession(request, credentials, now) {
   if (!value) return null;
   const [payload, suppliedSignature, extra] = value.split(".");
   if (!payload || !suppliedSignature || extra) return null;
-  if (!credentials.some(({ secret }) =>
-    sameSecret(sign(payload, secret), suppliedSignature))) return null;
+  if (!credentials.some(({ sessionSecret }) =>
+    sameSecret(sign(payload, sessionSecret), suppliedSignature))) return null;
   try {
     const decoded = JSON.parse(Buffer.from(payload, "base64url").toString("utf8"));
     if (
@@ -169,15 +278,18 @@ function methodNotAllowed(response, allowed) {
 export function createAdminSessionHandler({
   adminToken = process.env.CURRENCY_WAR_ADMIN_TOKEN,
   adminPasswordHash = process.env.CURRENCY_WAR_ADMIN_PASSWORD_HASH,
+  adminTotpSecret = process.env.CURRENCY_WAR_ADMIN_TOTP_SECRET,
   secureCookies = process.env.NODE_ENV === "production" || process.env.VERCEL === "1",
   now = () => new Date(),
+  loginLimiter = defaultAdminLoginLimiter,
 } = {}) {
   return async function adminSessionHandler(request, response) {
-    const credentials = configuredAdminCredentials(
+    const configuredCredentials = configuredAdminCredentials(
       adminToken,
       adminPasswordHash,
     );
-    if (credentials.length === 0) {
+    const totp = configuredTotp(adminTotpSecret);
+    if (configuredCredentials.length === 0 || totp.invalid) {
       sendJson(response, 503, {
         error: {
           code: "admin_unconfigured",
@@ -186,6 +298,7 @@ export function createAdminSessionHandler({
       });
       return;
     }
+    const credentials = sessionCredentials(configuredCredentials, totp);
 
     if (!['GET', 'POST', 'DELETE'].includes(request.method)) {
       methodNotAllowed(response, "GET, POST, DELETE");
@@ -194,18 +307,50 @@ export function createAdminSessionHandler({
 
     if (request.method === "POST") {
       try {
+        const nowValue = now();
+        const clientKey = loginClientKey(request);
+        const retryAfter = loginLimiter.retryAfter(clientKey, nowValue.getTime());
+        if (retryAfter) {
+          response.setHeader("retry-after", String(retryAfter));
+          sendJson(response, 429, {
+            error: {
+              code: "too_many_attempts",
+              message: "Too many administrator sign-in attempts",
+              retryAfter,
+            },
+          });
+          return;
+        }
         const body = parseBody(request);
         const credential = credentials.find(({ verify }) => verify(body.token));
-        if (!credential) {
+        const totpValid = !totp.required || verifyTotpCode(
+          totp.secret,
+          body.totp,
+          { now: nowValue },
+        );
+        const totpFresh = !totp.required || !credential || !totpValid
+          ? !totp.required
+          : loginLimiter.consumeOtp(
+              createHmac("sha256", totp.key)
+                .update("currency-war-admin-used-totp\0")
+                .update(String(body.totp))
+                .digest("base64url"),
+              nowValue.getTime(),
+              nowValue.getTime() + 90_000,
+            );
+        if (!credential || !totpValid || !totpFresh) {
+          loginLimiter.failure(clientKey, nowValue.getTime());
           sendJson(response, 401, {
             error: { code: "unauthorised", message: "Invalid administrator credential" },
           });
           return;
         }
-        const session = createSession(credential.secret, now());
+        loginLimiter.success(clientKey);
+        const session = createSession(credential.sessionSecret, nowValue);
         response.setHeader("set-cookie", cookie(session.value, { secureCookies }));
         sendJson(response, 200, {
           authenticated: true,
+          totpRequired: totp.required,
           csrfToken: session.payload.csrfToken,
           expiresAt: new Date(session.payload.expiresAt).toISOString(),
         });
@@ -233,10 +378,11 @@ export function createAdminSessionHandler({
     sendJson(response, 200, session
       ? {
           authenticated: true,
+          totpRequired: totp.required,
           csrfToken: session.csrfToken,
           expiresAt: new Date(session.expiresAt).toISOString(),
         }
-      : { authenticated: false });
+      : { authenticated: false, totpRequired: totp.required });
   };
 }
 
@@ -314,21 +460,24 @@ export async function updateWorkerSettings(settings, options) {
 export function createAdminApiHandler({
   adminToken = process.env.CURRENCY_WAR_ADMIN_TOKEN,
   adminPasswordHash = process.env.CURRENCY_WAR_ADMIN_PASSWORD_HASH,
+  adminTotpSecret = process.env.CURRENCY_WAR_ADMIN_TOTP_SECRET,
   now = () => new Date(),
   fetchDashboardFn = fetchWorkerDashboard,
   updateSettingsFn = updateWorkerSettings,
 } = {}) {
   return async function adminApiHandler(request, response) {
-    const credentials = configuredAdminCredentials(
+    const configuredCredentials = configuredAdminCredentials(
       adminToken,
       adminPasswordHash,
     );
-    if (credentials.length === 0) {
+    const totp = configuredTotp(adminTotpSecret);
+    if (configuredCredentials.length === 0 || totp.invalid) {
       sendJson(response, 503, {
         error: { code: "admin_unconfigured", message: "Administrator access is not configured" },
       });
       return;
     }
+    const credentials = sessionCredentials(configuredCredentials, totp);
     if (!['GET', 'PUT'].includes(request.method)) {
       methodNotAllowed(response, "GET, PUT");
       return;

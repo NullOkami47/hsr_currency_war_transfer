@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "admin:totp:generate": "node scripts/generate-admin-totp.mjs",
     "connector:login": "node scripts/connector-login.mjs",
     "dev": "node scripts/dev-server.mjs",
     "diff:live": "node scripts/diff-live.mjs",

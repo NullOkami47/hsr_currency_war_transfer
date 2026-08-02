@@ -214,9 +214,11 @@ Base unit: `4px`.
   It must not introduce a second visual language or expose administrator or
   worker secrets after sign-in.
 - The signed-out state is a single-purpose authentication panel with a password
-  field, submit button, useful error copy and no operational data in the HTML.
-  Authentication uses an HTTP-only session cookie; the credential is never
-  persisted by browser JavaScript.
+  field, a six-digit Authenticator field when TOTP is configured, submit button,
+  useful error copy and no operational data in the HTML. Both fields use the
+  existing Field primitive, preserve a logical password-then-code reading order,
+  and remain usable at 200% zoom. Authentication uses an HTTP-only session
+  cookie; neither credential is persisted by browser JavaScript.
 - The signed-in state has three regions in reading order: current service
   status and usage, safety settings, then recent transfer records. Destructive
   or service-enabling settings use a danger callout and explicit explanatory

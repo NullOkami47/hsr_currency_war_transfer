@@ -9,7 +9,7 @@
     <title>管理員控制台｜Currency War 攻略轉移</title>
     <script src="/theme-init.js?v=5"></script>
     <link rel="stylesheet" href="/styles.css?v=13">
-    <script type="module" src="/admin.js?v=2"></script>
+    <script type="module" src="/admin.js?v=3"></script>
   </head>
   <body class="admin-page">
     <header class="app-header">
@@ -35,12 +35,17 @@
       <section id="admin-login" class="admin-auth" aria-labelledby="admin-login-title">
         <p class="panel-heading__eyebrow">Administrator access</p>
         <h1 id="admin-login-title" tabindex="-1">管理發布邊界</h1>
-        <p>登入後可查看工作紀錄及調整公開提交、來源清單、限流、配額與保留政策。管理員憑證只用於建立 HTTP-only 工作階段，不會儲存在瀏覽器。</p>
+        <p>登入後可查看工作紀錄及調整公開提交、來源清單、限流、配額與保留政策。密碼與驗證碼只用於建立 HTTP-only 工作階段，不會儲存在瀏覽器。</p>
         <form id="admin-login-form" class="admin-auth__form">
           <label class="field">
             <span class="field__label">管理員憑證</span>
             <input id="admin-token" class="field__input" type="password" name="token" autocomplete="current-password" required>
             <span class="field__hint">使用部署時設定的管理員密碼或 CURRENCY_WAR_ADMIN_TOKEN。</span>
+          </label>
+          <label id="admin-totp-field" class="field" hidden>
+            <span class="field__label">Authenticator 驗證碼</span>
+            <input id="admin-totp" class="field__input" type="text" name="totp" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" aria-describedby="admin-totp-hint">
+            <span id="admin-totp-hint" class="field__hint">輸入 Google Authenticator 顯示的 6 位數驗證碼。</span>
           </label>
           <button class="button button--primary" type="submit">安全登入</button>
         </form>
