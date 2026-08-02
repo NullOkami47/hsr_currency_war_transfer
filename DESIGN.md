@@ -202,7 +202,7 @@ Base unit: `4px`.
 ### Transfer tray
 
 - Appears only after selection. Desktop is sticky in the right rail; mobile is a fixed bottom sheet with safe-area padding.
-- Shows selected title, roster summary, disclaimer, and primary submit button. Loading locks duplicate submissions, adds the existing button spinner, and shows a working status panel with a token-coloured progress sweep. A queued transfer keeps the tray open, shows its job ID, and polls without asking the user to resubmit. Success exposes the returned global share code in the official `##…=##` wrapper and a copy button. Partial success lists every ignored item; failure and timeout states remain retryable.
+- Shows selected title, roster summary, disclaimer, and primary submit button. Loading locks duplicate submissions, adds the existing button spinner, and shows a working status panel with a token-coloured progress sweep. A queued transfer keeps the tray open, shows its job ID, and polls without asking the user to resubmit. Success exposes the returned global share code in the official `##…=##` wrapper, a copy button, and a secondary link button that opens the completed strategy on the official Global compendium in a new tab. Partial success lists every ignored item; failure and timeout states remain retryable.
 
 ### External Strategy Compendium links
 
@@ -225,7 +225,7 @@ Base unit: `4px`.
   status and usage, safety settings, then recent transfer records. Destructive
   or service-enabling settings use a danger callout and explicit explanatory
   text rather than colour alone.
-- Settings are grouped by intent: submission access, source allow-list,
+- Settings are grouped by intent: submission access, source blacklist,
   per-IP limits, publishing-account daily quota, queue capacity and history
   retention. Every numeric field shows its unit and accepted range. Save,
   saving, success, validation-error and worker-unavailable states are explicit.
@@ -313,5 +313,5 @@ Paper texture is created with subtle CSS radial/linear gradients using declared 
 
 | Item | Location | Why accepted | Owner / Exit |
 | --- | --- | --- | --- |
-| Public transfer submission requires an external admin worker queue | `/api/transfers` | Vercel must not receive or launch the administrator's persistent browser profile | Keep submissions disabled until the worker and administrator console are configured; enforce allow-list, quota, rate and queue limits before enabling |
+| Public transfer submission requires an external admin worker queue | `/api/transfers` | Vercel must not receive or launch the administrator's persistent browser profile | Keep submissions disabled until the worker and administrator console are configured; enforce blacklist, quota, rate and queue limits before enabling |
 | Administrator SEO score is intentionally below 100 | `/admin` | The operational console must retain `noindex, nofollow`; Lighthouse treats that protection as an SEO failure | Keep the route out of search indexes and audit performance, accessibility and best practices independently |

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -156,8 +156,8 @@ test("keeps public publishing disabled until an administrator enables it", async
 
   await store.updateSettings({
     publicSubmissionsEnabled: true,
-    sourceAllowlistEnabled: true,
-    sourceAllowlist: [SOURCE_ID],
+    sourceBlacklistEnabled: true,
+    sourceBlacklist: [],
   });
   const accepted = await queue.submit(
     SOURCE_ID,
@@ -167,7 +167,7 @@ test("keeps public publishing disabled until an administrator enables it", async
   await waitForResult(queue, accepted.jobId);
 });
 
-test("enforces source allow-list, per-IP limit, account quota and queue capacity", async (t) => {
+test("enforces source blacklist, per-IP limit, account quota and queue capacity", async (t) => {
   const directory = await mkdtemp(join(tmpdir(), "currency-war-worker-"));
   t.after(() => rm(directory, { recursive: true, force: true }));
   const allowed = [
@@ -178,8 +178,8 @@ test("enforces source allow-list, per-IP limit, account quota and queue capacity
   const store = new JsonWorkerJobStore(join(directory, "jobs.json"));
   await store.updateSettings({
     publicSubmissionsEnabled: true,
-    sourceAllowlistEnabled: true,
-    sourceAllowlist: allowed,
+    sourceBlacklistEnabled: true,
+    sourceBlacklist: ["6a4e123858aa043bf1070a97"],
     perIpLimit: 1,
     perIpWindowMinutes: 60,
     dailyAccountQuota: 2,
@@ -195,7 +195,7 @@ test("enforces source allow-list, per-IP limit, account quota and queue capacity
       "6a4e123858aa043bf1070a97",
       { public: true, clientKey: "ip:blocked" },
     ),
-    (error) => error.code === "source_not_allowed",
+    (error) => error.code === "source_blocked",
   );
 
   await queue.submit(SOURCE_ID, { public: true, clientKey: "ip:one" });
@@ -238,7 +238,7 @@ test("updates settings and returns bounded administrator records", async (t) => 
       headers: { authorization: "Bearer a-long-worker-token-for-tests" },
       body: {
         publicSubmissionsEnabled: true,
-        sourceAllowlistEnabled: false,
+        sourceBlacklistEnabled: false,
         dailyAccountQuota: 12,
         maxStoredJobs: 5,
       },
@@ -267,4 +267,31 @@ test("updates settings and returns bounded administrator records", async (t) => 
   assert.equal(dashboard.json().settings.maxStoredJobs, 5);
   assert.equal(dashboard.json().jobs.length, 5);
   assert.equal("clientKey" in dashboard.json().jobs[0], false);
+});
+
+test("disables public submissions when migrating a legacy allow-list", async (t) => {
+  const directory = await mkdtemp(join(tmpdir(), "currency-war-worker-"));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const path = join(directory, "jobs.json");
+  await writeFile(path, JSON.stringify({
+    version: 2,
+    settings: {
+      publicSubmissionsEnabled: true,
+      sourceAllowlistEnabled: true,
+      sourceAllowlist: [SOURCE_ID],
+      perIpLimit: 5,
+      perIpWindowMinutes: 60,
+      dailyAccountQuota: 25,
+      maxPendingJobs: 20,
+      retentionDays: 30,
+      maxStoredJobs: 1000,
+    },
+    jobs: {},
+  }));
+
+  const dashboard = await new JsonWorkerJobStore(path).dashboard();
+  assert.equal(dashboard.settings.publicSubmissionsEnabled, false);
+  assert.equal(dashboard.settings.sourceBlacklistEnabled, true);
+  assert.deepEqual(dashboard.settings.sourceBlacklist, []);
+  assert.equal("sourceAllowlist" in dashboard.settings, false);
 });

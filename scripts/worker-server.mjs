@@ -65,8 +65,8 @@ await queue.start();
 if (process.env.CURRENCY_WAR_PUBLIC_SUBMISSIONS === "1") {
   await jobStore.updateSettings({
     publicSubmissionsEnabled: true,
-    sourceAllowlistEnabled:
-      process.env.CURRENCY_WAR_SOURCE_ALLOWLIST_ENABLED !== "0",
+    sourceBlacklistEnabled:
+      process.env.CURRENCY_WAR_SOURCE_BLACKLIST_ENABLED !== "0",
   });
 }
 const server = createServer(createWorkerHandler({

@@ -5,6 +5,7 @@ import { extname, join } from "node:path";
 
 process.env.CURRENCY_WAR_WORKER_URL = "http://127.0.0.1:8789/jobs";
 process.env.CURRENCY_WAR_WORKER_TOKEN = "qa-worker-token";
+const port = Number(process.env.QA_PORT ?? 4173);
 
 const { default: transfersHandler } = await import("../../api/transfers.mjs");
 const publicDirectory = join(import.meta.dirname, "..", "..", "public");
@@ -12,6 +13,7 @@ const contentTypes = new Map([
   [".css", "text/css; charset=utf-8"],
   [".html", "text/html; charset=utf-8"],
   [".js", "text/javascript; charset=utf-8"],
+  [".svg", "image/svg+xml"],
 ]);
 
 async function body(request) {
@@ -36,7 +38,7 @@ async function file(response, name) {
 }
 
 createServer(async (request, response) => {
-  const url = new URL(request.url, "http://127.0.0.1:4173");
+  const url = new URL(request.url, `http://127.0.0.1:${port}`);
   if (url.pathname === "/api/roles") {
     json(response, { roles: [], version: "qa" });
     return;
@@ -64,9 +66,12 @@ createServer(async (request, response) => {
 
   const routes = new Map([
     ["/", "index.html"],
+    ["/showcase", "showcase.html"],
     ["/styles.css", "styles.css"],
     ["/app.js", "app.js"],
+    ["/search-error.js", "search-error.js"],
     ["/theme-init.js", "theme-init.js"],
+    ["/favicon.svg", "favicon.svg"],
   ]);
   const name = routes.get(url.pathname);
   if (name) {
@@ -75,4 +80,4 @@ createServer(async (request, response) => {
   }
   response.statusCode = 404;
   response.end("Not found");
-}).listen(4173, "127.0.0.1");
+}).listen(port, "127.0.0.1");

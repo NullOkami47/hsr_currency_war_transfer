@@ -10,7 +10,7 @@
     <title>管理員控制台｜Currency War 攻略轉移</title>
     <script src="/theme-init.js?v=5"></script>
     <link rel="stylesheet" href="/styles.css?v=15">
-    <script type="module" src="/admin.js?v=3"></script>
+    <script type="module" src="/admin.js?v=4"></script>
   </head>
   <body class="admin-page">
     <header class="app-header">
@@ -79,18 +79,18 @@
 
           <div class="admin-danger-note">
             <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true"><path d="M12 3 3 20h18L12 3Z" stroke-width="1.8"/><path d="M12 9v5m0 3h.01" stroke-width="1.8" stroke-linecap="round"/></svg>
-            <p><strong>公開提交預設停用。</strong>啟用前請先設定來源 allow-list、低額每日配額與每 IP 限流。單一 worker 對應一個管理員發布帳戶，因此每日配額就是該帳戶的硬上限。</p>
+            <p><strong>公開提交預設停用。</strong>啟用前請先檢查來源封鎖清單、低額每日配額與每 IP 限流。單一 worker 對應一個管理員發布帳戶，因此每日配額就是該帳戶的硬上限。</p>
           </div>
 
           <div class="admin-setting-grid">
             <fieldset class="admin-setting-group">
               <legend>提交存取</legend>
               <label class="admin-check"><input id="setting-public-enabled" type="checkbox"> <span>允許公開頁面提交轉移工作</span></label>
-              <label class="admin-check"><input id="setting-allowlist-enabled" type="checkbox"> <span>只允許來源 allow-list 內的攻略</span></label>
+              <label class="admin-check"><input id="setting-blacklist-enabled" type="checkbox"> <span>拒絕來源封鎖清單內的攻略</span></label>
               <label class="field">
-                <span class="field__label">來源 allow-list</span>
-                <textarea id="setting-allowlist" class="field__input admin-textarea" rows="7" spellcheck="false" placeholder="每行一個 24 位中國服攻略 ID"></textarea>
-                <span class="field__hint">最多 500 個 ID；啟用清單而內容為空時，所有來源都會被拒絕。</span>
+                <span class="field__label">來源封鎖清單（blacklist）</span>
+                <textarea id="setting-blacklist" class="field__input admin-textarea" rows="7" spellcheck="false" placeholder="每行一個要封鎖的 24 位中國服攻略 ID"></textarea>
+                <span class="field__hint">最多 500 個 ID；清單為空時不會封鎖任何來源。</span>
               </label>
             </fieldset>
 

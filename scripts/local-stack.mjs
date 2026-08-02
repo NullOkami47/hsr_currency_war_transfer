@@ -86,7 +86,7 @@ const worker = spawn(process.execPath, ["scripts/worker-server.mjs"], {
     CURRENCY_WAR_HEADLESS: process.env.CURRENCY_WAR_HEADLESS ?? "1",
     CURRENCY_WAR_LOCAL_INSTANCE_ID: instanceId,
     CURRENCY_WAR_PUBLIC_SUBMISSIONS: "1",
-    CURRENCY_WAR_SOURCE_ALLOWLIST_ENABLED: "0",
+    CURRENCY_WAR_SOURCE_BLACKLIST_ENABLED: "1",
   },
 });
 const website = spawn(process.execPath, ["scripts/dev-server.mjs"], {

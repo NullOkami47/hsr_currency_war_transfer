@@ -11,6 +11,37 @@ const PUBLIC_SEARCH_LIMITS = Object.freeze({
   maxPages: 10,
   pageSize: 20,
 });
+const GLOBAL_STRATEGY_PAGE =
+  "https://act.hoyolab.com/sr/event/currency-wars/index.html";
+
+export function globalStrategyUrl(globalId) {
+  const id = String(globalId ?? "").toLowerCase();
+  if (!/^[a-f0-9]{24}$/.test(id)) return null;
+  const encodedId = id.replace(/\d/g, (digit) =>
+    String.fromCharCode(110 + Number(digit)));
+  const url = new URL(GLOBAL_STRATEGY_PAGE);
+  url.searchParams.set("gt__lineup_id", encodedId);
+  return url.toString();
+}
+
+function sanitiseGlobalStrategyUrl(value) {
+  try {
+    const supplied = new URL(String(value ?? ""));
+    const expected = new URL(GLOBAL_STRATEGY_PAGE);
+    const encodedId = supplied.searchParams.get("gt__lineup_id");
+    if (
+      supplied.origin !== expected.origin
+      || supplied.pathname !== expected.pathname
+      || !/^[a-fn-w]{24}$/.test(encodedId ?? "")
+    ) {
+      return null;
+    }
+    expected.searchParams.set("gt__lineup_id", encodedId);
+    return expected.toString();
+  } catch {
+    return null;
+  }
+}
 
 function sendJson(response, status, body, cacheControl = "no-store") {
   response.statusCode = status;
@@ -204,11 +235,20 @@ function publicTransferResult(value) {
       ? rawShareCode
       : `##${rawShareCode}##`
     : null;
+  const globalUrl = globalStrategyUrl(value?.globalId)
+    ?? sanitiseGlobalStrategyUrl(value?.globalUrl);
+  if (["created", "updated", "unchanged", "partial"].includes(status)
+      && !globalUrl) {
+    throw new TransferServiceUnavailableError(
+      "Transfer worker completed without a valid Global strategy ID",
+    );
+  }
 
   return {
     status,
     jobId: value?.jobId ? String(value.jobId) : null,
     shareCode,
+    globalUrl,
     ignored: Array.isArray(value?.ignored)
       ? value.ignored.map((item) => ({
           type: String(item?.type ?? "unknown"),

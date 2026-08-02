@@ -97,8 +97,8 @@ npm run local:start
 npm run local:stop
 ```
 
-The local launcher enables public submission on loopback and disables the
-allow-list for development. Its state file contains only process IDs and a
+The local launcher enables public submission on loopback with an empty source
+blacklist. Its state file contains only process IDs and a
 random instance nonce, never either token. If the one-time administrator token
 is lost, stop and restart the local stack.
 
@@ -129,20 +129,20 @@ npm run dev
 ```
 
 The website now searches anonymously, submits the selected China strategy,
-polls the job, and displays the returned global share code. The worker health
+polls the job, and displays the returned global share code and official page link. The worker health
 endpoint is `GET /health`; job endpoints require the bearer token.
 
 ## Administrator console and safety policy
 
 On first production start, public submission is disabled and the source
-allow-list is enabled but empty. Sign in at `/admin`, configure the policy,
+blacklist is enabled but empty. Sign in at `/admin`, configure the policy,
 then explicitly enable public submission. The settings are persisted with the
 job store and enforced inside the worker, not merely hidden in the website:
 
 | Setting | Default | Allowed range / effect |
 | --- | ---: | --- |
 | Public submissions | Off | Master switch for requests originating from the public API |
-| Source allow-list | On, empty | Up to 500 valid 24-character China strategy IDs |
+| Source blacklist | On, empty | Up to 500 valid 24-character China strategy IDs are rejected |
 | Per-IP limit | 5 per 60 minutes | 1–1,000 requests over a 1–1,440 minute sliding window |
 | Publishing-account daily quota | 25 | 1–10,000 accepted jobs per UTC day |
 | Pending queue capacity | 20 | 1–1,000 queued or running jobs |
@@ -162,6 +162,11 @@ Active duplicate requests for the same China strategy reuse the existing job
 before quota checks, preventing refreshes from consuming additional quota.
 Rejected policies return stable 403 or 429 codes and never start a browser
 publication.
+
+When a version-2 job store containing the former allow-list is first read, the
+worker migrates it to an empty blacklist and disables public submissions. An
+administrator must review the new policy and explicitly enable submissions;
+old allowed IDs are never silently reinterpreted as blocked IDs.
 
 The console shows source IDs, public Global strategy IDs/share codes, status,
 timestamps, and sanitised errors. It never returns client rate-limit keys,

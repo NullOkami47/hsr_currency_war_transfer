@@ -3,8 +3,8 @@ const elements = Object.fromEntries([
   "admin-totp-field", "admin-totp",
   "admin-login-status", "admin-console", "admin-title", "admin-refresh",
   "admin-logout", "admin-stats", "admin-settings-form", "admin-save",
-  "admin-save-status", "setting-public-enabled", "setting-allowlist-enabled",
-  "setting-allowlist", "setting-ip-limit", "setting-ip-window",
+  "admin-save-status", "setting-public-enabled", "setting-blacklist-enabled",
+  "setting-blacklist", "setting-ip-limit", "setting-ip-window",
   "setting-daily-quota", "setting-max-pending", "setting-retention-days",
   "setting-max-stored", "admin-record-count", "admin-record-body",
   "admin-record-empty",
@@ -91,17 +91,17 @@ function numberValue(id) {
 }
 
 function formSettings() {
-  const sourceAllowlist = elements["setting-allowlist"].value
+  const sourceBlacklist = elements["setting-blacklist"].value
     .split(/\r?\n|,/)
     .map((value) => value.trim())
     .filter(Boolean);
-  if (sourceAllowlist.some((id) => !/^[a-f0-9]{24}$/i.test(id))) {
-    throw new Error("來源 allow-list 只接受每行一個 24 位十六進位攻略 ID。");
+  if (sourceBlacklist.some((id) => !/^[a-f0-9]{24}$/i.test(id))) {
+    throw new Error("來源封鎖清單只接受每行一個 24 位十六進位攻略 ID。");
   }
   return {
     publicSubmissionsEnabled: elements["setting-public-enabled"].checked,
-    sourceAllowlistEnabled: elements["setting-allowlist-enabled"].checked,
-    sourceAllowlist: [...new Set(sourceAllowlist)],
+    sourceBlacklistEnabled: elements["setting-blacklist-enabled"].checked,
+    sourceBlacklist: [...new Set(sourceBlacklist)],
     perIpLimit: numberValue("setting-ip-limit"),
     perIpWindowMinutes: numberValue("setting-ip-window"),
     dailyAccountQuota: numberValue("setting-daily-quota"),
@@ -113,8 +113,8 @@ function formSettings() {
 
 function renderSettings(settings) {
   elements["setting-public-enabled"].checked = settings.publicSubmissionsEnabled;
-  elements["setting-allowlist-enabled"].checked = settings.sourceAllowlistEnabled;
-  elements["setting-allowlist"].value = (settings.sourceAllowlist ?? []).join("\n");
+  elements["setting-blacklist-enabled"].checked = settings.sourceBlacklistEnabled;
+  elements["setting-blacklist"].value = (settings.sourceBlacklist ?? []).join("\n");
   elements["setting-ip-limit"].value = settings.perIpLimit;
   elements["setting-ip-window"].value = settings.perIpWindowMinutes;
   elements["setting-daily-quota"].value = settings.dailyAccountQuota;
@@ -139,7 +139,7 @@ function renderStats(stats, settings) {
     statCard("進行中", stats.active ?? 0, `上限 ${settings.maxPendingJobs}`),
     statCard("今日工作", stats.jobsToday ?? 0, `尚餘 ${stats.remainingDailyQuota ?? 0}`),
     statCard("已儲存紀錄", stats.storedJobs ?? 0, `上限 ${settings.maxStoredJobs}`),
-    statCard("公開提交", settings.publicSubmissionsEnabled ? "啟用" : "停用", settings.sourceAllowlistEnabled ? "使用 allow-list" : "允許任何來源"),
+    statCard("公開提交", settings.publicSubmissionsEnabled ? "啟用" : "停用", settings.sourceBlacklistEnabled ? "使用封鎖清單" : "不封鎖來源"),
   );
 }
 

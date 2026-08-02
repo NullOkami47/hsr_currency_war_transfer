@@ -47,3 +47,15 @@ test("uses a heart for likes and a star for saves", async () => {
   assert.ok(showcase.includes(`<path d="${heartPath}"/></svg>按讚`));
   assert.ok(showcase.includes(`<path d="${starPath}"/></svg>收藏`));
 });
+
+test("showcases the completed Global strategy action and blacklist policy", async () => {
+  const showcase = await readFile(
+    new URL("../public/showcase.html", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(showcase, /開啟已完成的全球服攻略/);
+  assert.match(showcase, /gt__lineup_id=/);
+  assert.match(showcase, /拒絕來源封鎖清單內的攻略/);
+  assert.doesNotMatch(showcase, /allow-list/);
+});

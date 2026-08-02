@@ -61,8 +61,8 @@ server-side environment variables to connect the submit button to the separate
 authenticated publishing worker and enable the `/admin` console. Run
 `npm run worker` on the administrator machine or persistent VM with the same
 token. The website creates a job, polls it through the Vercel API, and returns
-the global share code without exposing the worker token or HoYoLAB session to
-the browser. Active duplicate requests for the same China strategy share one
+the global share code plus an official strategy-page link without exposing the
+worker token or HoYoLAB session to the browser. Active duplicate requests for the same China strategy share one
 job; completed requests run the existing create/update/unchanged comparison.
 
 Without these variables, search and selection still work and transfer
@@ -73,10 +73,10 @@ See the [administrator login and 2FA guide](docs/admin-login.md) for password
 setup, Google Authenticator enrolment, rotation and recovery.
 
 After signing in at `/admin`, an administrator can inspect publishing records
-and change the public-submission switch, source strategy allow-list, per-IP
+and change the public-submission switch, source strategy blacklist, per-IP
 rate limit, publishing-account daily quota, pending queue capacity, and record
 retention policy. Public submissions are disabled by default and the source
-allow-list starts enabled and empty. Here, “per account” means the single
+blacklist starts enabled and empty, so it blocks no strategy IDs. Here, “per account” means the single
 Global publishing account attached to that worker.
 
 `probe` reads and transforms without writing. `diff:live` re-fetches both

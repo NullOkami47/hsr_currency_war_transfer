@@ -139,9 +139,9 @@ returns `503 transfer_service_unavailable` until both variables and the worker
 are available; it never launches or receives the persistent Chrome profile.
 
 Before accepting a public job, the worker enforces the administrator's master
-switch, source allow-list, per-IP sliding-window limit, publishing-account
+switch, source blacklist, per-IP sliding-window limit, publishing-account
 daily quota, and pending queue capacity. Policy rejection returns HTTP 403 or
-429 with one of `public_submissions_disabled`, `source_not_allowed`,
+429 with one of `public_submissions_disabled`, `source_blocked`,
 `rate_limited`, `daily_quota_reached`, or `queue_full`. A 429 response may
 include `Retry-After`. Client network addresses are HMAC-hashed by the public
 API and the raw address is never sent to the worker.
@@ -162,13 +162,13 @@ Polls the authenticated administrator worker through the server-side proxy.
 The browser never receives the worker URL or token. While processing, the
 response remains `queued`. A completed response uses `created`, `updated`,
 `unchanged`, or `partial` and includes the global `shareCode` in
-`##base64=##` format. `partial` also
+`##base64=##` format plus an official `globalUrl`. `partial` also
 includes every omitted item in `ignored`. A worker failure is returned as a
 sanitised `failed` result without upstream account or session details. A
-completed response without a share code is rejected instead of being reported
-as success. Public transfer responses do not expose the Global strategy ID;
-that operational field is visible only in the authenticated administrator
-console.
+completed response without a share code or valid Global strategy ID is rejected
+instead of being reported as success. Public transfer responses expose only the
+official strategy URL, not the raw Global strategy ID; that operational field
+is visible only in the authenticated administrator console.
 
 Expired China strategies are displayed as unavailable candidates and are also
 rejected by the transfer core with `expired_source`, so a crafted request

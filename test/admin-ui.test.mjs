@@ -11,8 +11,8 @@ test("administrator page exposes labelled safety controls and an audit table", a
   for (const id of [
     "admin-totp",
     "setting-public-enabled",
-    "setting-allowlist-enabled",
-    "setting-allowlist",
+    "setting-blacklist-enabled",
+    "setting-blacklist",
     "setting-ip-limit",
     "setting-ip-window",
     "setting-daily-quota",
@@ -23,6 +23,7 @@ test("administrator page exposes labelled safety controls and an audit table", a
     assert.match(html, new RegExp(`id="${id}"`));
   }
   assert.match(html, /<table>/);
+  assert.match(html, /來源封鎖清單（blacklist）/);
   assert.match(html, /<th scope="col">/);
   assert.match(html, /<link rel="icon" href="\/favicon\.svg"/);
   assert.doesNotMatch(html, /value="[^\"]*admin[^\"]*token/i);
@@ -58,4 +59,17 @@ test("expired candidates cannot be selected or submitted", async () => {
     /if \(!candidate\.isExpired && !event\.target\.closest\("a, button, input"\)\) selectCandidate/,
   );
   assert.match(script, /candidate--expired/);
+});
+
+test("completed transfers expose an official Global strategy link", async () => {
+  const [html, script] = await Promise.all([
+    readFile(new URL("../public/index.html", import.meta.url), "utf8"),
+    readFile(new URL("../public/app.js", import.meta.url), "utf8"),
+  ]);
+
+  assert.match(html, /id="view-global-strategy"/);
+  assert.match(html, /target="_blank" rel="noreferrer"/);
+  assert.match(script, /if \(data\.globalUrl\)/);
+  assert.match(script, /elements\["view-global-strategy"\]\.href/);
+  assert.match(script, /viewGlobalStrategy: "開啟已完成的全球服攻略"/);
 });

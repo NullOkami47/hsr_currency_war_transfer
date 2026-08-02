@@ -172,7 +172,7 @@ fails closed instead of falling back to password-only authentication.
 ### What can I configure after signing in?
 
 The admin page shows publishing records and job states. It also controls the
-public-submission switch, source strategy allow-list, per-IP rate limit,
+public-submission switch, source strategy blacklist, per-IP rate limit,
 publishing-account daily quota, pending queue capacity and record-retention
 policy. Set suitable policies before enabling public submissions for the first
 time.

@@ -212,6 +212,10 @@ test("submits a validated China strategy ID to the worker", async () => {
   assert.equal(response.statusCode, 200);
   assert.equal(response.json().shareCode, "##share-code=##");
   assert.equal("globalId" in response.json(), false);
+  assert.equal(
+    response.json().globalUrl,
+    "https://act.hoyolab.com/sr/event/currency-wars/index.html?gt__lineup_id=tatctwrapascrunpdnbrubpt",
+  );
 });
 
 test("reports an unconfigured transfer worker without leaking details", async () => {
@@ -276,6 +280,7 @@ test("polls a queued transfer through the server-side worker token", async () =>
         json: async () => ({
           status: "created",
           jobId: "job-1",
+          globalId: "6a6c694a2a5c4702d0b47b26",
           shareCode: "global-code=",
           ignored: [],
         }),
@@ -285,6 +290,7 @@ test("polls a queued transfer through the server-side worker token", async () =>
 
   assert.equal(result.status, "created");
   assert.equal(result.shareCode, "##global-code=##");
+  assert.match(result.globalUrl, /gt__lineup_id=/);
   assert.equal(request.url, "https://worker.example/jobs/job-1");
   assert.equal(request.options.method, "GET");
   assert.equal(request.options.headers.authorization, "Bearer server-secret");
@@ -311,6 +317,7 @@ test("serves transfer polling from the public API", async () => {
     status: "queued",
     jobId: "job-2",
     shareCode: null,
+    globalUrl: null,
     ignored: [],
     error: null,
   });
@@ -396,6 +403,26 @@ test("reports a malformed completed worker result as unavailable", async () => {
 
   await handler(
     { method: "GET", url: "/api/transfers?jobId=job-5" },
+    response,
+  );
+
+  assert.equal(response.statusCode, 503);
+  assert.equal(response.json().error.code, "transfer_service_unavailable");
+});
+
+test("rejects an untrusted completed Global strategy URL", async () => {
+  const handler = createTransfersHandler({
+    getTransferFn: async () => ({
+      status: "created",
+      jobId: "job-6",
+      shareCode: "global-code=",
+      globalUrl: "https://example.com/?gt__lineup_id=tatctwrapascrunpdnbrubpt",
+    }),
+  });
+  const response = responseRecorder();
+
+  await handler(
+    { method: "GET", url: "/api/transfers?jobId=job-6" },
     response,
   );
 

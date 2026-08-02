@@ -10,8 +10,8 @@ const TERMINAL_JOB_STATUSES = new Set(["completed", "failed"]);
 
 export const DEFAULT_WORKER_SETTINGS = Object.freeze({
   publicSubmissionsEnabled: false,
-  sourceAllowlistEnabled: true,
-  sourceAllowlist: Object.freeze([]),
+  sourceBlacklistEnabled: true,
+  sourceBlacklist: Object.freeze([]),
   perIpLimit: 5,
   perIpWindowMinutes: 60,
   dailyAccountQuota: 25,
@@ -29,12 +29,29 @@ const SETTING_LIMITS = Object.freeze({
   maxStoredJobs: [5, 10_000],
 });
 
+function migrateLegacyAllowlist(value) {
+  if (
+    !("sourceAllowlistEnabled" in value)
+    && !("sourceAllowlist" in value)
+  ) {
+    return value;
+  }
+  const migrated = { ...value };
+  delete migrated.sourceAllowlistEnabled;
+  delete migrated.sourceAllowlist;
+  migrated.publicSubmissionsEnabled = false;
+  migrated.sourceBlacklistEnabled = true;
+  migrated.sourceBlacklist = [];
+  return migrated;
+}
+
 function normaliseSettings(value = {}, { strict = false } = {}) {
+  const input = strict ? value : migrateLegacyAllowlist(value);
   const settings = {
     ...DEFAULT_WORKER_SETTINGS,
-    ...value,
+    ...input,
   };
-  for (const field of ["publicSubmissionsEnabled", "sourceAllowlistEnabled"]) {
+  for (const field of ["publicSubmissionsEnabled", "sourceBlacklistEnabled"]) {
     if (typeof settings[field] !== "boolean") {
       throw new TypeError(`${field} must be a boolean`);
     }
@@ -48,35 +65,35 @@ function normaliseSettings(value = {}, { strict = false } = {}) {
       throw new TypeError(`${field} must be an integer from ${minimum} to ${maximum}`);
     }
   }
-  if (!Array.isArray(settings.sourceAllowlist)) {
-    throw new TypeError("sourceAllowlist must be an array");
+  if (!Array.isArray(settings.sourceBlacklist)) {
+    throw new TypeError("sourceBlacklist must be an array");
   }
-  const sourceAllowlist = [...new Set(
-    settings.sourceAllowlist.map((id) => String(id).toLowerCase()),
+  const sourceBlacklist = [...new Set(
+    settings.sourceBlacklist.map((id) => String(id).toLowerCase()),
   )];
   if (
-    sourceAllowlist.length > 500
-    || sourceAllowlist.some((id) => !/^[a-f0-9]{24}$/i.test(id))
+    sourceBlacklist.length > 500
+    || sourceBlacklist.some((id) => !/^[a-f0-9]{24}$/i.test(id))
   ) {
     throw new TypeError(
-      "sourceAllowlist must contain at most 500 valid China strategy IDs",
+      "sourceBlacklist must contain at most 500 valid China strategy IDs",
     );
   }
   if (strict) {
     const known = new Set([
       ...Object.keys(DEFAULT_WORKER_SETTINGS),
     ]);
-    const unknown = Object.keys(value).filter((field) => !known.has(field));
+    const unknown = Object.keys(input).filter((field) => !known.has(field));
     if (unknown.length > 0) {
       throw new TypeError(`Unknown worker setting: ${unknown.join(", ")}`);
     }
   }
-  return { ...settings, sourceAllowlist };
+  return { ...settings, sourceBlacklist };
 }
 
 function emptyJobState() {
   return {
-    version: 2,
+    version: 3,
     settings: normaliseSettings(),
     jobs: {},
   };
@@ -157,7 +174,7 @@ export class JsonWorkerJobStore {
     try {
       const state = JSON.parse(await readFile(this.path, "utf8"));
       return pruneState({
-        version: 2,
+        version: 3,
         settings: normaliseSettings(state?.settings),
         jobs: state?.jobs ?? {},
       });
@@ -207,12 +224,12 @@ export class JsonWorkerJobStore {
           );
         }
         if (
-          settings.sourceAllowlistEnabled
-          && !settings.sourceAllowlist.includes(sourceId)
+          settings.sourceBlacklistEnabled
+          && settings.sourceBlacklist.includes(sourceId)
         ) {
           throw new WorkerPolicyError(
-            "source_not_allowed",
-            "This China strategy is not on the administrator allow-list",
+            "source_blocked",
+            "This China strategy is on the administrator blacklist",
           );
         }
         const jobs = Object.values(state.jobs);
