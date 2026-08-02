@@ -69,6 +69,9 @@ Without these variables, search and selection still work and transfer
 submission returns a clear service-unavailable state. See `.env.example` and
 `docs/admin-connector.md` for the complete local and production setup.
 
+See the [administrator login and 2FA guide](docs/admin-login.md) for password
+setup, Google Authenticator enrolment, rotation and recovery.
+
 After signing in at `/admin`, an administrator can inspect publishing records
 and change the public-submission switch, source strategy allow-list, per-IP
 rate limit, publishing-account daily quota, pending queue capacity, and record

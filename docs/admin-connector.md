@@ -1,5 +1,10 @@
 # Admin publishing connector
 
+For step-by-step administrator password and Google Authenticator setup, see the
+login and 2FA guide in [English](admin-login.md),
+[Simplified Chinese](admin-login.zh-CN.md), or
+[Traditional Chinese](admin-login.zh-TW.md).
+
 ## Boundary
 
 Vercel should host the public website and API, but it should not hold or run the

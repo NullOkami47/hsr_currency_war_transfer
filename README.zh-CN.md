@@ -44,7 +44,7 @@ npm run transfer -- 6a587503f4749840a14a360d
 
 在 Vercel 上，将 `CURRENCY_WAR_WORKER_URL`、`CURRENCY_WAR_WORKER_TOKEN` 及独立的 `CURRENCY_WAR_ADMIN_TOKEN` 设置为服务器端环境变量，即可将提交按钮连接至独立的已验证发布 worker，并启用 `/admin` 管理页。请在管理员电脑或持续运行的 VM 上，以相同 worker 令牌运行 `npm run worker`。网站会创建任务，通过 Vercel API 轮询进度，再返回全球服攻略码；浏览器不会接触 worker 令牌或 HoYoLAB 会话。同一篇中国服攻略的重复进行中请求会共用一项任务；已完成的重复请求则会执行现有的创建／更新／不变比较流程。
 
-如果没有设置这些变量，搜索及候选选择仍可正常使用；提交转移时会清楚显示服务尚未连接。完整的本地及生产环境设置请参阅 `.env.example` 与 [docs/admin-connector.md](docs/admin-connector.md)。
+如果没有设置这些变量，搜索及候选选择仍可正常使用；提交转移时会清楚显示服务尚未连接。管理员页面的登录、密码及 Google Authenticator 两步验证步骤请参阅[管理员登录与 2FA 指南](docs/admin-login.zh-CN.md)；完整的本地及生产环境设置请参阅 `.env.example` 与 [docs/admin-connector.md](docs/admin-connector.md)。
 
 管理员登录 `/admin` 后，可以查看发布记录及状态，并调整公开提交开关、来源攻略 allow-list、每 IP 限流、发布账号每日配额、等待中任务上限及记录保留策略。公开提交默认关闭，allow-list 默认开启且为空；管理员必须明确设置策略后才会接受公开转移。此处的“每账号”是指每个 worker 所使用的单一全球服发布账号。
 
