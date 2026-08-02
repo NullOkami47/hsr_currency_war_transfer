@@ -102,6 +102,7 @@ const server = createServer(async (request, response) => {
     ["/app.js", "app.js"],
     ["/search-error.js", "search-error.js"],
     ["/theme-init.js", "theme-init.js"],
+    ["/favicon.svg", "favicon.svg"],
   ]);
   const fileName = staticRoutes.get(url.pathname);
   if (!fileName) {

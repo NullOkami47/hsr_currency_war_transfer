@@ -197,7 +197,7 @@ img {
 }
 
 .button--primary {
-  color: var(--colour-white);
+  color: var(--colour-ink);
   background: var(--colour-amber);
   border-color: var(--colour-amber-dark);
 }
@@ -207,7 +207,12 @@ html[data-theme="dark"] .button--primary {
 }
 
 .button--primary:hover:not(:disabled) {
+  color: var(--colour-white);
   background: var(--colour-amber-dark);
+}
+
+html[data-theme="dark"] .button--primary:hover:not(:disabled) {
+  color: var(--colour-canvas);
 }
 
 .button--secondary {

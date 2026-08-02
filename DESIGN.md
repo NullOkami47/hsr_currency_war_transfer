@@ -312,4 +312,4 @@ Paper texture is created with subtle CSS radial/linear gradients using declared 
 | Item | Location | Why accepted | Owner / Exit |
 | --- | --- | --- | --- |
 | Public transfer submission requires an external admin worker queue | `/api/transfers` | Vercel must not receive or launch the administrator's persistent browser profile | Keep submissions disabled until the worker and administrator console are configured; enforce allow-list, quota, rate and queue limits before enabling |
-| Full Lighthouse audit against deployed CDN is pending | Deployment | No deployed URL exists yet | Run mobile and desktop audits after Vercel deployment |
+| Administrator SEO score is intentionally below 100 | `/admin` | The operational console must retain `noindex, nofollow`; Lighthouse treats that protection as an SEO failure | Keep the route out of search indexes and audit performance, accessibility and best practices independently |

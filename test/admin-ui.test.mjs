@@ -24,6 +24,7 @@ test("administrator page exposes labelled safety controls and an audit table", a
   }
   assert.match(html, /<table>/);
   assert.match(html, /<th scope="col">/);
+  assert.match(html, /<link rel="icon" href="\/favicon\.svg"/);
   assert.doesNotMatch(html, /value="[^\"]*admin[^\"]*token/i);
 });
 
