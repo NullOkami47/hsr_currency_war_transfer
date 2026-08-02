@@ -12,6 +12,7 @@
   --colour-amber: #b66d0f;
   --colour-amber-dark: #744006;
   --colour-amber-pale: #f4dfb8;
+  --colour-on-amber: #0a0f0c;
   --colour-teal: #17666a;
   --colour-teal-pale: #dceceb;
   --colour-danger: #9f352a;
@@ -75,6 +76,7 @@ html[data-theme="dark"] {
   --colour-amber: #d58a28;
   --colour-amber-dark: #f0b45b;
   --colour-amber-pale: #3d2d17;
+  --colour-on-amber: #0a0f0c;
   --colour-teal: #77c2c2;
   --colour-teal-pale: #183436;
   --colour-danger: #f08b7f;
@@ -197,13 +199,13 @@ img {
 }
 
 .button--primary {
-  color: var(--colour-ink);
+  color: var(--colour-on-amber);
   background: var(--colour-amber);
   border-color: var(--colour-amber-dark);
 }
 
 html[data-theme="dark"] .button--primary {
-  color: var(--colour-canvas);
+  color: var(--colour-on-amber);
 }
 
 .button--primary:hover:not(:disabled) {
@@ -212,7 +214,7 @@ html[data-theme="dark"] .button--primary {
 }
 
 html[data-theme="dark"] .button--primary:hover:not(:disabled) {
-  color: var(--colour-canvas);
+  color: var(--colour-on-amber);
 }
 
 .button--secondary {

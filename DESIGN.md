@@ -29,6 +29,7 @@ The memorable moment is selection: choosing a strategy draws an amber line throu
 | `--colour-amber` | `#b66d0f` | Selection and primary action |
 | `--colour-amber-dark` | `#744006` | Primary-action hover/text |
 | `--colour-amber-pale` | `#f4dfb8` | Selected-state wash |
+| `--colour-on-amber` | `#0a0f0c` | Accessible primary-action text on amber |
 | `--colour-teal` | `#17666a` | Success/system status |
 | `--colour-teal-pale` | `#dceceb` | Informational wash |
 | `--colour-danger` | `#9f352a` | Error state |
@@ -62,6 +63,7 @@ system feedback. Components keep consuming the semantic tokens above;
 | `--colour-amber` | `#d58a28` | Dark selection/action |
 | `--colour-amber-dark` | `#f0b45b` | Dark action emphasis |
 | `--colour-amber-pale` | `#3d2d17` | Dark selected-state wash |
+| `--colour-on-amber` | `#0a0f0c` | Dark primary-action text on amber |
 | `--colour-teal` | `#77c2c2` | Dark system status |
 | `--colour-teal-pale` | `#183436` | Dark informational wash |
 | `--colour-danger` | `#f08b7f` | Dark error state |
