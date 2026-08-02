@@ -191,6 +191,26 @@ test("retries a transient initial read without repeating the publish write", asy
   assert.equal(calls.create.length, 1);
 });
 
+test("survives three transient initial read failures before publishing", async () => {
+  const { calls, options } = dependencies();
+  const fetchConfigFn = options.fetchConfigFn;
+  let globalConfigCalls = 0;
+  options.fetchConfigFn = async (region, requestOptions) => {
+    if (!requestOptions?.authenticatedHeaders) {
+      globalConfigCalls += 1;
+      if (globalConfigCalls <= 3) throw new TypeError("fetch failed");
+    }
+    return fetchConfigFn(region, requestOptions);
+  };
+  options.readRetry = { waitFn: async () => {} };
+
+  const result = await transferStrategy(SOURCE_ID, options);
+
+  assert.equal(result.status, "created");
+  assert.equal(globalConfigCalls, 4);
+  assert.equal(calls.create.length, 1);
+});
+
 test("only adds attribution to fields with enough remaining space", () => {
   const result = applySourceAttribution(
     {

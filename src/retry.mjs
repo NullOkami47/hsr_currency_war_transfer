@@ -3,6 +3,7 @@ export async function retryRead(
   {
     attempts = 2,
     retryDelayMs = 150,
+    backoffFactor = 1,
     waitFn = (milliseconds) =>
       new Promise((resolve) => setTimeout(resolve, milliseconds)),
   } = {},
@@ -14,7 +15,7 @@ export async function retryRead(
     } catch (error) {
       lastError = error;
       if (attempt < attempts && retryDelayMs > 0) {
-        await waitFn(retryDelayMs);
+        await waitFn(retryDelayMs * (backoffFactor ** (attempt - 1)));
       }
     }
   }

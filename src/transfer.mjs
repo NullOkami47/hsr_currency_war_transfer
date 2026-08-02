@@ -14,6 +14,12 @@ export const GLOBAL_TEXT_LIMITS = Object.freeze({
   description: 800,
 });
 
+const INITIAL_READ_RETRY = Object.freeze({
+  attempts: 5,
+  retryDelayMs: 500,
+  backoffFactor: 2,
+});
+
 class PublishedStrategyNotFoundError extends Error {
   constructor(lineupId, options = {}) {
     super(`Published global strategy ${lineupId} was not found`, options);
@@ -239,15 +245,22 @@ async function transferResolved(
     throw new TypeError("A publisher and transfer store are required");
   }
 
+  const initialReadRetry = {
+    ...INITIAL_READ_RETRY,
+    ...readRetry,
+  };
   const [globalConfig, globalTitleConfig, sourceResult] = await Promise.all([
-    retryRead(() => fetchConfigFn("global"), readRetry),
+    retryRead(() => fetchConfigFn("global"), initialReadRetry),
     retryRead(
       () => fetchConfigFn("global", {
         authenticatedHeaders: { "x-rpc-lang": "zh-tw" },
       }),
-      readRetry,
+      initialReadRetry,
     ),
-    retryRead(() => fetchLineupDetailFn("cn", sourceId), readRetry),
+    retryRead(
+      () => fetchLineupDetailFn("cn", sourceId),
+      initialReadRetry,
+    ),
   ]);
   const sourceLineup = sourceResult?.lineup;
   if (!sourceLineup) {

@@ -218,8 +218,8 @@ administrator policy. Override the path with `CURRENCY_WAR_JOB_STATE_PATH`.
 
 The three anonymous reads that initialise a transfer (Global configuration,
 Traditional Chinese configuration and China source detail) are each attempted
-at most twice. This absorbs a single transient connection failure without ever
-repeating a create or edit write.
+at most five times with exponential backoff. This absorbs a short upstream or
+network outage without ever repeating a create or edit write.
 
 The JSON job and transfer stores are designed for a single worker process. If
 the service later runs multiple worker instances, replace both with a
