@@ -36,6 +36,19 @@ test("refreshes stale role criteria without broadening the search silently", () 
   );
 });
 
+test("refreshes stale Bond criteria without broadening the search silently", () => {
+  assert.deepEqual(
+    getSearchErrorPresentation(400, {
+      error: { code: "invalid_request", reason: "stale_bond_ids" },
+    }),
+    {
+      titleKey: "searchInputErrorTitle",
+      bodyKey: "searchStaleBonds",
+      refreshRoles: true,
+    },
+  );
+});
+
 test("keeps upstream failures on the temporary China service message", () => {
   assert.deepEqual(
     getSearchErrorPresentation(502, {

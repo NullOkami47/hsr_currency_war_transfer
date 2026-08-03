@@ -6,7 +6,7 @@
     <link rel="icon" href="/favicon.svg" type="image/svg+xml">
     <meta name="robots" content="noindex">
     <title>Currency War Transfer — 元件展示</title>
-    <link rel="stylesheet" href="/styles.css?v=15">
+    <link rel="stylesheet" href="/styles.css?v=18">
   </head>
   <body>
     <main class="showcase">
@@ -44,7 +44,7 @@
       </section>
 
       <section class="showcase__section" aria-labelledby="filters-heading">
-        <h2 id="filters-heading">模式與角色</h2>
+        <h2 id="filters-heading">模式、角色與羈絆</h2>
         <div class="showcase__column">
           <div class="mode-tabs" role="tablist" aria-label="搜尋方式">
             <button class="mode-tab" role="tab" aria-selected="true" type="button">URL／ID</button>
@@ -85,6 +85,25 @@
               </div>
             </div>
           </div>
+          <div class="showcase-bond-surface">
+            <p class="field__label">羈絆（陣營／流派，可多選）</p>
+            <div class="bond-grid">
+              <section class="bond-group">
+                <h3 class="bond-group__heading">陣營</h3>
+                <div class="bond-options">
+                  <label class="role-chip bond-chip"><input type="checkbox" checked><span class="bond-icon" aria-hidden="true">列</span><span class="role-chip__name">列車同行</span></label>
+                  <label class="role-chip bond-chip"><input type="checkbox"><span class="bond-icon" aria-hidden="true">星</span><span class="role-chip__name">星核獵手</span></label>
+                </div>
+              </section>
+              <section class="bond-group">
+                <h3 class="bond-group__heading">流派</h3>
+                <div class="bond-options">
+                  <label class="role-chip bond-chip"><input type="checkbox" checked><span class="bond-icon" aria-hidden="true">能</span><span class="role-chip__name">能量</span></label>
+                  <label class="role-chip bond-chip"><input type="checkbox"><span class="bond-icon" aria-hidden="true">追</span><span class="role-chip__name">追擊</span></label>
+                </div>
+              </section>
+            </div>
+          </div>
         </div>
       </section>
 
@@ -120,6 +139,21 @@
           <div class="candidate__index"><span>02</span><input class="candidate__radio" type="radio" disabled aria-label="已過期，無法選擇"></div>
           <div class="candidate__body"><div class="candidate__heading-row"><h3 class="candidate__title">已失效的來源攻略</h3><span class="candidate__badge candidate__badge--expired">已過期</span></div><p class="candidate__description">保留在搜尋結果供辨識，但無法選擇或提交。</p></div>
         </article>
+      </section>
+
+      <section class="showcase__section" aria-labelledby="history-showcase-heading">
+        <h2 id="history-showcase-heading">本機提交紀錄</h2>
+        <p class="history-panel__privacy">只保存在這個瀏覽器，不會同步至其他裝置。</p>
+        <div class="history-list">
+          <article class="history-record">
+            <div class="history-record__content">
+              <div class="history-record__heading"><h3>【6列車同行3能量】幣戰科研項目：姬七貓！</h3><span class="status-badge">已建立</span></div>
+              <p class="history-record__meta">完成於 2026年8月3日 14:32 · 中國服來源 ID：6a56fe3021253d0e1a9f4761</p>
+              <code class="history-record__code">##OL11M9Ti3nV0NBQvdcetHsVUzzJfxJGEk/um+gUHg6Y=##</code>
+            </div>
+            <div class="history-record__actions"><button class="button button--secondary" type="button">複製</button><a class="button button--secondary" href="https://act.hoyolab.com/sr/event/currency-wars/index.html?gt__lineup_id=tatctwrapascrunpdnbrubpt" target="_blank" rel="noreferrer">開啟全球服攻略</a></div>
+          </article>
+        </div>
       </section>
 
       <section class="showcase__section" aria-labelledby="admin-heading">

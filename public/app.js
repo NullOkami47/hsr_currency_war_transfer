@@ -2,6 +2,7 @@ import {
   getSearchErrorPresentation,
   retainKnownRoleIds,
 } from "./search-error.js?v=1";
+import { addSubmissionHistoryEntry } from "./history.js?v=1";
 
 const messages = {
   "zh-Hant": {
@@ -200,24 +201,75 @@ Object.assign(messages.en, {
 
 Object.assign(messages["zh-Hant"], {
   adminConsole: "管理員控制台",
+  historyLink: "提交紀錄",
   expired: "已過期",
   expiredCandidate: "此攻略已過期，無法轉移。",
   transferPolicyTitle: "管理員安全政策已阻止提交",
   transferPolicyBody: "此攻略目前不符合公開提交、來源清單、限流、每日配額或佇列容量設定。",
+  bondsLabel: "羈絆（陣營／流派，可多選）",
+  bondsLoading: "正在載入羈絆",
+  bondsChoose: "選擇羈絆",
+  bondsSelected: "已選擇 {count} 個羈絆",
+  bondsFailed: "羈絆資料載入失敗，請重新整理頁面。",
+  bondsNone: "沒有符合條件的羈絆。",
+  bondFilterPlaceholder: "輸入羈絆名稱",
+  bondFaction: "陣營",
+  bondSchool: "流派",
+  searchStaleBonds: "羈絆資料已有變更，已移除過期條件。請重新選擇後再搜尋。",
+  searchInvalidBonds: "羈絆條件無效，請重新選擇。",
+  detailsRequired: "請輸入攻略名稱、作者名稱，或至少選擇一名角色或羈絆。",
+  modeDetails: "名稱、作者、角色與羈絆",
+  heroCopy: "貼上分享連結，或用攻略名稱、作者、角色與羈絆篩選候選攻略。確認陣容後，再交由管理員帳號建立全球服版本。",
+  initialBody: "使用 URL／ID 精確查找，或以攻略名稱、作者、角色與羈絆組合搜尋。",
+  noResultsBody: "請嘗試縮短攻略或作者關鍵字、減少所選角色或羈絆，或改用精確 URL／ID。",
 });
 Object.assign(messages["zh-Hans"], {
   adminConsole: "管理员控制台",
+  historyLink: "提交记录",
   expired: "已过期",
   expiredCandidate: "此攻略已过期，无法转移。",
   transferPolicyTitle: "管理员安全策略已阻止提交",
   transferPolicyBody: "此攻略目前不符合公开提交、来源列表、限流、每日配额或队列容量设置。",
+  bondsLabel: "羁绊（阵营／流派，可多选）",
+  bondsLoading: "正在加载羁绊",
+  bondsChoose: "选择羁绊",
+  bondsSelected: "已选择 {count} 个羁绊",
+  bondsFailed: "羁绊数据加载失败，请刷新页面。",
+  bondsNone: "没有符合条件的羁绊。",
+  bondFilterPlaceholder: "输入羁绊名称",
+  bondFaction: "阵营",
+  bondSchool: "流派",
+  searchStaleBonds: "羁绊数据已有变化，已移除过期条件。请重新选择后再搜索。",
+  searchInvalidBonds: "羁绊条件无效，请重新选择。",
+  detailsRequired: "请输入攻略名称、作者名称，或至少选择一名角色或羁绊。",
+  modeDetails: "名称、作者、角色与羁绊",
+  heroCopy: "粘贴分享链接，或用攻略名称、作者、角色与羁绊筛选候选攻略。确认阵容后，再交由管理员账号建立全球服版本。",
+  initialBody: "使用 URL／ID 精确查找，或以攻略名称、作者、角色与羁绊组合搜索。",
+  noResultsBody: "请尝试缩短攻略或作者关键词、减少所选角色或羁绊，或改用精确 URL／ID。",
 });
 Object.assign(messages.en, {
   adminConsole: "Administrator console",
+  historyLink: "Submission history",
   expired: "Expired",
   expiredCandidate: "This strategy has expired and cannot be transferred.",
   transferPolicyTitle: "The administrator safety policy blocked this request",
   transferPolicyBody: "This strategy does not currently meet the public submission, source list, rate, daily quota or queue capacity policy.",
+  bondsLabel: "Bonds (Faction / School, select any)",
+  bondsLoading: "Loading Bonds",
+  bondsChoose: "Choose Bonds",
+  bondsSelected: "{count} Bonds selected",
+  bondsFailed: "Bond data could not be loaded. Refresh the page to try again.",
+  bondsNone: "No Bonds match these criteria.",
+  bondFilterPlaceholder: "Enter a Bond name",
+  bondFaction: "Faction",
+  bondSchool: "School",
+  searchStaleBonds: "The Bond data changed and outdated criteria were removed. Select the Bonds again, then search.",
+  searchInvalidBonds: "The Bond criteria are invalid. Select the Bonds again.",
+  detailsRequired: "Enter a strategy title, author name, or select at least one character or Bond.",
+  modeDetails: "Title, author, characters & Bonds",
+  heroCopy: "Paste a shared link, or filter strategies by title, author, characters and Bonds. Confirm the lineup, then let the administrator account create the Global version.",
+  initialBody: "Look up an exact URL / ID, or combine strategy title, author, character and Bond filters.",
+  noResultsBody: "Try a shorter title or author keyword, fewer selected characters or Bonds, or an exact strategy URL / ID.",
 });
 
 const state = {
@@ -226,19 +278,23 @@ const state = {
   roles: [],
   rolesById: new Map(),
   selectedRoleIds: new Set(),
+  bonds: [],
+  bondsById: new Map(),
+  selectedBondIds: new Set(),
   candidates: [],
   selectedCandidate: null,
   searchResult: null,
   searchBusy: false,
   theme: document.documentElement.dataset.theme === "dark" ? "dark" : "light",
   roleLoadFailed: false,
+  bondLoadFailed: false,
   roleCategoryFilter: "all",
   searchController: null,
   transferController: null,
 };
 
 const elements = Object.fromEntries([
-  "locale-select", "theme-toggle", "global-archive-link", "search-form", "source-input", "source-field", "source-error", "keyword-input", "author-input", "details-error", "role-trigger", "role-trigger-label", "role-popover", "role-filter", "role-clear", "role-filters", "role-grid", "role-status", "search-button", "search-status", "results-header", "result-count", "candidate-list", "transfer-tray", "tray-title", "tray-roster", "transfer-status", "selection-clear", "transfer-submit", "share-code-wrap", "share-code", "copy-code", "view-global-strategy",
+  "locale-select", "theme-toggle", "global-archive-link", "search-form", "source-input", "source-field", "source-error", "keyword-input", "author-input", "details-error", "role-trigger", "role-trigger-label", "role-popover", "role-filter", "role-clear", "role-filters", "role-grid", "role-status", "bond-trigger", "bond-trigger-label", "bond-popover", "bond-filter", "bond-clear", "bond-grid", "bond-status", "search-button", "search-status", "results-header", "result-count", "candidate-list", "transfer-tray", "tray-title", "tray-roster", "transfer-status", "selection-clear", "transfer-submit", "share-code-wrap", "share-code", "copy-code", "view-global-strategy",
 ].map((id) => [id, document.getElementById(id)]));
 
 function t(key, variables = {}) {
@@ -261,6 +317,8 @@ function applyTranslations() {
   }
   applyTheme(state.theme);
   updateRoleTrigger();
+  updateBondTrigger();
+  renderBondGrid();
   setSearchBusy(state.searchBusy);
   renderResults();
   renderTray();
@@ -293,6 +351,17 @@ function roleName(role) {
 
 function roleAliases(role) {
   return [...new Set([role.name, ...Object.values(role.names ?? {})])]
+    .filter(Boolean)
+    .join(" ");
+}
+
+function bondName(bond) {
+  const key = state.locale === "zh-Hans" ? "zhHans" : state.locale === "en" ? "en" : "zhHant";
+  return String(bond.names?.[key] ?? bond.name ?? "");
+}
+
+function bondAliases(bond) {
+  return [...new Set([bond.name, ...Object.values(bond.names ?? {})])]
     .filter(Boolean)
     .join(" ");
 }
@@ -332,6 +401,7 @@ function setMode(mode, focus = false) {
   document.getElementById("panel-direct").hidden = mode !== "direct";
   document.getElementById("panel-details").hidden = mode !== "details";
   closeRolePicker();
+  closeBondPicker();
   clearValidation();
 }
 
@@ -347,7 +417,20 @@ function updateRoleTrigger() {
   elements["role-trigger"].disabled = state.roleLoadFailed || state.roles.length === 0;
 }
 
+function updateBondTrigger() {
+  const count = state.selectedBondIds.size;
+  elements["bond-trigger-label"].textContent = state.bondLoadFailed
+    ? t("bondsFailed")
+    : count
+      ? t("bondsSelected", { count })
+      : state.bonds.length
+        ? t("bondsChoose")
+        : t("bondsLoading");
+  elements["bond-trigger"].disabled = state.bondLoadFailed || state.bonds.length === 0;
+}
+
 function openRolePicker() {
+  closeBondPicker();
   elements["role-popover"].hidden = false;
   elements["role-trigger"].setAttribute("aria-expanded", "true");
   constrainRolePopoverToViewport();
@@ -361,13 +444,27 @@ function closeRolePicker() {
   elements["role-popover"].style.removeProperty("--role-popover-available-height");
 }
 
-function constrainRolePopoverToViewport() {
-  const popover = elements["role-popover"];
+function openBondPicker() {
+  closeRolePicker();
+  elements["bond-popover"].hidden = false;
+  elements["bond-trigger"].setAttribute("aria-expanded", "true");
+  constrainBondPopoverToViewport();
+  elements["bond-filter"].focus();
+}
+
+function closeBondPicker() {
+  elements["bond-popover"].hidden = true;
+  elements["bond-trigger"].setAttribute("aria-expanded", "false");
+  delete elements["bond-popover"].dataset.placement;
+  elements["bond-popover"].style.removeProperty("--role-popover-available-height");
+}
+
+function constrainPickerPopoverToViewport(popover, trigger) {
   if (popover.hidden) return;
   delete popover.dataset.placement;
   popover.style.removeProperty("--role-popover-available-height");
   const pickerRect = popover.parentElement.getBoundingClientRect();
-  const triggerRect = elements["role-trigger"].getBoundingClientRect();
+  const triggerRect = trigger.getBoundingClientRect();
   const initialRect = popover.getBoundingClientRect();
   const styles = getComputedStyle(popover);
   const visualViewport = window.visualViewport;
@@ -395,6 +492,20 @@ function constrainRolePopoverToViewport() {
   if (placeAbove) popover.dataset.placement = "top";
   const availableHeight = placeAbove ? availableAbove : availableBelow;
   popover.style.setProperty("--role-popover-available-height", `${availableHeight}px`);
+}
+
+function constrainRolePopoverToViewport() {
+  constrainPickerPopoverToViewport(
+    elements["role-popover"],
+    elements["role-trigger"],
+  );
+}
+
+function constrainBondPopoverToViewport() {
+  constrainPickerPopoverToViewport(
+    elements["bond-popover"],
+    elements["bond-trigger"],
+  );
 }
 
 function portrait(role, size = "normal", costOverride = "") {
@@ -508,23 +619,97 @@ function renderRoleGrid() {
   elements["role-status"].hidden = visible.length > 0;
 }
 
+function bondIcon(bond) {
+  const displayName = bondName(bond);
+  const wrapper = document.createElement("span");
+  wrapper.className = "bond-icon";
+  const fallback = document.createElement("span");
+  fallback.setAttribute("aria-hidden", "true");
+  fallback.textContent = displayName.slice(0, 1);
+  wrapper.append(fallback);
+  if (bond.icon) {
+    const image = new Image(32, 32);
+    image.alt = "";
+    image.loading = "lazy";
+    image.decoding = "async";
+    image.referrerPolicy = "no-referrer";
+    image.addEventListener("load", () => wrapper.classList.add("bond-icon--loaded"), { once: true });
+    image.addEventListener("error", () => image.remove(), { once: true });
+    image.src = bond.icon;
+    wrapper.append(image);
+  }
+  return wrapper;
+}
+
+function renderBondGrid() {
+  const query = elements["bond-filter"].value
+    .normalize("NFKC")
+    .trim()
+    .toLocaleLowerCase("zh-CN");
+  const visible = state.bonds.filter((bond) =>
+    bondAliases(bond).normalize("NFKC").toLocaleLowerCase("zh-CN").includes(query));
+  elements["bond-grid"].replaceChildren();
+  for (const type of ["faction", "school"]) {
+    const bonds = visible.filter((bond) => bond.type === type);
+    if (!bonds.length) continue;
+    const group = document.createElement("section");
+    group.className = "bond-group";
+    const heading = document.createElement("h3");
+    heading.className = "bond-group__heading";
+    heading.textContent = t(type === "faction" ? "bondFaction" : "bondSchool");
+    const options = document.createElement("div");
+    options.className = "bond-options";
+    for (const bond of bonds) {
+      const label = document.createElement("label");
+      label.className = "role-chip bond-chip";
+      const input = document.createElement("input");
+      input.type = "checkbox";
+      input.value = bond.id;
+      input.checked = state.selectedBondIds.has(bond.id);
+      input.addEventListener("change", () => {
+        if (input.checked) state.selectedBondIds.add(bond.id);
+        else state.selectedBondIds.delete(bond.id);
+        updateBondTrigger();
+      });
+      const name = document.createElement("span");
+      name.className = "role-chip__name";
+      name.textContent = bondName(bond);
+      label.append(input, bondIcon(bond), name);
+      options.append(label);
+    }
+    group.append(heading, options);
+    elements["bond-grid"].append(group);
+  }
+  elements["bond-status"].textContent = visible.length ? "" : t("bondsNone");
+  elements["bond-status"].hidden = visible.length > 0;
+}
+
 async function loadRoles() {
   try {
-    const response = await fetch("/api/roles?schema=4");
+    const response = await fetch("/api/roles?schema=5");
     if (!response.ok) throw new Error("roles");
     const data = await response.json();
     state.roles = data.roles ?? [];
     state.rolesById = new Map(state.roles.flatMap((role) =>
       [...new Set([role.id, ...(role.matchIds ?? [])])].map((id) => [String(id), role])));
+    state.bonds = data.bonds ?? [];
+    state.bondsById = new Map(state.bonds.map((bond) => [String(bond.id), bond]));
     state.roleLoadFailed = false;
+    state.bondLoadFailed = !Array.isArray(data.bonds);
     renderRoleGrid();
+    renderBondGrid();
     updateRoleTrigger();
+    updateBondTrigger();
     return true;
   } catch {
     state.roleLoadFailed = true;
+    state.bondLoadFailed = true;
     elements["role-status"].textContent = t("rolesFailed");
     elements["role-status"].hidden = false;
     updateRoleTrigger();
+    elements["bond-status"].textContent = t("bondsFailed");
+    elements["bond-status"].hidden = false;
+    updateBondTrigger();
     return false;
   }
 }
@@ -724,21 +909,28 @@ async function performSearch() {
   if (state.mode === "direct" && !source) {
     elements["source-field"].classList.add("field--error"); elements["source-error"].textContent = t("sourceRequired"); elements["source-error"].hidden = false; elements["source-input"].focus(); return;
   }
-  if (state.mode === "details" && !keyword && !authorKeyword && state.selectedRoleIds.size === 0) {
+  if (
+    state.mode === "details"
+    && !keyword
+    && !authorKeyword
+    && state.selectedRoleIds.size === 0
+    && state.selectedBondIds.size === 0
+  ) {
     elements["details-error"].textContent = t("detailsRequired"); elements["details-error"].hidden = false; elements["keyword-input"].focus(); return;
   }
   state.searchController?.abort(); state.searchController = new AbortController();
   resetTransferUi(); state.selectedCandidate = null; document.body.classList.remove("has-selection"); elements["transfer-tray"].hidden = true;
-  setSearchBusy(true); showSearchLoading(); closeRolePicker();
+  setSearchBusy(true); showSearchLoading(); closeRolePicker(); closeBondPicker();
   try {
-    const payload = state.mode === "direct" ? { source } : { keyword, authorKeyword, roleIds: [...state.selectedRoleIds], maxPages: 10, pageSize: 10 };
+    const payload = state.mode === "direct" ? { source } : { keyword, authorKeyword, roleIds: [...state.selectedRoleIds], bondIds: [...state.selectedBondIds], maxPages: 10, pageSize: 10 };
     const response = await fetch("/api/search", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(payload), signal: state.searchController.signal });
     const data = await response.json();
     if (!response.ok) {
       const presentation = getSearchErrorPresentation(response.status, data);
       if (presentation.refreshRoles && await loadRoles()) {
         state.selectedRoleIds = new Set(retainKnownRoleIds(state.selectedRoleIds, state.rolesById));
-        renderRoleGrid(); updateRoleTrigger();
+        state.selectedBondIds = new Set(retainKnownRoleIds(state.selectedBondIds, state.bondsById));
+        renderRoleGrid(); updateRoleTrigger(); renderBondGrid(); updateBondTrigger();
       }
       const searchError = new Error("search"); searchError.presentation = presentation; throw searchError;
     }
@@ -806,6 +998,22 @@ function renderTransferResult(data) {
     ? `${t("ignoredBody", { count: ignored.length })} ${t("ignoredItems", { items: ignoredList })}`
     : "";
   elements["transfer-status"].append(statusPanel("", data.status === "partial" ? t("partialTitle") : t("completeTitle"), body));
+  if (
+    state.selectedCandidate
+    && data.shareCode
+    && data.globalUrl
+    && ["created", "updated", "unchanged", "partial"].includes(data.status)
+  ) {
+    addSubmissionHistoryEntry({
+      id: globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${state.selectedCandidate.id}`,
+      sourceId: state.selectedCandidate.id,
+      sourceTitle: state.selectedCandidate.title,
+      status: data.status,
+      shareCode: data.shareCode,
+      globalUrl: data.globalUrl,
+      completedAt: new Date().toISOString(),
+    });
+  }
 }
 
 async function submitTransfer() {
@@ -861,18 +1069,24 @@ for (const tab of document.querySelectorAll("[data-mode]")) {
 elements["role-trigger"].addEventListener("click", () => elements["role-popover"].hidden ? openRolePicker() : closeRolePicker());
 elements["role-filter"].addEventListener("input", renderRoleGrid);
 elements["role-clear"].addEventListener("click", () => { state.selectedRoleIds.clear(); renderRoleGrid(); updateRoleTrigger(); });
+elements["bond-trigger"].addEventListener("click", () => elements["bond-popover"].hidden ? openBondPicker() : closeBondPicker());
+elements["bond-filter"].addEventListener("input", renderBondGrid);
+elements["bond-clear"].addEventListener("click", () => { state.selectedBondIds.clear(); renderBondGrid(); updateBondTrigger(); });
 document.addEventListener("click", (event) => {
   const clickedInsideRolePicker = event.composedPath().some((node) =>
     node instanceof Element && node.classList.contains("role-picker"));
-  if (!clickedInsideRolePicker) closeRolePicker();
+  if (!clickedInsideRolePicker) { closeRolePicker(); closeBondPicker(); }
 });
-document.addEventListener("keydown", (event) => { if (event.key === "Escape" && !elements["role-popover"].hidden) { closeRolePicker(); elements["role-trigger"].focus(); } });
-window.addEventListener("resize", constrainRolePopoverToViewport);
-window.visualViewport?.addEventListener("resize", constrainRolePopoverToViewport);
+document.addEventListener("keydown", (event) => {
+  if (event.key !== "Escape") return;
+  if (!elements["role-popover"].hidden) { closeRolePicker(); elements["role-trigger"].focus(); }
+  else if (!elements["bond-popover"].hidden) { closeBondPicker(); elements["bond-trigger"].focus(); }
+});
+window.addEventListener("resize", () => { constrainRolePopoverToViewport(); constrainBondPopoverToViewport(); });
+window.visualViewport?.addEventListener("resize", () => { constrainRolePopoverToViewport(); constrainBondPopoverToViewport(); });
 elements["search-form"].addEventListener("submit", (event) => { event.preventDefault(); performSearch(); });
 elements["selection-clear"].addEventListener("click", () => { resetTransferUi(); state.selectedCandidate = null; document.body.classList.remove("has-selection"); renderResults(); renderTray(); });
 elements["transfer-submit"].addEventListener("click", submitTransfer);
 elements["copy-code"].addEventListener("click", async () => { await navigator.clipboard.writeText(elements["share-code"].value); elements["copy-code"].textContent = t("copied"); setTimeout(() => { elements["copy-code"].textContent = t("copy"); }, 1200); });
-
 applyTranslations();
 loadRoles();

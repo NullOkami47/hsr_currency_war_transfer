@@ -177,8 +177,12 @@ export function createSearchHandler({
     try {
       const body = parseBody(request);
       const roleIds = Array.isArray(body.roleIds) ? body.roleIds : [];
+      const bondIds = Array.isArray(body.bondIds) ? body.bondIds : [];
       if (body.roleIds !== undefined && !Array.isArray(body.roleIds)) {
         throw new PublicInputError("roleIds must be an array", "invalid_roles");
+      }
+      if (body.bondIds !== undefined && !Array.isArray(body.bondIds)) {
+        throw new PublicInputError("bondIds must be an array", "invalid_bonds");
       }
 
       const result = await searchChinaStrategiesFn({
@@ -186,6 +190,7 @@ export function createSearchHandler({
         keyword: body.keyword,
         authorKeyword: body.authorKeyword,
         roleIds,
+        bondIds,
         maxPages: boundedInteger(
           body.maxPages,
           PUBLIC_SEARCH_LIMITS.maxPages,

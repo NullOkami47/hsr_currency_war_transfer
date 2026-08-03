@@ -53,6 +53,7 @@ test("serves the visible China role catalogue with shared caching", async () => 
   const handler = createRolesHandler({
     fetchChinaRoleOptionsFn: async () => ({
       roles: [{ id: "1510", name: "姬子•启行" }],
+      bonds: [{ id: "1001", type: "faction", name: "列车同行" }],
       version: "4.4",
     }),
   });
@@ -62,6 +63,7 @@ test("serves the visible China role catalogue with shared caching", async () => 
 
   assert.equal(response.statusCode, 200);
   assert.equal(response.json().roles[0].id, "1510");
+  assert.equal(response.json().bonds[0].id, "1001");
   assert.match(response.headers.get("cache-control"), /s-maxage=3600/);
 });
 
@@ -82,6 +84,7 @@ test("serves bounded combined strategy searches", async () => {
         keyword: "姬子",
         authorKeyword: "田宮良子",
         roleIds: ["1510", "1001"],
+        bondIds: ["1001", "2004"],
         maxPages: 4,
         pageSize: 20,
       },
@@ -96,10 +99,30 @@ test("serves bounded combined strategy searches", async () => {
     keyword: "姬子",
     authorKeyword: "田宮良子",
     roleIds: ["1510", "1001"],
+    bondIds: ["1001", "2004"],
     maxPages: 4,
     pageSize: 20,
     order: "Hot",
   });
+});
+
+test("rejects a non-array Bond search before calling China", async () => {
+  let called = false;
+  const handler = createSearchHandler({
+    searchChinaStrategiesFn: async () => {
+      called = true;
+    },
+  });
+  const response = responseRecorder();
+
+  await handler(
+    { method: "POST", body: { bondIds: "1001" } },
+    response,
+  );
+
+  assert.equal(response.statusCode, 400);
+  assert.equal(response.json().error.reason, "invalid_bonds");
+  assert.equal(called, false);
 });
 
 test("rejects an excessive public search before calling China", async () => {

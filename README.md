@@ -45,8 +45,10 @@ npm run transfer -- 6a587503f4749840a14a360d
 
 `npm run dev` starts the local website at `http://127.0.0.1:4173`. The site
 supports exact China URL/ID lookup, title and author search, multiple-character
-AND filtering, candidate selection and transfer submission. It includes light
-and dark themes. Interface chrome and character names are available in
+and Faction/School Bond AND filtering, candidate selection and transfer
+submission. Completed submissions keep their Global code and official link in
+browser-local history (up to 50 records). It includes light and dark themes.
+Interface chrome, character names and Bond names are available in
 Traditional Chinese, Simplified Chinese and English; source strategy text is
 kept unchanged.
 

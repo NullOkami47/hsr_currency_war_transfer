@@ -5,8 +5,8 @@ the administrator's global browser profile.
 
 ## `GET /api/roles`
 
-Returns the current visible China role catalogue for the website's
-multi-select control:
+Returns the current visible China role catalogue and searchable Faction and
+School Bonds for the website's multi-select controls:
 
 ```json
 {
@@ -24,6 +24,30 @@ multi-select control:
       "displayCost": "4",
       "costs": ["4"],
       "isExpert": false
+    }
+  ],
+  "bonds": [
+    {
+      "id": "1001",
+      "type": "faction",
+      "names": {
+        "zhHans": "列车同行",
+        "zhHant": "列車同行",
+        "en": "Astral Express"
+      },
+      "name": "列车同行",
+      "icon": "https://..."
+    },
+    {
+      "id": "2004",
+      "type": "school",
+      "names": {
+        "zhHans": "能量",
+        "zhHant": "能量",
+        "en": "Energy"
+      },
+      "name": "能量",
+      "icon": "https://..."
     }
   ],
   "version": "4.4",
@@ -46,6 +70,10 @@ cost-3, cost-4, and cost-5 filters, and its portrait follows the active filter
 actual internal variant's cost. Strategy search matches all three internal
 IDs. `isExpert` drives the Expert Consultant catalogue filter.
 
+Bond entries come from `trait_info_list`. Only `trait_type: 0` (Faction) and
+`trait_type: 1` (School) are exposed; special character traits are excluded.
+Names are merged across the same three interface locales by stable Bond ID.
+
 ## `POST /api/search`
 
 An exact URL/ID lookup:
@@ -60,22 +88,24 @@ The direct field also accepts ordinary share text containing one
 `https://act.miyoushe.com/...` strategy link; the server extracts and validates
 the China URL rather than requiring the user to remove the surrounding text.
 
-A combined title, author and role search:
+A combined title, author, role and Bond search:
 
 ```json
 {
   "keyword": "姬",
   "authorKeyword": "田宮良子",
   "roleIds": ["1510", "1001"],
+  "bondIds": ["1001", "2004"],
   "maxPages": 10,
   "pageSize": 10,
   "order": "Hot"
 }
 ```
 
-`keyword`, `authorKeyword` and `roleIds` use AND matching. Author matching uses
+`keyword`, `authorKeyword`, `roleIds` and `bondIds` use AND matching. Author matching uses
 the public display name. When multiple roles are selected, every selected role
-must occur in the strategy. The service validates IDs
+must occur in the strategy; likewise, every selected Faction or School Bond
+must occur in at least one strategy stage. The service validates IDs
 against the current China configuration and rechecks each returned lineup
 locally because the upstream API may silently ignore invalid filters.
 
@@ -109,8 +139,8 @@ and omit `failedPage`.
 
 Input failures return HTTP 400 with `error.code: "invalid_request"` and a stable
 `error.reason`. The website uses that reason to distinguish an invalid URL/ID,
-missing criteria, invalid pagination, and stale character IDs from a temporary
-China service failure. When character IDs are stale, it refreshes the catalogue
+missing criteria, invalid pagination, and stale character or Bond IDs from a
+temporary China service failure. When IDs are stale, it refreshes the catalogue
 and removes only the unavailable selections; it does not silently broaden and
 repeat the search.
 
@@ -169,6 +199,12 @@ completed response without a share code or valid Global strategy ID is rejected
 instead of being reported as success. Public transfer responses expose only the
 official strategy URL, not the raw Global strategy ID; that operational field
 is visible only in the authenticated administrator console.
+
+After a completed browser submission, the public website stores up to 50 local
+history records in that browser. Each record contains only the source strategy
+ID and original title, public result status, Global share code, official Global
+URL, and completion time. It is not synchronised and never contains the worker
+URL or token, HoYoLAB session data, account identifiers, or a raw Global ID.
 
 Expired China strategies are displayed as unavailable candidates and are also
 rejected by the transfer core with `expired_source`, so a crafted request

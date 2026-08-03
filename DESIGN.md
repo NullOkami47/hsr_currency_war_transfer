@@ -182,6 +182,25 @@ Base unit: `4px`.
 - Trigger exposes selected count and expands a popover containing a text filter, tag row, and checkbox grid.
 - Each role chip contains a 32px portrait, localised name, and visible checked state. Portrait fields use the visible character's `displayCost`; when a grouped upgrade role is shown under a specific cost filter, that active cost controls the picker portrait colour. Cost filters use every value in `costs`. Hover uses amber-pale wash; focus is explicit; disabled roles cannot be selected. Empty and load-error states are textual.
 
+### Bond picker and bond chip
+
+- The detail-search rail exposes one Bond picker immediately after the role
+  picker. Its two labelled groups are Faction and School; special character
+  traits are not search filters. Each group supports zero or more native
+  checkbox selections, so Faction-only, School-only, or combined searches are
+  all possible.
+- Selected Bonds combine with title, author, roles, and one another using AND
+  semantics. The trigger always exposes the total selected count. Bond names
+  and aliases are localised in Simplified Chinese, Traditional Chinese, and
+  English, and every option uses the upstream trait icon with a textual
+  fallback.
+- The Bond popover reuses the role picker's ruled floating surface, toolbar,
+  chip, focus, viewport-placement, and internal-scroll states. Group headings
+  use the display type token; empty and load-error states remain textual.
+- Upstream Bond artwork is rendered as solid black in the light theme so every
+  Faction and School mark has consistent contrast. Dark mode keeps the source
+  artwork treatment so light marks remain visible against the midnight paper.
+
 ### Strategy candidate
 
 - Detail search combines optional title, author display name, and selected roles
@@ -207,6 +226,25 @@ Base unit: `4px`.
 
 - Appears only after selection. Desktop is sticky in the right rail; mobile is a fixed bottom sheet with safe-area padding.
 - Shows selected title, roster summary, disclaimer, and primary submit button. Loading locks duplicate submissions, adds the existing button spinner, and shows a working status panel with a token-coloured progress sweep. A queued transfer keeps the tray open, shows its job ID, and polls without asking the user to resubmit. Success exposes the returned global share code in the official `##…=##` wrapper, a copy button, and a secondary link button that opens the completed strategy on the official Global compendium in a new tab. Partial success lists every ignored item; failure and timeout states remain retryable.
+
+### Local submission history
+
+- A dedicated `/history` page lists completed submissions newest first; history
+  is never appended below the search workspace. The primary page exposes a
+  compact history navigation action in the header, while the history page
+  provides a clear route back to strategy search.
+- Each semantic record contains the original Chinese strategy
+  title, completion time, public result status, source ID, Global share code,
+  a copy-code action, and an official Global strategy link.
+- The history is browser-local, capped at 50 records, and never contains worker
+  URLs, credentials, sessions, account identifiers, or raw Global IDs. The
+  empty state explains that records stay on the current device. A clear-history
+  action is visible only when records exist and removes all records at once.
+- Records reuse the ruled tactical-row language, mono treatment for IDs and
+  codes, 44px actions, explicit focus rings, and wrapping metadata. Narrow
+  screens stack content and actions without horizontal scrolling.
+- Panel headings use eyebrow and title hierarchy without decorative numeric
+  prefixes such as `01` or `03`.
 
 ### External Strategy Compendium links
 
@@ -341,6 +379,9 @@ Paper texture is created with subtle CSS radial/linear gradients using declared 
 
 - A mobile player pasting a shared URL with one hand: exact lookup must be the shortest path.
 - A desktop theory-crafter comparing several lineups: title, author, description, and final roster must be scannable without opening each source page.
+- A returning user recovering a previously published Global strategy: local
+  history must expose the original title, share code, and official link without
+  repeating the transfer.
 - A keyboard or screen-reader user: every role choice, candidate selection, and transfer state must be announced and operable without pointer input.
 - An administrator operating the publishing account: current limits, queue
   pressure and recent failures must be understandable without inspecting JSON

@@ -2,8 +2,10 @@ const INPUT_ERROR_PRESENTATIONS = Object.freeze({
   invalid_source: "searchInvalidSource",
   missing_criteria: "searchInvalidCriteria",
   stale_role_ids: "searchStaleRoles",
+  stale_bond_ids: "searchStaleBonds",
   invalid_pagination: "searchInvalidPagination",
   invalid_roles: "searchInvalidRoles",
+  invalid_bonds: "searchInvalidBonds",
   invalid_request: "searchInvalidGeneric",
 });
 
@@ -17,7 +19,7 @@ export function getSearchErrorPresentation(status, payload) {
     return {
       titleKey: "searchInputErrorTitle",
       bodyKey: INPUT_ERROR_PRESENTATIONS[reason],
-      refreshRoles: reason === "stale_role_ids",
+      refreshRoles: ["stale_role_ids", "stale_bond_ids"].includes(reason),
     };
   }
 

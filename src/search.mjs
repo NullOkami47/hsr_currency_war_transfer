@@ -34,6 +34,14 @@ function localisedRoleIndex(config) {
   );
 }
 
+function bondIndex(config) {
+  return new Map(
+    (config?.trait_info_list ?? [])
+      .filter(({ trait_type: type }) => [0, 1].includes(Number(type)))
+      .map((bond) => [String(bond.trait_id), bond]),
+  );
+}
+
 function logicalRoleKey(role) {
   return [
     normaliseText(role.name),
@@ -76,6 +84,14 @@ function allLineupRoleIds(lineup) {
       [...(stage.front_roles ?? []), ...(stage.back_roles ?? [])].map(
         (role) => String(role.id),
       ),
+    ),
+  );
+}
+
+function allLineupBondIds(lineup) {
+  return new Set(
+    (lineup.tourn_detail?.role_stages ?? []).flatMap((stage) =>
+      (stage.traits ?? []).map((bond) => String(bond.trait_id)),
     ),
   );
 }
@@ -124,7 +140,7 @@ function interactionCount(value) {
 export function toChinaStrategyCandidate(
   lineup,
   config,
-  { selectedRoleIds = [], selectedRoleGroups } = {},
+  { selectedRoleIds = [], selectedRoleGroups, selectedBondIds = [] } = {},
 ) {
   if (!lineup?.id) {
     throw new TypeError("A China strategy lineup is required");
@@ -132,6 +148,7 @@ export function toChinaStrategyCandidate(
 
   const rolesById = roleIndex(config);
   const lineupRoleIds = allLineupRoleIds(lineup);
+  const lineupBondIds = allLineupBondIds(lineup);
   const selected = uniqueStrings(selectedRoleIds);
 
   return {
@@ -153,11 +170,55 @@ export function toChinaStrategyCandidate(
           .filter(({ matchIds }) => matchIds.some((id) => lineupRoleIds.has(id)))
           .map(({ selectedId }) => selectedId)
       : selected.filter((id) => lineupRoleIds.has(id)),
+    matchedBondIds: uniqueStrings(selectedBondIds).filter((id) =>
+      lineupBondIds.has(id)),
     createdAt: String(lineup.created_at ?? ""),
     lastEditedAt: String(lineup.last_edit ?? ""),
     isExpired: Boolean(lineup.tourn_detail?.is_expired),
     sourceUrl: `${CHINA_LINEUP_URL}#/lineup/${lineup.id}`,
   };
+}
+
+export function getChinaBondOptions(
+  config,
+  { simplifiedConfig, traditionalConfig, englishConfig } = {},
+) {
+  const simplifiedBonds = bondIndex(simplifiedConfig);
+  const traditionalBonds = bondIndex(traditionalConfig);
+  const englishBonds = bondIndex(englishConfig);
+
+  return [...bondIndex(config).values()]
+    .map((bond) => {
+      const id = String(bond.trait_id);
+      const simplified = simplifiedBonds.get(id);
+      const traditional = traditionalBonds.get(id);
+      const english = englishBonds.get(id);
+      return {
+        id,
+        type: Number(bond.trait_type) === 0 ? "faction" : "school",
+        name: String(simplified?.trait_name ?? bond.trait_name ?? ""),
+        names: {
+          zhHans: String(simplified?.trait_name ?? bond.trait_name ?? ""),
+          zhHant: String(traditional?.trait_name ?? bond.trait_name ?? ""),
+          en: String(english?.trait_name ?? bond.trait_name ?? ""),
+        },
+        icon: String(
+          english?.trait_icon
+            ?? traditional?.trait_icon
+            ?? bond.trait_icon
+            ?? "",
+        ),
+      };
+    })
+    .sort(
+      (left, right) =>
+        left.type.localeCompare(right.type, "en")
+        || left.name.localeCompare(right.name, "zh-CN", {
+          numeric: true,
+          sensitivity: "base",
+        })
+        || left.id.localeCompare(right.id, "en", { numeric: true }),
+    );
 }
 
 export function getChinaRoleOptions(
@@ -230,10 +291,26 @@ export async function fetchChinaRoleOptions(
       traditionalConfig,
       englishConfig,
     }),
+    bonds: getChinaBondOptions(config, {
+      simplifiedConfig,
+      traditionalConfig,
+      englishConfig,
+    }),
     version: String(config.rpg_game_big_version ?? ""),
     seasonId: String(config.season_id ?? ""),
     subSeasonId: String(config.sub_season_id ?? ""),
   };
+}
+
+function validateSearchBondIds(config, bondIds) {
+  const known = bondIndex(config);
+  const unknownBondIds = bondIds.filter((id) => !known.has(id));
+  if (unknownBondIds.length > 0) {
+    throw new PublicInputError(
+      `Unknown China Bond id${unknownBondIds.length === 1 ? "" : "s"}: ${unknownBondIds.join(", ")}`,
+      "stale_bond_ids",
+    );
+  }
 }
 
 function validateSearchRoleIds(config, roleIds) {
@@ -279,6 +356,7 @@ export async function searchChinaStrategies(
     keyword = "",
     authorKeyword = "",
     roleIds = [],
+    bondIds = [],
     maxPages = 10,
     pageSize = 10,
     order = "Hot",
@@ -298,6 +376,7 @@ export async function searchChinaStrategies(
   const titleKeyword = String(keyword ?? "").trim();
   const authorNameKeyword = String(authorKeyword ?? "").trim();
   const selectedRoleIds = uniqueStrings(roleIds);
+  const selectedBondIds = uniqueStrings(bondIds);
 
   if (directSource) {
     const sourceId = parseChinaLineupInput(directSource);
@@ -324,7 +403,9 @@ export async function searchChinaStrategies(
         keyword: "",
         authorKeyword: "",
         roleIds: [],
+        bondIds: [],
         roleMatch: "all",
+        bondMatch: "all",
         order: null,
       },
       candidates: [toChinaStrategyCandidate(detail.lineup, config)],
@@ -337,9 +418,14 @@ export async function searchChinaStrategies(
     };
   }
 
-  if (!titleKeyword && !authorNameKeyword && selectedRoleIds.length === 0) {
+  if (
+    !titleKeyword
+    && !authorNameKeyword
+    && selectedRoleIds.length === 0
+    && selectedBondIds.length === 0
+  ) {
     throw new PublicInputError(
-      "Provide a China strategy URL/ID, title keyword, author name or at least one role",
+      "Provide a China strategy URL/ID, title keyword, author name, role or Bond",
       "missing_criteria",
     );
   }
@@ -365,6 +451,7 @@ export async function searchChinaStrategies(
     config,
     selectedRoleIds,
   );
+  validateSearchBondIds(config, selectedBondIds);
   const upstreamRoleIds = selectedRoleGroups
     .filter(({ matchIds }) => matchIds.length === 1)
     .map(({ matchIds }) => matchIds[0]);
@@ -389,6 +476,7 @@ export async function searchChinaStrategies(
           limit: pageSize,
           nextPageToken,
           roleIds: upstreamRoleIds,
+          traitIds: selectedBondIds,
           order,
         },
         {
@@ -414,6 +502,7 @@ export async function searchChinaStrategies(
       seenIds.add(id);
 
       const lineupRoleIds = allLineupRoleIds(lineup);
+      const lineupBondIds = allLineupBondIds(lineup);
       const matchesKeyword =
         !normalisedKeyword ||
         normaliseText(lineup.title).includes(normalisedKeyword);
@@ -423,12 +512,21 @@ export async function searchChinaStrategies(
       const matchesAllRoles = selectedRoleGroups.every(({ matchIds }) =>
         matchIds.some((roleId) => lineupRoleIds.has(roleId)),
       );
+      const matchesAllBonds = selectedBondIds.every((bondId) =>
+        lineupBondIds.has(bondId),
+      );
 
-      if (matchesKeyword && matchesAuthor && matchesAllRoles) {
+      if (
+        matchesKeyword
+        && matchesAuthor
+        && matchesAllRoles
+        && matchesAllBonds
+      ) {
         candidates.push(
           toChinaStrategyCandidate(lineup, config, {
             selectedRoleIds,
             selectedRoleGroups,
+            selectedBondIds,
           }),
         );
       }
@@ -448,7 +546,9 @@ export async function searchChinaStrategies(
       keyword: titleKeyword,
       authorKeyword: authorNameKeyword,
       roleIds: selectedRoleIds,
+      bondIds: selectedBondIds,
       roleMatch: "all",
+      bondMatch: "all",
       order,
     },
     candidates,

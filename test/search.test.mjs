@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   fetchChinaRoleOptions,
+  getChinaBondOptions,
   getChinaRoleOptions,
   searchChinaStrategies,
   toChinaStrategyCandidate,
@@ -46,9 +47,31 @@ const silverWolfVariants = ["15061", "15062", "15063"].map(
   }),
 );
 
+const bonds = [
+  {
+    trait_id: "1001",
+    trait_name: "列车同行",
+    trait_icon: "express.png",
+    trait_type: 0,
+  },
+  {
+    trait_id: "2004",
+    trait_name: "能量",
+    trait_icon: "energy.png",
+    trait_type: 1,
+  },
+  {
+    trait_id: "3001",
+    trait_name: "大守护者",
+    trait_icon: "guardian.png",
+    trait_type: 2,
+  },
+];
+
 function config() {
   return {
     role_list: roles,
+    trait_info_list: bonds,
     rpg_game_big_version: "4.4",
     season_id: "1",
     sub_season_id: "4",
@@ -59,6 +82,7 @@ function lineup({
   id = "6a56fe3021253d0e1a9f4761",
   title = "【6列车同行3能量】币战科研项目：姬七猫！",
   roleIds = ["1510", "1001"],
+  bondIds = ["1001", "2004"],
 } = {}) {
   return {
     id,
@@ -90,11 +114,40 @@ function lineup({
             star: 3,
             board_index: index,
           })),
+          traits: bondIds.map((traitId) => ({ trait_id: traitId })),
         },
       ],
     },
   };
 }
+
+test("builds localised Faction and School Bond options", () => {
+  const options = getChinaBondOptions(config(), {
+    traditionalConfig: {
+      trait_info_list: bonds.map((bond) => ({
+        ...bond,
+        trait_name: `繁體-${bond.trait_id}`,
+      })),
+    },
+    englishConfig: {
+      trait_info_list: bonds.map((bond) => ({
+        ...bond,
+        trait_name: `English-${bond.trait_id}`,
+      })),
+    },
+  });
+
+  assert.deepEqual(options.map(({ id, type }) => ({ id, type })), [
+    { id: "1001", type: "faction" },
+    { id: "2004", type: "school" },
+  ]);
+  assert.deepEqual(options[0].names, {
+    zhHans: "列车同行",
+    zhHant: "繁體-1001",
+    en: "English-1001",
+  });
+  assert.equal(options.some(({ id }) => id === "3001"), false);
+});
 
 test("builds visible China role options for a multi-select control", () => {
   const options = getChinaRoleOptions(config());
@@ -295,6 +348,36 @@ test("combines title keyword and selected roles with AND matching", async () => 
   assert.equal(calls[1].options.nextPageToken, "next");
 });
 
+test("combines Faction and School Bonds with every other criterion", async () => {
+  const matching = lineup();
+  const missingSchool = lineup({
+    id: "6a56fe3021253d0e1a9f4791",
+    bondIds: ["1001"],
+  });
+  let upstreamTraitIds;
+
+  const result = await searchChinaStrategies(
+    {
+      keyword: "科研",
+      roleIds: ["1510"],
+      bondIds: ["1001", "2004", "1001"],
+    },
+    {
+      fetchConfigFn: async () => config(),
+      fetchLineupPageFn: async (region, options) => {
+        upstreamTraitIds = options.traitIds;
+        return { list: [matching, missingSchool] };
+      },
+    },
+  );
+
+  assert.deepEqual(upstreamTraitIds, ["1001", "2004"]);
+  assert.deepEqual(result.query.bondIds, ["1001", "2004"]);
+  assert.equal(result.query.bondMatch, "all");
+  assert.deepEqual(result.candidates.map(({ id }) => id), [matching.id]);
+  assert.deepEqual(result.candidates[0].matchedBondIds, ["1001", "2004"]);
+});
+
 test("retries one failed recommendation page and continues the search", async () => {
   let pageCalls = 0;
 
@@ -463,6 +546,25 @@ test("rejects unknown role IDs before scanning recommendation pages", async () =
       },
     ),
     /Unknown China role id: 404/,
+  );
+  assert.equal(pageWasFetched, false);
+});
+
+test("rejects unknown or special-only Bond IDs before scanning pages", async () => {
+  let pageWasFetched = false;
+
+  await assert.rejects(
+    searchChinaStrategies(
+      { bondIds: ["3001"] },
+      {
+        fetchConfigFn: async () => config(),
+        fetchLineupPageFn: async () => {
+          pageWasFetched = true;
+          return { list: [] };
+        },
+      },
+    ),
+    /Unknown China Bond id: 3001/,
   );
   assert.equal(pageWasFetched, false);
 });

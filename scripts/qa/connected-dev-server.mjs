@@ -67,8 +67,11 @@ createServer(async (request, response) => {
   const routes = new Map([
     ["/", "index.html"],
     ["/showcase", "showcase.html"],
+    ["/history", "history.html"],
     ["/styles.css", "styles.css"],
     ["/app.js", "app.js"],
+    ["/history.js", "history.js"],
+    ["/history-page.js", "history-page.js"],
     ["/search-error.js", "search-error.js"],
     ["/theme-init.js", "theme-init.js"],
     ["/favicon.svg", "favicon.svg"],

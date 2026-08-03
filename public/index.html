@@ -23,6 +23,10 @@
         <span data-i18n="appName">貨幣戰爭攻略轉移</span>
       </a>
       <div class="header-controls">
+      <a class="header-history-link" href="/history">
+        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7L3 8" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M3 3v5h5M12 7v5l3 2" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <span class="header-history-link__label" data-i18n="historyLink">提交紀錄</span>
+      </a>
       <button id="theme-toggle" class="theme-toggle" type="button">
         <svg class="icon theme-toggle__sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true"><circle cx="12" cy="12" r="3.5" stroke-width="1.8"/><path d="M12 2v2m0 16v2M4.9 4.9l1.4 1.4m11.4 11.4 1.4 1.4M2 12h2m16 0h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" stroke-width="1.8" stroke-linecap="round"/></svg>
         <svg class="icon theme-toggle__moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true"><path d="M20.2 15.2A8 8 0 0 1 8.8 3.8 8.5 8.5 0 1 0 20.2 15.2Z" stroke-width="1.8" stroke-linejoin="round"/></svg>
@@ -44,7 +48,7 @@
         <div class="hero__content">
           <p class="hero__eyebrow" data-i18n="heroEyebrow">Currency War Strategy Compendium / 跨服轉移</p>
           <h1 id="page-title" data-i18n="heroTitle">從中國服找到攻略，帶到全球服。</h1>
-          <p class="hero__copy" data-i18n="heroCopy">貼上分享連結，或用名稱與角色篩選候選攻略。確認陣容後，再交由管理員帳號建立全球服版本。</p>
+<p class="hero__copy" data-i18n="heroCopy">貼上分享連結，或用名稱、作者、角色與羈絆篩選候選攻略。確認陣容後，再交由管理員帳號建立全球服版本。</p>
         </div>
         <div class="hero__diagram" aria-hidden="true">
           <div class="orbit orbit--outer"></div>
@@ -56,13 +60,12 @@
       <div class="app-layout">
         <aside class="search-panel" aria-labelledby="search-heading">
           <div class="panel-heading">
-            <span class="panel-heading__index">01</span>
             <div><p class="panel-heading__eyebrow" data-i18n="searchEyebrow">搜尋條件</p><h2 id="search-heading" data-i18n="searchHeading">尋找中國服攻略</h2></div>
           </div>
 
           <div class="mode-tabs" role="tablist" aria-label="搜尋方式">
             <button id="tab-direct" class="mode-tab" role="tab" aria-controls="panel-direct" aria-selected="true" tabindex="0" type="button" data-mode="direct" data-i18n="modeDirect">URL／ID</button>
-            <button id="tab-details" class="mode-tab" role="tab" aria-controls="panel-details" aria-selected="false" tabindex="-1" type="button" data-mode="details" data-i18n="modeDetails">名稱與角色</button>
+            <button id="tab-details" class="mode-tab" role="tab" aria-controls="panel-details" aria-selected="false" tabindex="-1" type="button" data-mode="details" data-i18n="modeDetails">名稱、作者、角色與羈絆</button>
           </div>
 
           <form id="search-form" class="search-form" novalidate>
@@ -100,6 +103,21 @@
                   <p id="role-status" class="field__hint" data-i18n="rolesLoading">正在讀取角色⋯</p>
                 </div>
                 <span id="details-error" class="field__error" hidden></span>
+              </div>
+              <div class="field role-picker bond-picker">
+                <span class="field__label" data-i18n="bondsLabel">羈絆（陣營／流派，可多選）</span>
+                <button id="bond-trigger" class="role-picker__trigger" type="button" aria-haspopup="dialog" aria-expanded="false">
+                  <span id="bond-trigger-label" data-i18n="bondsLoading">正在載入羈絆</span>
+                  <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true"><path d="m7 10 5 5 5-5" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                </button>
+                <div id="bond-popover" class="role-picker__popover" role="dialog" aria-label="羈絆選擇" hidden>
+                  <div class="role-picker__toolbar">
+                    <input id="bond-filter" class="role-picker__search" autocomplete="off" data-i18n-placeholder="bondFilterPlaceholder" placeholder="輸入羈絆名稱" aria-label="篩選羈絆">
+                    <button id="bond-clear" class="button button--quiet" type="button" data-i18n="clear">清除</button>
+                  </div>
+                  <div id="bond-grid" class="bond-grid" aria-live="polite"></div>
+                  <p id="bond-status" class="field__hint" data-i18n="bondsLoading">正在載入羈絆</p>
+                </div>
               </div>
             </div>
 
@@ -142,6 +160,7 @@
           </div>
         </aside>
       </div>
+
     </main>
 
     <footer class="site-footer" aria-labelledby="disclaimer-title">
