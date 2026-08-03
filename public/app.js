@@ -2,7 +2,7 @@ import {
   getSearchErrorPresentation,
   retainKnownRoleIds,
 } from "./search-error.js?v=1";
-import { addSubmissionHistoryEntry } from "./history.js?v=1";
+import { addSubmissionHistoryEntry } from "./history.js?v=2";
 
 const messages = {
   "zh-Hant": {
@@ -974,9 +974,16 @@ async function pollTransfer(jobId, signal) {
   throw error;
 }
 
-function renderTransferResult(data) {
+function renderTransferResult(data, candidate, pendingEntry = null) {
   elements["transfer-status"].replaceChildren();
   if (data.status === "failed") {
+    if (pendingEntry) {
+      addSubmissionHistoryEntry({
+        ...pendingEntry,
+        status: "failed",
+        completedAt: new Date().toISOString(),
+      });
+    }
     elements["transfer-status"].append(statusPanel("error", t("transferFailedTitle"), t("transferFailedBody")));
     return;
   }
@@ -999,30 +1006,34 @@ function renderTransferResult(data) {
     : "";
   elements["transfer-status"].append(statusPanel("", data.status === "partial" ? t("partialTitle") : t("completeTitle"), body));
   if (
-    state.selectedCandidate
+    candidate
     && data.shareCode
     && data.globalUrl
     && ["created", "updated", "unchanged", "partial"].includes(data.status)
   ) {
     addSubmissionHistoryEntry({
-      id: globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${state.selectedCandidate.id}`,
-      sourceId: state.selectedCandidate.id,
-      sourceTitle: state.selectedCandidate.title,
+      id: pendingEntry?.id ?? data.jobId ?? globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${candidate.id}`,
+      ...(pendingEntry?.jobId || data.jobId ? { jobId: pendingEntry?.jobId ?? data.jobId } : {}),
+      sourceId: candidate.id,
+      sourceTitle: candidate.title,
       status: data.status,
       shareCode: data.shareCode,
       globalUrl: data.globalUrl,
       completedAt: new Date().toISOString(),
+      ...(pendingEntry?.submittedAt ? { submittedAt: pendingEntry.submittedAt } : {}),
     });
   }
 }
 
 async function submitTransfer() {
   if (!state.selectedCandidate || state.transferController) return;
+  const candidate = state.selectedCandidate;
   const controller = new AbortController();
+  let pendingEntry = null;
   state.transferController = controller;
   setTransferBusy(true); elements["transfer-status"].replaceChildren(statusPanel("working", t("preparingTitle"), t("preparingBody"))); elements["share-code-wrap"].hidden = true;
   try {
-    const response = await fetch("/api/transfers", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ source: state.selectedCandidate.id }), signal: controller.signal });
+    const response = await fetch("/api/transfers", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ source: candidate.id }), signal: controller.signal });
     let data = await response.json();
     if (!response.ok) {
       const error = new Error(data.error?.code ?? "transfer_failed");
@@ -1030,10 +1041,19 @@ async function submitTransfer() {
       throw error;
     }
     if (data.status === "queued") {
+      pendingEntry = {
+        id: data.jobId,
+        jobId: data.jobId,
+        sourceId: candidate.id,
+        sourceTitle: candidate.title,
+        status: "queued",
+        submittedAt: new Date().toISOString(),
+      };
+      addSubmissionHistoryEntry(pendingEntry);
       elements["transfer-status"].replaceChildren(statusPanel("working", t("queuedTitle"), t("queuedBody", { id: data.jobId ?? "—" })));
       data = await pollTransfer(data.jobId, controller.signal);
     }
-    renderTransferResult(data);
+    renderTransferResult(data, candidate, pendingEntry);
   } catch (error) {
     if (error.name === "AbortError") return;
     const unavailable = error.code === "transfer_service_unavailable";

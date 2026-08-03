@@ -46,6 +46,33 @@ test("stores completed submissions locally with public fields only", () => {
   assert.doesNotMatch(raw, /worker|token|session|globalId/);
 });
 
+test("keeps an accepted job across page closure and replaces it with its result", () => {
+  const storage = memoryStorage();
+  const pending = {
+    id: "job-accepted-before-page-close",
+    jobId: "job-accepted-before-page-close",
+    sourceId: "6a56fe3021253d0e1a9f4761",
+    sourceTitle: "Recoverable transfer",
+    status: "queued",
+    submittedAt: "2026-08-03T01:00:00.000Z",
+  };
+
+  addSubmissionHistoryEntry(pending, storage);
+  assert.deepEqual(loadSubmissionHistory(storage), [pending]);
+
+  const completed = {
+    ...entry(),
+    id: pending.id,
+    jobId: pending.jobId,
+    sourceId: pending.sourceId,
+    sourceTitle: pending.sourceTitle,
+    submittedAt: pending.submittedAt,
+  };
+  addSubmissionHistoryEntry(completed, storage);
+
+  assert.deepEqual(loadSubmissionHistory(storage), [completed]);
+});
+
 test("rejects failed records and untrusted Global links", () => {
   const storage = memoryStorage();
   addSubmissionHistoryEntry({ ...entry(), status: "failed" }, storage);

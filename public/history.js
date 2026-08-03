@@ -7,6 +7,16 @@ const COMPLETED_STATUSES = new Set([
   "unchanged",
   "partial",
 ]);
+const RECOVERABLE_STATUSES = new Set(["queued", "failed"]);
+
+function validDate(value) {
+  const date = new Date(value ?? "");
+  return Number.isNaN(date.valueOf()) ? null : date;
+}
+
+function historyTimestamp(entry) {
+  return entry.completedAt ?? entry.submittedAt;
+}
 
 export function sanitiseGlobalStrategyUrl(value) {
   try {
@@ -32,27 +42,49 @@ export function sanitiseGlobalStrategyUrl(value) {
 export function normaliseSubmissionHistoryEntry(value) {
   const status = String(value?.status ?? "");
   const sourceId = String(value?.sourceId ?? "");
+  const sourceTitle = String(value?.sourceTitle ?? "").trim().slice(0, 300);
+  const jobId = String(value?.jobId ?? "");
+  const submittedAt = validDate(value?.submittedAt);
+  if (!/^[a-f0-9]{24}$/i.test(sourceId)) return null;
+
+  if (RECOVERABLE_STATUSES.has(status)) {
+    const completedAt = status === "failed"
+      ? validDate(value?.completedAt ?? value?.submittedAt)
+      : null;
+    if (!/^[A-Za-z0-9_-]{1,100}$/.test(jobId) || !submittedAt) return null;
+    return {
+      id: String(value?.id ?? jobId).slice(0, 100),
+      jobId,
+      sourceId,
+      sourceTitle,
+      status,
+      submittedAt: submittedAt.toISOString(),
+      ...(completedAt ? { completedAt: completedAt.toISOString() } : {}),
+    };
+  }
+
   const shareCode = String(value?.shareCode ?? "");
   const globalUrl = sanitiseGlobalStrategyUrl(value?.globalUrl);
-  const completedAt = new Date(value?.completedAt ?? "");
+  const completedAt = validDate(value?.completedAt);
   if (
     !COMPLETED_STATUSES.has(status)
-    || !/^[a-f0-9]{24}$/i.test(sourceId)
     || !/^##[^#]{1,500}##$/.test(shareCode)
     || !globalUrl
-    || Number.isNaN(completedAt.valueOf())
+    || !completedAt
   ) {
     return null;
   }
 
   return {
     id: String(value?.id ?? `${completedAt.valueOf()}-${sourceId}`).slice(0, 100),
+    ...(jobId && /^[A-Za-z0-9_-]{1,100}$/.test(jobId) ? { jobId } : {}),
     sourceId,
-    sourceTitle: String(value?.sourceTitle ?? "").trim().slice(0, 300),
+    sourceTitle,
     status,
     shareCode,
     globalUrl,
     completedAt: completedAt.toISOString(),
+    ...(submittedAt ? { submittedAt: submittedAt.toISOString() } : {}),
   };
 }
 
@@ -63,7 +95,7 @@ export function loadSubmissionHistory(storage = globalThis.localStorage) {
     return entries
       .map(normaliseSubmissionHistoryEntry)
       .filter(Boolean)
-      .sort((left, right) => right.completedAt.localeCompare(left.completedAt))
+      .sort((left, right) => historyTimestamp(right).localeCompare(historyTimestamp(left)))
       .slice(0, SUBMISSION_HISTORY_LIMIT);
   } catch {
     return [];
@@ -74,7 +106,7 @@ export function saveSubmissionHistory(entries, storage = globalThis.localStorage
   const safeEntries = (entries ?? [])
     .map(normaliseSubmissionHistoryEntry)
     .filter(Boolean)
-    .sort((left, right) => right.completedAt.localeCompare(left.completedAt))
+    .sort((left, right) => historyTimestamp(right).localeCompare(historyTimestamp(left)))
     .slice(0, SUBMISSION_HISTORY_LIMIT);
   try {
     storage?.setItem(
@@ -93,8 +125,11 @@ export function addSubmissionHistoryEntry(
 ) {
   const safeEntry = normaliseSubmissionHistoryEntry(entry);
   if (!safeEntry) return loadSubmissionHistory(storage);
+  const existing = loadSubmissionHistory(storage).filter((saved) =>
+    saved.id !== safeEntry.id
+    && (!safeEntry.jobId || saved.jobId !== safeEntry.jobId));
   return saveSubmissionHistory(
-    [safeEntry, ...loadSubmissionHistory(storage)],
+    [safeEntry, ...existing],
     storage,
   );
 }

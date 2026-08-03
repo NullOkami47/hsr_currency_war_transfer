@@ -145,9 +145,14 @@ test("ships accessible Bond filters and a separate browser-local history page", 
   assert.match(historyHtml, /id="history-list"[^>]*aria-live="polite"/);
   assert.doesNotMatch(historyHtml, /panel-heading__index/);
   assert.match(app, /bondIds:\s*\[\.\.\.state\.selectedBondIds\]/);
-  assert.match(app, /addSubmissionHistoryEntry/);
+  assert.match(
+    app,
+    /status: "queued",[\s\S]{0,500}addSubmissionHistoryEntry\(pendingEntry\);[\s\S]{0,500}data = await pollTransfer/,
+  );
   assert.match(historyPage, /loadSubmissionHistory/);
   assert.match(historyPage, /clearSubmissionHistory/);
+  assert.match(historyPage, /resumeQueuedSubmissions/);
+  assert.match(historyPage, /fetch\(`\/api\/transfers\?jobId=/);
   assert.match(devServer, /"\/history",\s*"history\.html"/);
   assert.match(devServer, /"\/history\.js",\s*"history\.js"/);
   assert.match(devServer, /"\/history-page\.js",\s*"history-page\.js"/);

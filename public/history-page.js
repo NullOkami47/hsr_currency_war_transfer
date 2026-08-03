@@ -1,8 +1,9 @@
 import {
   SUBMISSION_HISTORY_KEY,
+  addSubmissionHistoryEntry,
   clearSubmissionHistory,
   loadSubmissionHistory,
-} from "./history.js?v=1";
+} from "./history.js?v=2";
 
 const messages = {
   "zh-Hant": {
@@ -13,11 +14,12 @@ const messages = {
     historyEyebrow: "此裝置",
     historyHeading: "本機提交紀錄",
     historyPrivacy: "只保存在這個瀏覽器，不會同步至其他裝置。",
-    historySummary: "成功完成的提交會依時間由新至舊排列。",
+    historySummary: "提交獲接受後會立即保存在這裡；未完成的工作會在此頁繼續查詢。",
     historyClear: "清除紀錄",
     historyClearConfirm: "確定要清除這個瀏覽器內的所有提交紀錄嗎？",
     historyEmptyTitle: "尚未有本機提交紀錄",
-    historyEmptyBody: "完成攻略轉移後，全球服攻略碼與連結會保存在這裡。",
+    historyEmptyBody: "提交攻略轉移後，即使關閉原本頁面，也可以回到這裡取得結果。",
+    historySubmittedAt: "提交於 {date}",
     historyCompletedAt: "完成於 {date}",
     historySourceId: "中國服來源 ID：{id}",
     historyOpenGlobal: "開啟全球服攻略",
@@ -25,6 +27,8 @@ const messages = {
     historyStatusUpdated: "已更新",
     historyStatusUnchanged: "內容未變",
     historyStatusPartial: "部分完成",
+    historyStatusQueued: "處理中",
+    historyStatusFailed: "未能完成",
     copy: "複製攻略碼",
     copied: "已複製",
     themeToDark: "切換至深色模式",
@@ -40,11 +44,12 @@ const messages = {
     historyEyebrow: "此设备",
     historyHeading: "本地提交记录",
     historyPrivacy: "只保存在这个浏览器，不会同步到其他设备。",
-    historySummary: "成功完成的提交会按时间由新到旧排列。",
+    historySummary: "提交获接受后会立即保存在这里；未完成的工作会在此页继续查询。",
     historyClear: "清除记录",
     historyClearConfirm: "确定要清除这个浏览器内的所有提交记录吗？",
     historyEmptyTitle: "尚无本地提交记录",
-    historyEmptyBody: "完成攻略转移后，全球服攻略码和链接会保存在这里。",
+    historyEmptyBody: "提交攻略转移后，即使关闭原来的页面，也可以回到这里取得结果。",
+    historySubmittedAt: "提交于 {date}",
     historyCompletedAt: "完成于 {date}",
     historySourceId: "中国服来源 ID：{id}",
     historyOpenGlobal: "打开全球服攻略",
@@ -52,6 +57,8 @@ const messages = {
     historyStatusUpdated: "已更新",
     historyStatusUnchanged: "内容未变",
     historyStatusPartial: "部分完成",
+    historyStatusQueued: "处理中",
+    historyStatusFailed: "未能完成",
     copy: "复制攻略码",
     copied: "已复制",
     themeToDark: "切换到深色模式",
@@ -67,11 +74,12 @@ const messages = {
     historyEyebrow: "This device",
     historyHeading: "Local submission history",
     historyPrivacy: "Stored only in this browser and not synchronised to other devices.",
-    historySummary: "Completed submissions are listed newest first.",
+    historySummary: "Accepted submissions are saved immediately; unfinished jobs continue checking here.",
     historyClear: "Clear history",
     historyClearConfirm: "Clear all submission history stored in this browser?",
     historyEmptyTitle: "No local submission history yet",
-    historyEmptyBody: "After a transfer completes, its Global code and link will be saved here.",
+    historyEmptyBody: "After submitting a transfer, return here for the result even if you close the original page.",
+    historySubmittedAt: "Submitted {date}",
     historyCompletedAt: "Completed {date}",
     historySourceId: "China source ID: {id}",
     historyOpenGlobal: "Open Global strategy",
@@ -79,6 +87,8 @@ const messages = {
     historyStatusUpdated: "Updated",
     historyStatusUnchanged: "Unchanged",
     historyStatusPartial: "Partially completed",
+    historyStatusQueued: "Processing",
+    historyStatusFailed: "Failed",
     copy: "Copy strategy code",
     copied: "Copied",
     themeToDark: "Switch to dark mode",
@@ -161,6 +171,8 @@ function historyStatus(status) {
     updated: "historyStatusUpdated",
     unchanged: "historyStatusUnchanged",
     partial: "historyStatusPartial",
+    queued: "historyStatusQueued",
+    failed: "historyStatusFailed",
   };
   return t(keys[status] ?? "historyStatusCreated");
 }
@@ -201,38 +213,88 @@ function renderHistory() {
     status.className = "status-badge";
     status.textContent = historyStatus(entry.status);
     headingRow.append(heading, status);
-    const completed = new Intl.DateTimeFormat(dateLocale, {
+    const timestamp = entry.completedAt ?? entry.submittedAt;
+    const formattedTime = new Intl.DateTimeFormat(dateLocale, {
       dateStyle: "medium",
       timeStyle: "short",
-    }).format(new Date(entry.completedAt));
+    }).format(new Date(timestamp));
     const metadata = document.createElement("p");
     metadata.className = "history-record__meta";
-    metadata.textContent = `${t("historyCompletedAt", { date: completed })} · ${t("historySourceId", { id: entry.sourceId })}`;
-    const code = document.createElement("code");
-    code.className = "history-record__code";
-    code.textContent = entry.shareCode;
-    content.append(headingRow, metadata, code);
+    metadata.textContent = `${t(entry.completedAt ? "historyCompletedAt" : "historySubmittedAt", { date: formattedTime })} · ${t("historySourceId", { id: entry.sourceId })}`;
+    content.append(headingRow, metadata);
+
+    if (entry.shareCode) {
+      const code = document.createElement("code");
+      code.className = "history-record__code";
+      code.textContent = entry.shareCode;
+      content.append(code);
+    }
 
     const actions = document.createElement("div");
     actions.className = "history-record__actions";
-    const copy = document.createElement("button");
-    copy.type = "button";
-    copy.className = "button button--secondary";
-    copy.textContent = t("copy");
-    copy.addEventListener("click", async () => {
-      await navigator.clipboard.writeText(entry.shareCode);
-      copy.textContent = t("copied");
-      setTimeout(() => { copy.textContent = t("copy"); }, 1200);
-    });
-    const link = document.createElement("a");
-    link.className = "button button--secondary";
-    link.href = globalStrategyUrlForLocale(entry.globalUrl);
-    link.target = "_blank";
-    link.rel = "noreferrer";
-    link.textContent = t("historyOpenGlobal");
-    actions.append(copy, link);
+    if (entry.shareCode && entry.globalUrl) {
+      const copy = document.createElement("button");
+      copy.type = "button";
+      copy.className = "button button--secondary";
+      copy.textContent = t("copy");
+      copy.addEventListener("click", async () => {
+        await navigator.clipboard.writeText(entry.shareCode);
+        copy.textContent = t("copied");
+        setTimeout(() => { copy.textContent = t("copy"); }, 1200);
+      });
+      const link = document.createElement("a");
+      link.className = "button button--secondary";
+      link.href = globalStrategyUrlForLocale(entry.globalUrl);
+      link.target = "_blank";
+      link.rel = "noreferrer";
+      link.textContent = t("historyOpenGlobal");
+      actions.append(copy, link);
+    }
     article.append(content, actions);
     elements.list.append(article);
+  }
+}
+
+const activePolls = new Set();
+
+function queuedEntry(jobId) {
+  return loadSubmissionHistory().find((entry) =>
+    entry.status === "queued" && entry.jobId === jobId);
+}
+
+async function resumeSubmission(entry) {
+  while (queuedEntry(entry.jobId)) {
+    let response;
+    let data;
+    try {
+      response = await fetch(`/api/transfers?jobId=${encodeURIComponent(entry.jobId)}`);
+      if (!response.ok) return;
+      data = await response.json();
+    } catch {
+      return;
+    }
+    if (data.status === "queued") {
+      await new Promise((resolve) => setTimeout(resolve, 1_500));
+      continue;
+    }
+    if (!queuedEntry(entry.jobId)) return;
+    addSubmissionHistoryEntry({
+      ...entry,
+      status: data.status,
+      ...(data.shareCode ? { shareCode: data.shareCode } : {}),
+      ...(data.globalUrl ? { globalUrl: data.globalUrl } : {}),
+      completedAt: new Date().toISOString(),
+    });
+    renderHistory();
+    return;
+  }
+}
+
+function resumeQueuedSubmissions() {
+  for (const entry of loadSubmissionHistory()) {
+    if (entry.status !== "queued" || activePolls.has(entry.jobId)) continue;
+    activePolls.add(entry.jobId);
+    resumeSubmission(entry).finally(() => activePolls.delete(entry.jobId));
   }
 }
 
@@ -260,7 +322,11 @@ elements.clear.addEventListener("click", () => {
   renderHistory();
 });
 window.addEventListener("storage", (event) => {
-  if (event.key === SUBMISSION_HISTORY_KEY) renderHistory();
+  if (event.key === SUBMISSION_HISTORY_KEY) {
+    renderHistory();
+    resumeQueuedSubmissions();
+  }
 });
 
 applyTranslations();
+resumeQueuedSubmissions();
