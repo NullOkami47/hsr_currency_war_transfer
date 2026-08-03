@@ -15,6 +15,8 @@
   --colour-on-amber: #0a0f0c;
   --colour-teal: #17666a;
   --colour-teal-pale: #dceceb;
+  --colour-starlight: #556b9f;
+  --colour-starlight-pale: #dfe6f5;
   --colour-danger: #9f352a;
   --colour-danger-pale: #f5ded9;
   --colour-focus: #185f9d;
@@ -53,6 +55,9 @@
   --role-popover-max-height: 26rem;
   --duration-fast: 120ms;
   --duration-normal: 180ms;
+  --duration-reveal: 720ms;
+  --duration-route: 3200ms;
+  --duration-orbit: 18000ms;
   --ease-standard: cubic-bezier(0.2, 0, 0, 1);
   --shadow-floating: 0 12px 32px rgb(53 43 24 / 0.14);
   --shadow-hero: 0 18px 30px rgb(53 43 24 / 0.12);
@@ -79,6 +84,8 @@ html[data-theme="dark"] {
   --colour-on-amber: #0a0f0c;
   --colour-teal: #77c2c2;
   --colour-teal-pale: #183436;
+  --colour-starlight: #9eb6ef;
+  --colour-starlight-pale: #26314f;
   --colour-danger: #f08b7f;
   --colour-danger-pale: #3b211f;
   --colour-focus: #7fc2ff;
@@ -1065,6 +1072,18 @@ html[data-theme="dark"] .theme-toggle__moon {
   max-width: 52rem;
 }
 
+.hero__content > * {
+  animation: hero-reveal var(--duration-reveal) var(--ease-standard) both;
+}
+
+.hero__content > h1 {
+  animation-delay: var(--duration-fast);
+}
+
+.hero__content > .hero__copy {
+  animation-delay: calc(var(--duration-fast) * 2);
+}
+
 .hero__eyebrow,
 .panel-heading__eyebrow {
   margin: 0 0 var(--space-2);
@@ -1093,34 +1112,51 @@ html[data-theme="dark"] .theme-toggle__moon {
   font-size: var(--text-2);
 }
 
-.hero__signals {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-3);
-  margin-top: var(--space-8);
-}
-
-.hero__signals > span {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-2);
-  padding: var(--space-2) var(--space-3);
-  color: var(--colour-teal);
-  background: var(--colour-teal-pale);
-  border: 1px solid var(--colour-teal);
-  border-radius: var(--radius-pill);
-  font-size: var(--text-0);
-  font-weight: 700;
-}
-
 .hero__diagram {
   position: relative;
   min-height: 20rem;
+  isolation: isolate;
   filter: drop-shadow(var(--shadow-hero));
+}
+
+.hero__diagram::before,
+.hero__diagram::after {
+  content: "";
+  position: absolute;
+  z-index: 0;
+  width: var(--space-1);
+  height: var(--space-1);
+  color: var(--colour-amber-dark);
+  background: currentColor;
+  border-radius: 50%;
+  animation: star-pulse var(--duration-route) var(--ease-standard) infinite;
+}
+
+.hero__diagram::before {
+  top: 15%;
+  left: 12%;
+  box-shadow:
+    5rem 2rem 0 currentColor,
+    13rem -1rem 0 currentColor,
+    18rem 7rem 0 currentColor,
+    3rem 14rem 0 currentColor;
+}
+
+.hero__diagram::after {
+  top: 32%;
+  left: 26%;
+  color: var(--colour-teal);
+  box-shadow:
+    4rem 1rem 0 currentColor,
+    9rem 5rem 0 currentColor,
+    14rem -2rem 0 currentColor,
+    4rem 11rem 0 currentColor;
+  animation-delay: calc(var(--duration-route) / -2);
 }
 
 .orbit {
   position: absolute;
+  z-index: 1;
   inset: 50% auto auto 50%;
   border: 1px solid var(--colour-rule-strong);
   border-radius: 50%;
@@ -1153,17 +1189,19 @@ html[data-theme="dark"] .theme-toggle__moon {
   height: 18rem;
   background: radial-gradient(circle, var(--colour-paper) 0 18%, transparent 19% 100%);
   box-shadow: inset 0 0 0 var(--space-3) var(--colour-paper-muted);
+  animation: orbit-outer var(--duration-orbit) linear infinite;
 }
 
 .orbit--inner {
   width: 10rem;
   height: 10rem;
   border-color: var(--colour-amber);
-  transform: translate(-50%, -50%) rotate(45deg);
+  animation: orbit-inner var(--duration-orbit) linear infinite reverse;
 }
 
 .route-line {
   position: absolute;
+  z-index: 2;
   inset: 50% var(--space-6) auto;
   display: flex;
   align-items: center;
@@ -1198,9 +1236,24 @@ html[data-theme="dark"] .route-line span:last-child {
 }
 
 .route-line i {
+  position: relative;
   height: 1px;
   flex: 1;
+  overflow: hidden;
   background: var(--colour-amber-dark);
+}
+
+.route-line i::after {
+  content: "";
+  position: absolute;
+  inset: calc(var(--space-1) * -1) auto auto 0;
+  width: 36%;
+  height: var(--space-2);
+  background: linear-gradient(90deg, transparent, var(--colour-amber), var(--colour-white), transparent);
+  border-radius: var(--radius-pill);
+  filter: drop-shadow(0 0 var(--space-2) var(--colour-amber));
+  transform: translateX(-120%);
+  animation: route-sweep var(--duration-route) var(--ease-standard) infinite;
 }
 
 .app-layout {
@@ -1307,6 +1360,7 @@ html[data-theme="dark"] .route-line span:last-child {
   width: min(100% - var(--space-8), var(--content-width));
   display: flex;
   justify-content: space-between;
+  align-items: flex-start;
   gap: var(--space-6);
   margin-inline: auto;
   padding-block: var(--space-8);
@@ -1315,9 +1369,32 @@ html[data-theme="dark"] .route-line span:last-child {
   font-size: var(--text-0);
 }
 
-.site-footer p {
+.site-footer__content {
+  display: grid;
+  gap: var(--space-2);
   max-width: 48rem;
+}
+
+.site-footer p {
   margin: 0;
+}
+
+.site-footer__heading {
+  color: var(--colour-ink);
+  font-family: var(--font-display);
+  font-size: var(--text-1);
+  font-weight: 700;
+}
+
+.site-footer__actions {
+  display: grid;
+  justify-items: end;
+  gap: var(--space-3);
+}
+
+.github-button {
+  color: var(--colour-ink);
+  text-decoration: none;
 }
 
 .footer-links {
@@ -1675,15 +1752,12 @@ html[data-theme="dark"] .route-line span:last-child {
   }
 
   .hero__diagram {
-    position: absolute;
-    inset: auto -8rem -6rem auto;
-    width: 18rem;
-    opacity: 0.24;
-  }
-
-  .hero__signals {
-    gap: var(--space-2);
-    margin-top: var(--space-6);
+    position: relative;
+    inset: auto;
+    width: 100%;
+    min-height: 18rem;
+    justify-self: center;
+    opacity: 1;
   }
 
   .app-layout {
@@ -1722,6 +1796,11 @@ html[data-theme="dark"] .route-line span:last-child {
 
   .footer-links {
     justify-content: flex-start;
+  }
+
+  .site-footer__actions {
+    width: 100%;
+    justify-items: start;
   }
 
   .admin-shell {
@@ -1802,6 +1881,67 @@ html[data-theme="dark"] .route-line span:last-child {
 @keyframes working-sweep {
   to {
     transform: translateX(100%);
+  }
+}
+
+@keyframes hero-reveal {
+  from {
+    opacity: 0;
+    transform: translateY(var(--space-4));
+  }
+}
+
+@keyframes orbit-outer {
+  from {
+    transform: translate(-50%, -50%) rotate(0deg);
+  }
+
+  to {
+    transform: translate(-50%, -50%) rotate(360deg);
+  }
+}
+
+@keyframes orbit-inner {
+  from {
+    transform: translate(-50%, -50%) rotate(45deg);
+  }
+
+  to {
+    transform: translate(-50%, -50%) rotate(405deg);
+  }
+}
+
+@keyframes star-pulse {
+  0%,
+  100% {
+    opacity: 0.3;
+    filter: brightness(0.9);
+    transform: scale(0.72);
+  }
+
+  50% {
+    opacity: 1;
+    filter: brightness(1.35);
+    transform: scale(1.18);
+  }
+}
+
+@keyframes route-sweep {
+  0%,
+  14% {
+    opacity: 0;
+    transform: translateX(-120%);
+  }
+
+  24%,
+  76% {
+    opacity: 1;
+  }
+
+  86%,
+  100% {
+    opacity: 0;
+    transform: translateX(320%);
   }
 }
 

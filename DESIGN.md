@@ -11,7 +11,7 @@
 
 The interface is a luminous tactical index: warm paper surfaces, precise ink typography, restrained amber selection signals, and cool teal system states. It should feel like a serious Strategy Compendium that happens to be powered by a transfer service, not an official game client and not a generic SaaS dashboard.
 
-The memorable moment is selection: choosing a strategy draws an amber line through the card, promotes it into the fixed transfer tray, and makes its final roster visually continuous between the list and the action area. No copyrighted game logos or background artwork are used; live character portraits come only from the source strategy API as content.
+The memorable opening moment is an abstract CN-to-GL star-route diagram built from the compendium's own paper, ink and amber tokens. Selection remains the memorable interaction: choosing a strategy draws an amber line through the card, promotes it into the fixed transfer tray, and makes its final roster visually continuous between the list and the action area. No copyrighted game logos, train artwork or background scenes are used; live character portraits come only from the source strategy API as content.
 
 ## 2. Colour Tokens
 
@@ -32,6 +32,8 @@ The memorable moment is selection: choosing a strategy draws an amber line throu
 | `--colour-on-amber` | `#0a0f0c` | Accessible primary-action text on amber |
 | `--colour-teal` | `#17666a` | Success/system status |
 | `--colour-teal-pale` | `#dceceb` | Informational wash |
+| `--colour-starlight` | `#556b9f` | Hero star rail, warp trails and constellation lines |
+| `--colour-starlight-pale` | `#dfe6f5` | Hero warp halo and distant cosmic light |
 | `--colour-danger` | `#9f352a` | Error state |
 | `--colour-danger-pale` | `#f5ded9` | Error wash |
 | `--colour-focus` | `#185f9d` | Focus ring |
@@ -66,6 +68,8 @@ system feedback. Components keep consuming the semantic tokens above;
 | `--colour-on-amber` | `#0a0f0c` | Dark primary-action text on amber |
 | `--colour-teal` | `#77c2c2` | Dark system status |
 | `--colour-teal-pale` | `#183436` | Dark informational wash |
+| `--colour-starlight` | `#9eb6ef` | Dark hero star rail and warp trails |
+| `--colour-starlight-pale` | `#26314f` | Dark hero warp halo |
 | `--colour-danger` | `#f08b7f` | Dark error state |
 | `--colour-danger-pale` | `#3b211f` | Dark error wash |
 | `--colour-focus` | `#7fc2ff` | Dark focus ring |
@@ -209,6 +213,32 @@ Base unit: `4px`.
 - The footer presents the China and Global Strategy Compendiums as peer text links in
   a wrapping group. Both open in a new tab and use locale-specific labels.
 
+### Site footer and repository action
+
+- The footer starts with a locale-specific disclaimer that identifies the tool as
+  unofficial, states that it is not affiliated with HoYoverse, and explains that
+  source text and intellectual property remain with their respective owners.
+- The public source repository is exposed as a secondary button with the GitHub
+  mark and a visible text label. It links only to the public `origin` repository,
+  opens in a new tab, and never exposes the independent deployment repository.
+- Administrator and official compendium destinations remain quieter text links so
+  the source-code action is clear without competing with the page's primary task.
+
+### Hero astral-route scene
+
+- The hero's focal object is the original abstract region-transfer diagram: two
+  concentric orbital rings crossed by a direct CN-to-GL route line.
+- The diagram uses only local CSS primitives and declared paper, ink, rule and
+  amber tokens. It contains no train image, train video, game artwork or external
+  visual asset.
+- The two orbital rings counter-rotate slowly, star points pulse at offset
+  intervals, and a narrow light sweep travels from CN to GL. These three effects
+  communicate an active cross-region route without introducing a train.
+- Desktop and tablet keep the diagram in the right hero column. Mobile gives it
+  a full-width row below the copy so the route never crosses readable content.
+- The diagram is fully decorative and remains inside an `aria-hidden` container.
+  It adds no tab stops or duplicate spoken content.
+
 ### Administrator console
 
 - `/admin` is an operational companion to the public compendium and reuses the
@@ -246,10 +276,18 @@ Base unit: `4px`.
 | --- | --- | --- |
 | `--duration-fast` | `120ms` | Hover/focus colour |
 | `--duration-normal` | `180ms` | Popover/tray entrance |
+| `--duration-reveal` | `720ms` | Staggered hero content reveal |
+| `--duration-route` | `3200ms` | CN-to-GL light sweep and star pulse |
+| `--duration-orbit` | `18000ms` | Slow counter-rotating star-route rings |
 | `--ease-standard` | `cubic-bezier(0.2, 0, 0, 1)` | All transitions |
 
 - Animate only `transform`, `opacity`, and `filter`.
-- Candidate selection may translate the amber marker by 2px; no decorative idle motion.
+- Hero copy reveals in reading order. The route diagram uses slow counter-rotation,
+  offset star pulses and a repeating CN-to-GL light sweep; the motion visualises
+  routing and transfer progress while keeping the diagram calm.
+- At mobile widths the diagram moves into a dedicated row below the hero copy, so
+  no decorative route can cross readable content.
+- Candidate selection may translate the amber marker by 2px; no unrelated idle motion.
 - Role popover and transfer tray enter with opacity plus 4px translate.
 - The transfer working panel uses a horizontal progress sweep driven only by `transform`; it communicates active publishing and stops as soon as a terminal result arrives.
 - `prefers-reduced-motion: reduce` removes transforms and collapses timings to near-zero.

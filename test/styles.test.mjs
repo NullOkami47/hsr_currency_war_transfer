@@ -59,3 +59,49 @@ test("showcases the completed Global strategy action and blacklist policy", asyn
   assert.match(showcase, /拒絕來源封鎖清單內的攻略/);
   assert.doesNotMatch(showcase, /allow-list/);
 });
+
+test("keeps the revised hero and footer content present across locales", async () => {
+  const [html, app, css, devServer] = await Promise.all([
+    readFile(new URL("../public/index.html", import.meta.url), "utf8"),
+    readFile(new URL("../public/app.js", import.meta.url), "utf8"),
+    readFile(new URL("../public/styles.css", import.meta.url), "utf8"),
+    readFile(new URL("../scripts/dev-server.mjs", import.meta.url), "utf8"),
+  ]);
+
+  assert.doesNotMatch(html, /data-i18n="trustAnonymous"/);
+  assert.doesNotMatch(html, /data-i18n="trustWorker"/);
+  assert.doesNotMatch(html, /搜尋不需登入|管理員 worker 發布/);
+
+  assert.match(app, /filter strategies by title, author and characters/);
+  assert.match(app, /initialTitle: "Strategies will appear here"/);
+  assert.match(app, /resultsEyebrow: "Strategy list"/);
+
+  assert.match(html, /id="disclaimer-title"/);
+  assert.match(app, /disclaimerTitle: "免責聲明"/);
+  assert.match(app, /disclaimerTitle: "免责声明"/);
+  assert.match(app, /disclaimerTitle: "Disclaimer"/);
+  assert.match(
+    html,
+    /href="https:\/\/github\.com\/NullOkami47\/hsr_currency_war_transfer"/,
+  );
+
+  assert.match(css, /@keyframes hero-reveal/);
+  assert.match(css, /--duration-route:\s*3200ms/);
+  assert.match(css, /--duration-orbit:\s*18000ms/);
+  assert.match(css, /@keyframes orbit-outer/);
+  assert.match(css, /@keyframes orbit-inner/);
+  assert.match(css, /@keyframes star-pulse/);
+  assert.match(css, /@keyframes route-sweep/);
+  assert.match(css, /\.hero__diagram::before/);
+  assert.match(css, /\.route-line i::after/);
+  assert.match(css, /\.hero__diagram \{[\s\S]*?position: relative;[\s\S]*?width: 100%;[\s\S]*?opacity: 1;/);
+  assert.match(html, /class="hero__diagram"/);
+  assert.match(html, /class="orbit orbit--outer"/);
+  assert.match(html, /class="orbit orbit--inner"/);
+  assert.match(html, /class="route-line"><span>CN<\/span><i><\/i><span>GL<\/span>/);
+  assert.doesNotMatch(html, /<video|astral-express|hero__scene|hero__region/);
+  assert.doesNotMatch(css, /hero__video|astral-express|colour-space|colour-route-glow/);
+  assert.doesNotMatch(app, /heroVideo|syncHeroMotion/);
+  assert.doesNotMatch(devServer, /astral-express-route|video\/webm|video\/mp4/);
+  assert.match(css, /@media \(prefers-reduced-motion: reduce\)/);
+});

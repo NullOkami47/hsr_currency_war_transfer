@@ -10,8 +10,6 @@ const messages = {
     heroEyebrow: "Currency War Strategy Compendium / 跨服轉移",
     heroTitle: "從中國服找到攻略，帶到全球服。",
     heroCopy: "貼上分享連結，或用名稱與角色篩選候選攻略。確認陣容後，再交由管理員帳號建立全球服版本。",
-    trustAnonymous: "搜尋不需登入",
-    trustWorker: "管理員 worker 發布",
     searchEyebrow: "搜尋條件",
     searchHeading: "尋找中國服攻略",
     modeDirect: "URL／ID",
@@ -83,6 +81,9 @@ const messages = {
 };
 
 Object.assign(messages["zh-Hant"], {
+  disclaimerTitle: "免責聲明",
+  footer: "本工具為非官方粉絲專案，與 HoYoverse 無關。遊戲名稱、內容及素材之權利均屬其各自權利人；攻略文字保持中國服原文，無法對應的項目會略過並在結果中列出。使用本工具所產生的結果由使用者自行確認。",
+  githubSource: "在 GitHub 查看原始碼",
   searchInputErrorTitle: "請修正搜尋條件",
   searchInvalidSource: "請貼上有效的中國服攻略 URL 或 24 字元攻略 ID。也可以直接貼上包含米遊社連結的分享文字。",
   searchInvalidCriteria: "請輸入攻略名稱、作者名稱，或至少選擇一名角色。",
@@ -116,6 +117,9 @@ Object.assign(messages["zh-Hant"], {
   saves: "收藏",
 });
 Object.assign(messages["zh-Hans"], {
+  disclaimerTitle: "免责声明",
+  footer: "本工具为非官方粉丝项目，与 HoYoverse 无关。游戏名称、内容及素材之权利均属于其各自权利人；攻略文字保留中国服原文，无法对应的项目会忽略并在结果中列出。使用本工具所产生的结果由用户自行确认。",
+  githubSource: "在 GitHub 查看源代码",
   searchInputErrorTitle: "请修正搜索条件",
   searchInvalidSource: "请粘贴有效的中国服攻略 URL 或 24 字符攻略 ID。也可以直接粘贴包含米游社链接的分享文字。",
   searchInvalidCriteria: "请输入攻略名称、作者名称，或至少选择一名角色。",
@@ -152,6 +156,9 @@ Object.assign(messages["zh-Hans"], {
   partialSearchBody: "第 {page} 页重试后仍无法读取；已保留此前成功读取的结果，请稍后重试。",
 });
 Object.assign(messages.en, {
+  disclaimerTitle: "Disclaimer",
+  footer: "This is an unofficial fan project and is not affiliated with HoYoverse. Game names, content and assets remain the property of their respective owners. Strategy text stays in its original China version; unavailable items are skipped and reported. You are responsible for checking the resulting transfer.",
+  githubSource: "View source on GitHub",
   searchInputErrorTitle: "Check the search criteria",
   searchInvalidSource: "Paste a valid China strategy URL or 24-character strategy ID. Shared text containing a Miyoushe link is also accepted.",
   searchInvalidCriteria: "Enter a strategy title, author name, or select at least one character.",
@@ -166,7 +173,9 @@ Object.assign(messages.en, {
   authorLabel: "Author name",
   authorPlaceholder: "Enter the author's display name",
   detailsRequired: "Enter a strategy title, author name, or select at least one character.",
-  heroCopy: "Paste a shared link, or filter candidates by title, author and characters. Confirm the lineup, then let the administrator account create the Global version.",
+  heroCopy: "Paste a shared link, or filter strategies by title, author and characters. Confirm the lineup, then let the administrator account create the Global version.",
+  initialTitle: "Strategies will appear here",
+  resultsEyebrow: "Strategy list",
   initialBody: "Look up an exact URL / ID, or combine strategy title, author and character filters.",
   noResultsBody: "Try a shorter title or author keyword, fewer selected characters, or an exact strategy URL / ID.",
   themeToDark: "Switch to dark mode",
