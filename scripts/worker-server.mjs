@@ -3,6 +3,7 @@ import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 
 import { BrowserSessionPublisher } from "../src/publisher.mjs";
+import { startSessionKeepalive } from "../src/session-keepalive.mjs";
 import { JsonTransferStore } from "../src/store.mjs";
 import {
   GLOBAL_TEXT_LIMITS,
@@ -27,6 +28,9 @@ const jobStatePath = resolve(
 const token = process.env.CURRENCY_WAR_WORKER_TOKEN;
 const host = process.env.CURRENCY_WAR_WORKER_HOST ?? "127.0.0.1";
 const port = Number(process.env.CURRENCY_WAR_WORKER_PORT ?? 8787);
+const sessionKeepaliveMinutes = Number(
+  process.env.CURRENCY_WAR_SESSION_KEEPALIVE_MINUTES ?? 360,
+);
 
 if (!token || token.length < 24) {
   throw new Error(
@@ -35,6 +39,15 @@ if (!token || token.length < 24) {
 }
 if (!Number.isInteger(port) || port < 1 || port > 65_535) {
   throw new Error("CURRENCY_WAR_WORKER_PORT must be a valid TCP port");
+}
+if (
+  !Number.isInteger(sessionKeepaliveMinutes)
+  || sessionKeepaliveMinutes < 0
+  || sessionKeepaliveMinutes > 10_080
+) {
+  throw new Error(
+    "CURRENCY_WAR_SESSION_KEEPALIVE_MINUTES must be 0 or an integer no greater than 10080",
+  );
 }
 
 const publisher = new BrowserSessionPublisher({
@@ -60,6 +73,12 @@ const queue = new TransferJobQueue({
     attributionLimits,
   }),
 });
+const stopSessionKeepalive = sessionKeepaliveMinutes === 0
+  ? () => {}
+  : startSessionKeepalive({
+      publisher,
+      intervalMs: sessionKeepaliveMinutes * 60_000,
+    });
 
 await queue.start();
 if (process.env.CURRENCY_WAR_PUBLIC_SUBMISSIONS === "1") {
@@ -87,6 +106,7 @@ let closing = false;
 async function close() {
   if (closing) return;
   closing = true;
+  stopSessionKeepalive();
   await new Promise((resolveClose) => server.close(resolveClose));
   await publisher.close();
 }

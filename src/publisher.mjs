@@ -47,6 +47,7 @@ export class BrowserSessionPublisher {
     headless = false,
     authRecoveryDelayMs = 8_000,
     launchPersistentContext,
+    logger = console,
   }) {
     if (!profileDir) {
       throw new TypeError("A dedicated browser profile directory is required");
@@ -57,8 +58,21 @@ export class BrowserSessionPublisher {
     this.headless = headless;
     this.authRecoveryDelayMs = authRecoveryDelayMs;
     this.launchPersistentContext = launchPersistentContext;
+    this.logger = logger;
     this.context = null;
     this.page = null;
+    this.requestChain = Promise.resolve();
+  }
+
+  logSessionEvent(level, event, details = {}) {
+    const method = typeof this.logger?.[level] === "function"
+      ? this.logger[level]
+      : this.logger?.log;
+    if (typeof method !== "function") return;
+    method.call(
+      this.logger,
+      `[publishing-session] ${JSON.stringify({ event, ...details })}`,
+    );
   }
 
   async start() {
@@ -92,7 +106,15 @@ export class BrowserSessionPublisher {
     });
   }
 
-  async request(path, payload, { authRecoveryAttempt = 0 } = {}) {
+  async request(path, payload) {
+    const operation = this.requestChain.then(() =>
+      this.requestUnlocked(path, payload),
+    );
+    this.requestChain = operation.catch(() => {});
+    return operation;
+  }
+
+  async requestUnlocked(path, payload, { authRecoveryAttempt = 0 } = {}) {
     await this.start();
     const endpoint = `${REGIONS.global.baseUrl}${path}`;
 
@@ -139,11 +161,15 @@ export class BrowserSessionPublisher {
     );
 
     if (envelope.deviceIdentityAvailable === false) {
+      this.logSessionEvent("warn", "device_identity_unavailable");
       throw new PublishingSessionError(
         "Browser device identity is unavailable. Please log in again",
       );
     }
     if (envelope.status < 200 || envelope.status >= 300) {
+      this.logSessionEvent("warn", "http_error", {
+        status: envelope.status,
+      });
       throw new PublishingSessionError(
         `Global publish API returned HTTP ${envelope.status}`,
         { status: envelope.status },
@@ -153,6 +179,14 @@ export class BrowserSessionPublisher {
       envelope.body?.retcode === -100 &&
       authRecoveryAttempt < 2
     ) {
+      const action = authRecoveryAttempt === 0
+        ? "reload_event_page"
+        : "rebuild_browser_context";
+      this.logSessionEvent("warn", "auth_recovery", {
+        attempt: authRecoveryAttempt + 1,
+        action,
+        retcode: -100,
+      });
       if (authRecoveryAttempt === 0) {
         await this.page.goto(APP_URL, { waitUntil: "domcontentloaded" });
       } else {
@@ -160,11 +194,14 @@ export class BrowserSessionPublisher {
         await this.start();
       }
       await this.page.waitForTimeout(this.authRecoveryDelayMs);
-      return this.request(path, payload, {
+      return this.requestUnlocked(path, payload, {
         authRecoveryAttempt: authRecoveryAttempt + 1,
       });
     }
     if (envelope.body?.retcode !== 0) {
+      this.logSessionEvent("warn", "api_error", {
+        retcode: envelope.body?.retcode ?? null,
+      });
       throw new PublishingSessionError(
         envelope.body?.message ||
           `Global publish API retcode ${envelope.body?.retcode}`,
@@ -172,7 +209,23 @@ export class BrowserSessionPublisher {
       );
     }
 
+    if (authRecoveryAttempt > 0) {
+      this.logSessionEvent("info", "auth_recovered", {
+        attempts: authRecoveryAttempt,
+      });
+    }
+
     return envelope.body.data;
+  }
+
+  async keepAlive() {
+    await this.request("/game/user/lineup", {
+      game: "hkrpg",
+      page: "1",
+      limit: "1",
+      lineup_type: "Tourn",
+      order: "CreatedTime",
+    });
   }
 
   async create(payload) {

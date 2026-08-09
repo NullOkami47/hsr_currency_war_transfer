@@ -313,3 +313,76 @@ test("rebuilds a stale browser context when page reload cannot recover retcode -
   assert.equal(staleContextCloses, 1);
   assert.equal(waited, 16_000);
 });
+
+test("keepalive performs a read-only My Posts request", async () => {
+  const requests = [];
+  const page = {
+    async goto() {},
+    async evaluate(_callback, argument) {
+      requests.push(argument);
+      return { status: 200, body: { retcode: 0, data: { list: [] } } };
+    },
+  };
+  const context = {
+    pages: () => [page],
+    async newPage() { return page; },
+    async close() {},
+  };
+  const publisher = new BrowserSessionPublisher({
+    profileDir: "test-profile",
+    launchPersistentContext: async () => context,
+  });
+
+  await publisher.keepAlive();
+
+  assert.equal(requests.length, 1);
+  assert.equal(
+    requests[0].endpoint.endsWith("/game/user/lineup"),
+    true,
+  );
+  assert.deepEqual(requests[0].payload, {
+    game: "hkrpg",
+    page: "1",
+    limit: "1",
+    lineup_type: "Tourn",
+    order: "CreatedTime",
+  });
+});
+
+test("session diagnostics record recovery metadata without request secrets", async () => {
+  const logs = [];
+  let attempts = 0;
+  const page = {
+    async goto() {},
+    async waitForTimeout() {},
+    async evaluate() {
+      attempts += 1;
+      return attempts === 1
+        ? { status: 200, body: { retcode: -100, message: "secret detail" } }
+        : { status: 200, body: { retcode: 0, data: {} } };
+    },
+  };
+  const context = {
+    pages: () => [page],
+    async newPage() { return page; },
+    async close() {},
+  };
+  const logger = {
+    warn(line) { logs.push(line); },
+    info(line) { logs.push(line); },
+  };
+  const publisher = new BrowserSessionPublisher({
+    profileDir: "test-profile",
+    authRecoveryDelayMs: 0,
+    launchPersistentContext: async () => context,
+    logger,
+  });
+
+  await publisher.keepAlive();
+
+  assert.equal(logs.length, 2);
+  assert.match(logs[0], /"event":"auth_recovery"/);
+  assert.match(logs[0], /"action":"reload_event_page"/);
+  assert.match(logs[1], /"event":"auth_recovered"/);
+  assert.doesNotMatch(logs.join("\n"), /secret detail|cookie|deviceId|payload/i);
+});

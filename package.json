@@ -15,6 +15,7 @@
     "search": "node scripts/search.mjs",
     "test": "node --test",
     "transfer": "node scripts/transfer.mjs",
+    "vm:login": "sh scripts/vm-hoyolab-login.sh",
     "worker": "node scripts/worker-server.mjs"
   },
   "dependencies": {
