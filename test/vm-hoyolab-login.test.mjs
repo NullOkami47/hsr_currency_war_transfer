@@ -46,6 +46,31 @@ test("VM login status does not reveal the VNC password", async () => {
   assert.doesNotMatch(statusBody, /cat .*vnc\.pass|VNC_PASSWORD=/);
 });
 
+test("VM rollback preserves recovery artifacts when Caddy restore fails", async () => {
+  const script = await readFile(scriptPath, "utf8");
+  const restoreBody = script.slice(
+    script.indexOf("restore_caddy()"),
+    script.indexOf("rollback_start()"),
+  );
+  const rollbackBody = script.slice(
+    script.indexOf("rollback_start()"),
+    script.indexOf("detect_login_host()"),
+  );
+
+  assert.match(restoreBody, /Caddy recovery artifacts are incomplete/);
+  assert.match(restoreBody, /return 1/);
+  assert.match(rollbackBody, /if restore_caddy; then/);
+  assert.doesNotMatch(rollbackBody, /restore_caddy \|\| true/);
+  assert.match(
+    rollbackBody,
+    /Caddy restoration failed; recovery files were preserved and the worker remains stopped/,
+  );
+  assert.match(
+    rollbackBody,
+    /if restore_caddy; then[\s\S]*systemctl start[\s\S]*rm -rf/,
+  );
+});
+
 test("VM login uses captured Caddy mode, owner and group for every restore", async () => {
   const [script, helper] = await Promise.all([
     readFile(scriptPath, "utf8"),

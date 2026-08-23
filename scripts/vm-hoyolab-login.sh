@@ -62,21 +62,27 @@ stop_login_units() {
 }
 
 restore_caddy() {
-  if [ -f "$RUNTIME_DIR/Caddyfile.backup" ] && [ -f "$RUNTIME_DIR/Caddyfile.metadata" ]; then
-    restore_file_metadata \
-      "$RUNTIME_DIR/Caddyfile.backup" \
-      "$CADDYFILE" \
-      "$RUNTIME_DIR/Caddyfile.metadata"
-    caddy validate --config "$CADDYFILE" >/dev/null
-    systemctl reload caddy
+  if [ ! -f "$RUNTIME_DIR/Caddyfile.backup" ] || [ ! -f "$RUNTIME_DIR/Caddyfile.metadata" ]; then
+    echo "Caddy recovery artifacts are incomplete; refusing to remove login state." >&2
+    return 1
   fi
+  restore_file_metadata \
+    "$RUNTIME_DIR/Caddyfile.backup" \
+    "$CADDYFILE" \
+    "$RUNTIME_DIR/Caddyfile.metadata"
+  caddy validate --config "$CADDYFILE" >/dev/null
+  systemctl reload caddy
 }
 
 rollback_start() {
   stop_login_units
-  restore_caddy || true
-  systemctl start "$WORKER_SERVICE" >/dev/null 2>&1 || true
-  rm -rf -- "$RUNTIME_DIR"
+  if restore_caddy; then
+    systemctl start "$WORKER_SERVICE" >/dev/null 2>&1 || true
+    rm -rf -- "$RUNTIME_DIR"
+  else
+    echo "Caddy restoration failed; recovery files were preserved and the worker remains stopped." >&2
+    return 1
+  fi
 }
 
 detect_login_host() {
