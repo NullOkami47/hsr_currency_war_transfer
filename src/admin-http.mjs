@@ -118,6 +118,15 @@ function loginClientKey(request, secret, addressOptions) {
     .digest("base64url");
 }
 
+export function verifyAdministratorCredentials(credentials, supplied) {
+  let matched = null;
+  for (const credential of credentials) {
+    const valid = credential.verify(supplied);
+    if (valid && !matched) matched = credential;
+  }
+  return matched;
+}
+
 export function createAdminLoginLimiter({
   maxFailures = LOGIN_MAX_FAILURES,
   windowMs = LOGIN_WINDOW_MS,
@@ -334,6 +343,15 @@ export function createAdminSessionHandler({
     }
 
     if (request.method === "POST") {
+      let body;
+      try {
+        body = parseBody(request);
+      } catch (error) {
+        sendJson(response, 400, {
+          error: { code: "invalid_request", message: error.message },
+        });
+        return;
+      }
       try {
         const nowValue = now();
         const clientKey = loginClientKey(
@@ -356,8 +374,10 @@ export function createAdminSessionHandler({
           });
           return;
         }
-        const body = parseBody(request);
-        const credential = credentials.find(({ verify }) => verify(body.token));
+        const credential = verifyAdministratorCredentials(
+          credentials,
+          body.token,
+        );
         const totpValid = !totp.required || verifyTotpCode(
           totp.secret,
           body.totp,
@@ -389,9 +409,12 @@ export function createAdminSessionHandler({
           csrfToken: session.payload.csrfToken,
           expiresAt: new Date(session.payload.expiresAt).toISOString(),
         });
-      } catch (error) {
-        sendJson(response, 400, {
-          error: { code: "invalid_request", message: error.message },
+      } catch {
+        sendJson(response, 503, {
+          error: {
+            code: "admin_auth_unavailable",
+            message: "Administrator authentication is temporarily unavailable",
+          },
         });
       }
       return;

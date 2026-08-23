@@ -6,6 +6,7 @@ import {
   createAdminLoginLimiter,
   createAdminApiHandler,
   createAdminSessionHandler,
+  verifyAdministratorCredentials,
 } from "../src/admin-http.mjs";
 
 const ADMIN_TOKEN = "admin-token-with-at-least-thirty-two-characters";
@@ -80,6 +81,70 @@ test("rejects a wrong administrator credential", async () => {
   );
   assert.equal(response.statusCode, 401);
   assert.equal(response.json().error.code, "unauthorised");
+});
+
+test("checks every configured administrator credential without short-circuiting", () => {
+  const calls = [];
+  const credentials = [
+    { id: "first", verify: () => { calls.push("first"); return true; } },
+    { id: "second", verify: () => { calls.push("second"); return false; } },
+  ];
+
+  const matched = verifyAdministratorCredentials(credentials, "supplied");
+
+  assert.equal(matched.id, "first");
+  assert.deepEqual(calls, ["first", "second"]);
+});
+
+test("fails closed without exposing administrator auth-store errors", async () => {
+  const sensitiveDetail = "redis://operator:secret@private-store.invalid";
+  const handler = createAdminSessionHandler({
+    adminToken: ADMIN_TOKEN,
+    loginLimiter: {
+      async retryAfter() { throw new Error(sensitiveDetail); },
+      async failure() {},
+      async success() {},
+    },
+  });
+  const response = responseRecorder();
+
+  await handler({
+    method: "POST",
+    body: { token: ADMIN_TOKEN },
+    headers: {},
+  }, response);
+
+  assert.equal(response.statusCode, 503);
+  assert.equal(response.json().error.code, "admin_auth_unavailable");
+  assert.equal(
+    response.json().error.message,
+    "Administrator authentication is temporarily unavailable",
+  );
+  assert.doesNotMatch(response.body, /redis|operator|secret|private-store/);
+});
+
+test("fails closed without exposing TOTP replay-store errors", async () => {
+  const sensitiveDetail = "https://operator:secret@replay-store.invalid";
+  const handler = createAdminSessionHandler({
+    adminToken: ADMIN_TOKEN,
+    adminTotpSecret: TOTP_SECRET,
+    now: TOTP_NOW,
+    loginLimiter: createAdminLoginLimiter(),
+    totpReplayStore: {
+      async consume() { throw new Error(sensitiveDetail); },
+    },
+  });
+  const response = responseRecorder();
+
+  await handler({
+    method: "POST",
+    body: { token: ADMIN_TOKEN, totp: TOTP_CODE },
+    headers: {},
+  }, response);
+
+  assert.equal(response.statusCode, 503);
+  assert.equal(response.json().error.code, "admin_auth_unavailable");
+  assert.doesNotMatch(response.body, /https|operator|secret|replay-store/);
 });
 
 test("requires both the administrator credential and a valid TOTP code", async () => {
