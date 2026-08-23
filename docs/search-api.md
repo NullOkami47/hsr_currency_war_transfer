@@ -123,6 +123,13 @@ random value when a stable identity is needed. The handler accepts an async
 `rateLimiter.consume(key, nowMs)` implementation, so a deployment with shared
 state can inject a distributed limiter.
 
+When `VERCEL=1`, the API uses Vercel's `x-vercel-forwarded-for` header as the
+client-address source. Outside Vercel it ignores that header and ordinary
+`x-forwarded-for` input, falling back to the socket peer address. A separately
+managed reverse proxy may set `CURRENCY_WAR_TRUST_PROXY=1`, in which case the
+API uses `x-forwarded-for`; enable this only when the proxy overwrites, rather
+than appends to, any client-supplied forwarding header.
+
 The built-in memory limiter is defence in depth for one Node.js process only.
 It is **not** a global rate limit across Vercel Functions or regions. Production
 must also configure a Vercel Firewall/platform rule or inject a shared limiter.

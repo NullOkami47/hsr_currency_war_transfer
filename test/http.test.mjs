@@ -15,21 +15,91 @@ import {
   TransferServiceUnavailableError,
 } from "../src/http.mjs";
 
-test("hashes a trusted client address and ignores spoofable forwarding headers", () => {
+test("trusts x-vercel-forwarded-for only in Vercel mode", () => {
   const request = {
-    headers: { "x-forwarded-for": "203.0.113.10" },
+    headers: { "x-vercel-forwarded-for": "203.0.113.10" },
     socket: { remoteAddress: "127.0.0.1" },
   };
-  const localKey = publicClientKey(request, "test-hash-secret");
-  const vercelKey = publicClientKey({
+  const vercelKey = publicClientKey(
+    request,
+    "test-hash-secret",
+    { vercel: true, trustProxy: false },
+  );
+  const sameForwardedClient = publicClientKey({
     ...request,
-    headers: { "x-vercel-forwarded-for": "203.0.113.10" },
-  }, "test-hash-secret");
+    socket: { remoteAddress: "127.0.0.2" },
+  }, "test-hash-secret", { vercel: true, trustProxy: false });
+  const socketKey = publicClientKey(
+    request,
+    "test-hash-secret",
+    { vercel: false, trustProxy: false },
+  );
 
-  assert.match(localKey, /^[a-f0-9]{64}$/);
-  assert.notEqual(localKey, vercelKey);
-  assert.doesNotMatch(localKey, /127\.0\.0\.1/);
-  assert.doesNotMatch(vercelKey, /203\.0\.113\.10/);
+  assert.equal(vercelKey, sameForwardedClient);
+  assert.notEqual(vercelKey, socketKey);
+});
+
+test("ignores spoofed forwarding headers outside Vercel and trusted-proxy mode", () => {
+  const socketOnly = {
+    headers: {},
+    socket: { remoteAddress: "127.0.0.1" },
+  };
+  const expected = publicClientKey(
+    socketOnly,
+    "test-hash-secret",
+    { vercel: false, trustProxy: false },
+  );
+
+  for (const headers of [
+    { "x-vercel-forwarded-for": "203.0.113.10" },
+    { "x-forwarded-for": "203.0.113.11" },
+    {
+      "x-vercel-forwarded-for": "203.0.113.10",
+      "x-forwarded-for": "203.0.113.11",
+    },
+  ]) {
+    assert.equal(publicClientKey(
+      { ...socketOnly, headers },
+      "test-hash-secret",
+      { vercel: false, trustProxy: false },
+    ), expected);
+  }
+});
+
+test("uses x-forwarded-for only in explicit trusted-proxy mode", () => {
+  const first = publicClientKey({
+    headers: { "x-forwarded-for": "203.0.113.20, 10.0.0.1" },
+    socket: { remoteAddress: "127.0.0.1" },
+  }, "test-hash-secret", { vercel: false, trustProxy: true });
+  const sameForwardedClient = publicClientKey({
+    headers: {
+      "x-vercel-forwarded-for": "198.51.100.99",
+      "x-forwarded-for": "203.0.113.20",
+    },
+    socket: { remoteAddress: "127.0.0.2" },
+  }, "test-hash-secret", { vercel: false, trustProxy: true });
+  const untrusted = publicClientKey({
+    headers: { "x-forwarded-for": "203.0.113.20" },
+    socket: { remoteAddress: "127.0.0.2" },
+  }, "test-hash-secret", { vercel: false, trustProxy: false });
+
+  assert.equal(first, sameForwardedClient);
+  assert.notEqual(first, untrusted);
+});
+
+test("rate-limit keys never contain the raw client address", () => {
+  const transferKey = publicClientKey({
+    headers: { "x-vercel-forwarded-for": "203.0.113.30" },
+    socket: { remoteAddress: "127.0.0.1" },
+  }, "test-hash-secret", { vercel: true, trustProxy: false });
+  const searchKey = publicSearchClientKey({
+    headers: { "x-vercel-forwarded-for": "203.0.113.30" },
+    socket: { remoteAddress: "127.0.0.1" },
+  }, "test-search-secret", { vercel: true, trustProxy: false });
+
+  assert.match(transferKey, /^[a-f0-9]{64}$/);
+  assert.match(searchKey, /^[A-Za-z0-9_-]{40,}$/);
+  assert.doesNotMatch(`${transferKey}${searchKey}`, /203\.0\.113\.30|127\.0\.0\.1/);
 });
 
 function responseRecorder() {

@@ -7,6 +7,7 @@ import {
 } from "node:crypto";
 
 import { validatedWorkerUrl } from "./http.mjs";
+import { requestAddress } from "./request-address.mjs";
 import { decodeTotpSecret, verifyTotpCode } from "./totp.mjs";
 
 const SESSION_COOKIE = "currency_war_admin";
@@ -110,22 +111,10 @@ function sessionCredentials(credentials, totp) {
   }));
 }
 
-function loginClientKey(request, secret) {
-  const trustedForwarded = request.headers?.["x-vercel-forwarded-for"]
-    ?? (process.env.CURRENCY_WAR_TRUST_PROXY === "1"
-      ? request.headers?.["x-forwarded-for"]
-      : undefined);
-  const forwarded = Array.isArray(trustedForwarded)
-    ? trustedForwarded[0]
-    : String(trustedForwarded ?? "").split(",", 1)[0];
-  const address = String(
-    forwarded
-    || request.socket?.remoteAddress
-    || "unknown",
-  ).trim().slice(0, 200);
+function loginClientKey(request, secret, addressOptions) {
   return createHmac("sha256", secret)
     .update("currency-war-admin-login-client\0")
-    .update(address)
+    .update(requestAddress(request, addressOptions))
     .digest("base64url");
 }
 
@@ -306,6 +295,7 @@ export function createAdminSessionHandler({
     ?? adminToken
     ?? adminPasswordHash
     ?? LOCAL_ADMIN_CLIENT_HASH_SECRET,
+  requestAddressOptions,
 } = {}) {
   if (
     !loginLimiter
@@ -346,7 +336,11 @@ export function createAdminSessionHandler({
     if (request.method === "POST") {
       try {
         const nowValue = now();
-        const clientKey = loginClientKey(request, clientHashSecret);
+        const clientKey = loginClientKey(
+          request,
+          clientHashSecret,
+          requestAddressOptions,
+        );
         const retryAfter = await loginLimiter.retryAfter(
           clientKey,
           nowValue.getTime(),

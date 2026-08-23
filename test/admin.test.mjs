@@ -176,6 +176,68 @@ test("does not let a client bypass login limits with spoofed forwarding headers"
   assert.equal(bypass.statusCode, 429);
 });
 
+test("administrator limiter follows the central proxy trust model", async () => {
+  async function failedLoginKey(requestAddressOptions, request) {
+    let capturedKey;
+    const handler = createAdminSessionHandler({
+      adminToken: ADMIN_TOKEN,
+      clientHashSecret: "admin-client-hash-secret",
+      requestAddressOptions,
+      loginLimiter: {
+        async retryAfter() { return 0; },
+        async failure(key) { capturedKey = key; },
+        async success() {},
+      },
+    });
+    const response = responseRecorder();
+    await handler({
+      method: "POST",
+      body: { token: "wrong-token" },
+      ...request,
+    }, response);
+    assert.equal(response.statusCode, 401);
+    return capturedKey;
+  }
+
+  const vercel = await failedLoginKey(
+    { vercel: true, trustProxy: false },
+    {
+      headers: { "x-vercel-forwarded-for": "203.0.113.40" },
+      socket: { remoteAddress: "127.0.0.1" },
+    },
+  );
+  const sameVercelClient = await failedLoginKey(
+    { vercel: true, trustProxy: false },
+    {
+      headers: { "x-vercel-forwarded-for": "203.0.113.40" },
+      socket: { remoteAddress: "127.0.0.2" },
+    },
+  );
+  const nonVercel = await failedLoginKey(
+    { vercel: false, trustProxy: false },
+    {
+      headers: { "x-vercel-forwarded-for": "203.0.113.40" },
+      socket: { remoteAddress: "127.0.0.2" },
+    },
+  );
+  const trustedProxy = await failedLoginKey(
+    { vercel: false, trustProxy: true },
+    {
+      headers: { "x-forwarded-for": "203.0.113.50" },
+      socket: { remoteAddress: "127.0.0.1" },
+    },
+  );
+
+  assert.equal(vercel, sameVercelClient);
+  assert.notEqual(vercel, nonVercel);
+  assert.notEqual(trustedProxy, nonVercel);
+  assert.match(vercel, /^[A-Za-z0-9_-]{40,}$/);
+  assert.doesNotMatch(
+    `${vercel}${nonVercel}${trustedProxy}`,
+    /203\.0\.113\.|127\.0\.0\./,
+  );
+});
+
 test("enabling TOTP revokes a password-only administrator session", async () => {
   const passwordOnly = createAdminSessionHandler({
     adminToken: ADMIN_TOKEN,

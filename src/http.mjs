@@ -6,6 +6,7 @@ import {
 } from "./search.mjs";
 import { parseChinaLineupInput } from "./api.mjs";
 import { PublicInputError } from "./errors.mjs";
+import { requestAddress } from "./request-address.mjs";
 
 const PUBLIC_REQUEST_BODY_MAX_BYTES = 65_536;
 export const PUBLIC_SEARCH_LIMITS = Object.freeze({
@@ -405,26 +406,15 @@ export function validatedWorkerUrl(workerUrl) {
   return url;
 }
 
-function requestAddress(request) {
-  const forwarded = request.headers?.["x-vercel-forwarded-for"]
-    ?? (process.env.CURRENCY_WAR_TRUST_PROXY === "1"
-      ? request.headers?.["x-forwarded-for"]
-      : undefined);
-  const candidate = Array.isArray(forwarded) ? forwarded[0] : forwarded;
-  return String(candidate ?? request.socket?.remoteAddress ?? "unknown")
-    .split(",", 1)[0]
-    .trim()
-    .slice(0, 200);
-}
-
 export function publicClientKey(
   request,
   secret = process.env.CURRENCY_WAR_CLIENT_HASH_SECRET
     ?? process.env.CURRENCY_WAR_WORKER_TOKEN,
+  addressOptions,
 ) {
   if (!secret) return "anonymous";
   return createHmac("sha256", secret)
-    .update(requestAddress(request))
+    .update(requestAddress(request, addressOptions))
     .digest("hex");
 }
 
@@ -434,10 +424,11 @@ export function publicSearchClientKey(
     ?? process.env.CURRENCY_WAR_CLIENT_HASH_SECRET
     ?? process.env.CURRENCY_WAR_WORKER_TOKEN
     ?? LOCAL_SEARCH_HASH_SECRET,
+  addressOptions,
 ) {
   return createHmac("sha256", secret)
     .update("currency-war-public-search\0")
-    .update(requestAddress(request))
+    .update(requestAddress(request, addressOptions))
     .digest("base64url");
 }
 

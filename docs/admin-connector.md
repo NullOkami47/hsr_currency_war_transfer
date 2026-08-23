@@ -174,9 +174,13 @@ applies to that worker's publishing identity. There is no separate end-user
 account system. The IP limiter uses a keyed HMAC of the address supplied by the
 trusted deployment proxy; raw addresses are not sent to or stored by the
 worker. Set `CURRENCY_WAR_CLIENT_HASH_SECRET` to a stable random secret if the
-rate-limit identity must survive worker-token rotation. For a non-Vercel
-reverse proxy, set `CURRENCY_WAR_TRUST_PROXY=1` only after configuring it to
-overwrite, rather than append, untrusted client forwarding headers.
+rate-limit identity must survive worker-token rotation. The API trusts
+`x-vercel-forwarded-for` only when `VERCEL=1`. Outside Vercel it ignores both
+that header and ordinary `x-forwarded-for`, using the socket peer address. For
+a non-Vercel reverse proxy, set `CURRENCY_WAR_TRUST_PROXY=1` only after
+configuring it to overwrite, rather than append, untrusted client forwarding
+headers; this mode uses `x-forwarded-for` and still ignores the Vercel-specific
+header.
 
 Enabling public submissions lets anonymous Internet users consume the
 publishing account's quota. Use a dedicated HoYoLAB publishing account, not a
