@@ -8,13 +8,15 @@ the relevant fixes.
 
 ## Report a vulnerability privately
 
-Use this repository's GitHub **Security → Report a vulnerability** workflow:
+The preferred route is GitHub **Security → Report a vulnerability**. When the
+repository owner has enabled Private Vulnerability Reporting, use:
 
 https://github.com/NullOkami47/hsr_currency_war_transfer/security/advisories/new
 
-If private vulnerability reporting is unavailable, contact the repository
-owner privately through GitHub before disclosing details. Do not open a public
-issue containing exploit steps or sensitive evidence.
+If that workflow is unavailable, contact the repository owner through an
+already trusted private channel. If no private channel exists, open only a
+minimal public issue asking the owner to establish one; do not include the
+affected component, exploit steps, impact or sensitive evidence in that issue.
 
 Include the affected commit or deployed version, impacted endpoint/component,
 reproduction preconditions, minimal redacted steps, security impact and any
