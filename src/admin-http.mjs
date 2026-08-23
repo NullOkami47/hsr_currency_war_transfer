@@ -13,6 +13,7 @@ const SESSION_COOKIE = "currency_war_admin";
 const SESSION_TTL_SECONDS = 8 * 60 * 60;
 const LOGIN_WINDOW_MS = 10 * 60 * 1000;
 const LOGIN_MAX_FAILURES = 5;
+const LOCAL_ADMIN_CLIENT_HASH_SECRET = randomBytes(32);
 
 function sendJson(response, status, body) {
   response.statusCode = status;
@@ -93,6 +94,10 @@ function configuredTotp(secret) {
   }
 }
 
+function productionTotpMissing(totp, production, allowPasswordOnlyProduction) {
+  return production && !allowPasswordOnlyProduction && !totp.required;
+}
+
 function sessionCredentials(credentials, totp) {
   return credentials.map((credential) => ({
     ...credential,
@@ -105,7 +110,7 @@ function sessionCredentials(credentials, totp) {
   }));
 }
 
-function loginClientKey(request) {
+function loginClientKey(request, secret) {
   const trustedForwarded = request.headers?.["x-vercel-forwarded-for"]
     ?? (process.env.CURRENCY_WAR_TRUST_PROXY === "1"
       ? request.headers?.["x-forwarded-for"]
@@ -118,7 +123,10 @@ function loginClientKey(request) {
     || request.socket?.remoteAddress
     || "unknown",
   ).trim().slice(0, 200);
-  return createHash("sha256").update(address).digest("base64url");
+  return createHmac("sha256", secret)
+    .update("currency-war-admin-login-client\0")
+    .update(address)
+    .digest("base64url");
 }
 
 export function createAdminLoginLimiter({
@@ -134,7 +142,6 @@ export function createAdminLoginLimiter({
     throw new TypeError("Administrator login limiter options are invalid");
   }
   const attempts = new Map();
-  const usedOtps = new Map();
 
   function activeEntry(key, nowMs) {
     const entry = attempts.get(key);
@@ -167,7 +174,18 @@ export function createAdminLoginLimiter({
     success(key) {
       attempts.delete(key);
     },
-    consumeOtp(fingerprint, nowMs, expiresAt) {
+  };
+}
+
+const defaultAdminLoginLimiter = createAdminLoginLimiter();
+
+export function createAdminTotpReplayStore({ maxEntries = 5_000 } = {}) {
+  if (!Number.isInteger(maxEntries) || maxEntries < 1) {
+    throw new TypeError("Administrator TOTP replay-store options are invalid");
+  }
+  const usedOtps = new Map();
+  return {
+    consume(fingerprint, nowMs, expiresAt) {
       for (const [key, expiry] of usedOtps) {
         if (expiry <= nowMs) usedOtps.delete(key);
       }
@@ -181,8 +199,6 @@ export function createAdminLoginLimiter({
     },
   };
 }
-
-const defaultAdminLoginLimiter = createAdminLoginLimiter();
 
 function parseCookies(request) {
   return Object.fromEntries(
@@ -279,17 +295,39 @@ export function createAdminSessionHandler({
   adminToken = process.env.CURRENCY_WAR_ADMIN_TOKEN,
   adminPasswordHash = process.env.CURRENCY_WAR_ADMIN_PASSWORD_HASH,
   adminTotpSecret = process.env.CURRENCY_WAR_ADMIN_TOTP_SECRET,
+  production = process.env.NODE_ENV === "production" || process.env.VERCEL === "1",
+  allowPasswordOnlyProduction =
+    process.env.CURRENCY_WAR_ADMIN_ALLOW_PASSWORD_ONLY_PRODUCTION === "1",
   secureCookies = process.env.NODE_ENV === "production" || process.env.VERCEL === "1",
   now = () => new Date(),
   loginLimiter = defaultAdminLoginLimiter,
+  totpReplayStore = createAdminTotpReplayStore(),
+  clientHashSecret = process.env.CURRENCY_WAR_ADMIN_CLIENT_HASH_SECRET
+    ?? adminToken
+    ?? adminPasswordHash
+    ?? LOCAL_ADMIN_CLIENT_HASH_SECRET,
 } = {}) {
+  if (
+    !loginLimiter
+    || typeof loginLimiter.retryAfter !== "function"
+    || typeof loginLimiter.failure !== "function"
+    || typeof loginLimiter.success !== "function"
+    || !totpReplayStore
+    || typeof totpReplayStore.consume !== "function"
+  ) {
+    throw new TypeError("Administrator rate-limit stores are invalid");
+  }
   return async function adminSessionHandler(request, response) {
     const configuredCredentials = configuredAdminCredentials(
       adminToken,
       adminPasswordHash,
     );
     const totp = configuredTotp(adminTotpSecret);
-    if (configuredCredentials.length === 0 || totp.invalid) {
+    if (
+      configuredCredentials.length === 0
+      || totp.invalid
+      || productionTotpMissing(totp, production, allowPasswordOnlyProduction)
+    ) {
       sendJson(response, 503, {
         error: {
           code: "admin_unconfigured",
@@ -308,8 +346,11 @@ export function createAdminSessionHandler({
     if (request.method === "POST") {
       try {
         const nowValue = now();
-        const clientKey = loginClientKey(request);
-        const retryAfter = loginLimiter.retryAfter(clientKey, nowValue.getTime());
+        const clientKey = loginClientKey(request, clientHashSecret);
+        const retryAfter = await loginLimiter.retryAfter(
+          clientKey,
+          nowValue.getTime(),
+        );
         if (retryAfter) {
           response.setHeader("retry-after", String(retryAfter));
           sendJson(response, 429, {
@@ -330,7 +371,7 @@ export function createAdminSessionHandler({
         );
         const totpFresh = !totp.required || !credential || !totpValid
           ? !totp.required
-          : loginLimiter.consumeOtp(
+          : await totpReplayStore.consume(
               createHmac("sha256", totp.key)
                 .update("currency-war-admin-used-totp\0")
                 .update(String(body.totp))
@@ -339,13 +380,13 @@ export function createAdminSessionHandler({
               nowValue.getTime() + 90_000,
             );
         if (!credential || !totpValid || !totpFresh) {
-          loginLimiter.failure(clientKey, nowValue.getTime());
+          await loginLimiter.failure(clientKey, nowValue.getTime());
           sendJson(response, 401, {
             error: { code: "unauthorised", message: "Invalid administrator credential" },
           });
           return;
         }
-        loginLimiter.success(clientKey);
+        await loginLimiter.success(clientKey);
         const session = createSession(credential.sessionSecret, nowValue);
         response.setHeader("set-cookie", cookie(session.value, { secureCookies }));
         sendJson(response, 200, {
@@ -461,6 +502,9 @@ export function createAdminApiHandler({
   adminToken = process.env.CURRENCY_WAR_ADMIN_TOKEN,
   adminPasswordHash = process.env.CURRENCY_WAR_ADMIN_PASSWORD_HASH,
   adminTotpSecret = process.env.CURRENCY_WAR_ADMIN_TOTP_SECRET,
+  production = process.env.NODE_ENV === "production" || process.env.VERCEL === "1",
+  allowPasswordOnlyProduction =
+    process.env.CURRENCY_WAR_ADMIN_ALLOW_PASSWORD_ONLY_PRODUCTION === "1",
   now = () => new Date(),
   fetchDashboardFn = fetchWorkerDashboard,
   updateSettingsFn = updateWorkerSettings,
@@ -471,7 +515,11 @@ export function createAdminApiHandler({
       adminPasswordHash,
     );
     const totp = configuredTotp(adminTotpSecret);
-    if (configuredCredentials.length === 0 || totp.invalid) {
+    if (
+      configuredCredentials.length === 0
+      || totp.invalid
+      || productionTotpMissing(totp, production, allowPasswordOnlyProduction)
+    ) {
       sendJson(response, 503, {
         error: { code: "admin_unconfigured", message: "Administrator access is not configured" },
       });
