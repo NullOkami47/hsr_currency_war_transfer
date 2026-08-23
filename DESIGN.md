@@ -4,7 +4,7 @@
 
 - Embedded refs: shortlisted `playstation`, `aside`, and `nvidia`; only `aside.md` was materialised in the installed skill package, so picked its product-app framing, thin dividers, squircle controls, and precise hierarchy. The indexed Layer A `taste-skill.md` was unavailable and is explicitly skipped.
 - Lazyweb: ran 2 desktop queries (`game strategy search character filter`, `game team builder strategy cards`) and viewed 3 screens: a Hearthstone collection grid, a filter-plus-profile result list, and a card-list result. Harvested the compact filter rail, dense visual roster, persistent result count, and row-level action grammar; no source assets are shipped.
-- Imagen: generated a three-direction concept board at `C:\Users\cmtse\.codex\generated_images\019fb668-fe72-7a83-bcc5-3ac7d3cd2504\exec-5dcadd1e-359c-4967-bf25-ce6a93979b58.png`; selected Concept A, the luminous parchment tactical index, because it keeps long Chinese strategy text readable while making roster comparison distinctive.
+- A three-direction concept board was generated during design exploration; Concept A, the luminous parchment tactical index, was selected because it keeps long Chinese strategy text readable while making roster comparison distinctive.
 - UI/UX DB: unavailable in the installed skill package. Palette and typography were checked manually against WCAG 2.2 AA contrast targets.
 
 ## 1. Atmosphere & Direction
