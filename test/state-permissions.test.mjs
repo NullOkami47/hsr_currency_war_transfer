@@ -43,6 +43,34 @@ test("prepares restrictive state paths on POSIX without applying fake Windows mo
   ]);
 });
 
+test("interprets state paths with the effective platform semantics", async () => {
+  const calls = [];
+  const mkdirFn = async (directory) => calls.push(directory);
+  const chmodFn = async () => {};
+
+  await preparePrivateStatePath("C:\\state\\jobs.json", {
+    platform: "win32",
+    mkdirFn,
+    chmodFn,
+  });
+  await preparePrivateStatePath("C:\\state\\jobs.json", {
+    platform: "linux",
+    mkdirFn,
+    chmodFn,
+  });
+  await preparePrivateStatePath("/var/lib/currency-war/jobs.json", {
+    platform: "linux",
+    mkdirFn,
+    chmodFn,
+  });
+
+  assert.deepEqual(calls, [
+    "C:\\state",
+    ".",
+    "/var/lib/currency-war",
+  ]);
+});
+
 test("transfer and job stores create private state files", async (t) => {
   const directory = await mkdtemp(join(tmpdir(), "currency-war-private-state-"));
   t.after(() => rm(directory, { recursive: true, force: true }));

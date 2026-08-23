@@ -1,5 +1,5 @@
 import { chmod, mkdir } from "node:fs/promises";
-import { dirname } from "node:path";
+import { posix, win32 } from "node:path";
 
 export const PRIVATE_STATE_DIRECTORY_MODE = 0o700;
 export const PRIVATE_STATE_FILE_MODE = 0o600;
@@ -9,7 +9,7 @@ export async function preparePrivateStatePath(path, {
   mkdirFn = mkdir,
   chmodFn = chmod,
 } = {}) {
-  const directory = dirname(path);
+  const directory = (platform === "win32" ? win32 : posix).dirname(path);
   await mkdirFn(directory, {
     recursive: true,
     mode: PRIVATE_STATE_DIRECTORY_MODE,
