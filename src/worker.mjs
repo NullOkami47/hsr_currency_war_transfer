@@ -1,9 +1,12 @@
 import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
-import { dirname } from "node:path";
-
+import { readFile, rename, writeFile } from "node:fs/promises";
 import { parseChinaLineupInput } from "./api.mjs";
 import { WorkerPolicyError } from "./errors.mjs";
+import {
+  hardenPrivateFile,
+  preparePrivateStatePath,
+  PRIVATE_STATE_FILE_MODE,
+} from "./private-state.mjs";
 
 const ACTIVE_JOB_STATUSES = new Set(["queued", "running"]);
 const TERMINAL_JOB_STATUSES = new Set(["completed", "failed"]);
@@ -171,6 +174,10 @@ export class JsonWorkerJobStore {
   }
 
   async readState() {
+    await preparePrivateStatePath(this.path);
+    await hardenPrivateFile(this.path).catch((error) => {
+      if (error.code !== "ENOENT") throw error;
+    });
     try {
       const state = JSON.parse(await readFile(this.path, "utf8"));
       return pruneState({
@@ -185,10 +192,14 @@ export class JsonWorkerJobStore {
   }
 
   async writeState(state) {
-    await mkdir(dirname(this.path), { recursive: true });
+    await preparePrivateStatePath(this.path);
     const temporaryPath = `${this.path}.${process.pid}.${randomUUID()}.tmp`;
-    await writeFile(temporaryPath, `${JSON.stringify(state, null, 2)}\n`, "utf8");
+    await writeFile(temporaryPath, `${JSON.stringify(state, null, 2)}\n`, {
+      encoding: "utf8",
+      mode: PRIVATE_STATE_FILE_MODE,
+    });
     await rename(temporaryPath, this.path);
+    await hardenPrivateFile(this.path);
   }
 
   mutate(callback) {
@@ -210,11 +221,6 @@ export class JsonWorkerJobStore {
 
   createOrGetActive(sourceId, context = {}, now = new Date()) {
     return this.mutate((state) => {
-      const active = Object.values(state.jobs).find(
-        (job) => job.sourceId === sourceId && ACTIVE_JOB_STATUSES.has(job.status),
-      );
-      if (active) return { job: active, created: false };
-
       if (context.public) {
         const settings = normaliseSettings(state.settings);
         if (!settings.publicSubmissionsEnabled) {
@@ -232,6 +238,15 @@ export class JsonWorkerJobStore {
             "This China strategy is on the administrator blacklist",
           );
         }
+      }
+
+      const active = Object.values(state.jobs).find(
+        (job) => job.sourceId === sourceId && ACTIVE_JOB_STATUSES.has(job.status),
+      );
+      if (active) return { job: active, created: false };
+
+      if (context.public) {
+        const settings = normaliseSettings(state.settings);
         const jobs = Object.values(state.jobs);
         const activeCount = jobs.filter((job) =>
           ACTIVE_JOB_STATUSES.has(job.status)).length;

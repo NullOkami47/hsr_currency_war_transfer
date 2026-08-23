@@ -1,12 +1,15 @@
 import {
-  mkdir,
   open,
   readFile,
   rename,
   unlink,
   writeFile,
 } from "node:fs/promises";
-import { dirname } from "node:path";
+import {
+  hardenPrivateFile,
+  preparePrivateStatePath,
+  PRIVATE_STATE_FILE_MODE,
+} from "./private-state.mjs";
 
 const EMPTY_STATE = Object.freeze({
   version: 1,
@@ -22,6 +25,10 @@ export class JsonTransferStore {
   }
 
   async readState() {
+    await preparePrivateStatePath(this.path);
+    await hardenPrivateFile(this.path).catch((error) => {
+      if (error.code !== "ENOENT") throw error;
+    });
     try {
       const state = JSON.parse(await readFile(this.path, "utf8"));
       return {
@@ -45,28 +52,29 @@ export class JsonTransferStore {
     const state = await this.readState();
     state.transfers[sourceId] = record;
 
-    await mkdir(dirname(this.path), { recursive: true });
+    await preparePrivateStatePath(this.path);
     const temporaryPath = `${this.path}.${process.pid}.tmp`;
     await writeFile(
       temporaryPath,
       `${JSON.stringify(state, null, 2)}\n`,
-      "utf8",
+      { encoding: "utf8", mode: PRIVATE_STATE_FILE_MODE },
     );
     await rename(temporaryPath, this.path);
+    await hardenPrivateFile(this.path);
   }
 
   async withTransferLock(callback, {
     timeoutMs = 30_000,
     retryDelayMs = 100,
   } = {}) {
-    await mkdir(dirname(this.path), { recursive: true });
+    await preparePrivateStatePath(this.path);
     const lockPath = `${this.path}.lock`;
     const deadline = Date.now() + timeoutMs;
     let handle;
 
     while (!handle) {
       try {
-        handle = await open(lockPath, "wx");
+        handle = await open(lockPath, "wx", PRIVATE_STATE_FILE_MODE);
         await handle.writeFile(String(process.pid), "utf8");
       } catch (error) {
         if (error.code !== "EEXIST" || Date.now() >= deadline) {
