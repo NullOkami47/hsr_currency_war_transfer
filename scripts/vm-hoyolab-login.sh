@@ -1,5 +1,9 @@
 #!/bin/sh
 set -eu
+umask 077
+
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+. "$SCRIPT_DIR/caddy-file-metadata.sh"
 
 WORKER_SERVICE="${CURRENCY_WAR_LOGIN_WORKER_SERVICE:-hsr-transfer-worker.service}"
 SERVICE_USER="${CURRENCY_WAR_LOGIN_USER:-azureuser}"
@@ -58,8 +62,11 @@ stop_login_units() {
 }
 
 restore_caddy() {
-  if [ -f "$RUNTIME_DIR/Caddyfile.backup" ]; then
-    install -m 0644 "$RUNTIME_DIR/Caddyfile.backup" "$CADDYFILE"
+  if [ -f "$RUNTIME_DIR/Caddyfile.backup" ] && [ -f "$RUNTIME_DIR/Caddyfile.metadata" ]; then
+    restore_file_metadata \
+      "$RUNTIME_DIR/Caddyfile.backup" \
+      "$CADDYFILE" \
+      "$RUNTIME_DIR/Caddyfile.metadata"
     caddy validate --config "$CADDYFILE" >/dev/null
     systemctl reload caddy
   fi
@@ -146,6 +153,7 @@ start_login() {
 
   SERVICE_GROUP="$(id -gn "$SERVICE_USER")"
   install -d -m 0750 -o root -g "$SERVICE_GROUP" "$RUNTIME_DIR"
+  capture_file_metadata "$CADDYFILE" "$RUNTIME_DIR/Caddyfile.metadata"
   install -m 0600 "$CADDYFILE" "$RUNTIME_DIR/Caddyfile.backup"
   START_COMMITTED=0
   trap 'if [ "$START_COMMITTED" -ne 1 ]; then rollback_start; fi' EXIT HUP INT TERM
