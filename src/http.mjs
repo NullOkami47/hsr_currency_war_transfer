@@ -1,4 +1,4 @@
-import { createHmac } from "node:crypto";
+import { createHmac, randomBytes } from "node:crypto";
 
 import {
   fetchChinaRoleOptions,
@@ -7,10 +7,18 @@ import {
 import { parseChinaLineupInput } from "./api.mjs";
 import { PublicInputError } from "./errors.mjs";
 
-const PUBLIC_SEARCH_LIMITS = Object.freeze({
+const PUBLIC_REQUEST_BODY_MAX_BYTES = 65_536;
+export const PUBLIC_SEARCH_LIMITS = Object.freeze({
   maxPages: 10,
   pageSize: 20,
+  keywordCharacters: 120,
+  authorKeywordCharacters: 80,
+  roleIds: 16,
+  bondIds: 16,
+  requestsPerWindow: 30,
+  windowMs: 60_000,
 });
+const LOCAL_SEARCH_HASH_SECRET = randomBytes(32);
 const GLOBAL_STRATEGY_PAGE =
   "https://act.hoyolab.com/sr/event/currency-wars/index.html";
 
@@ -105,12 +113,18 @@ function parseBody(request) {
     !Buffer.isBuffer(request.body)
   ) {
     const serialised = JSON.stringify(request.body);
-    if (Buffer.byteLength(serialised) > 65_536) {
+    if (Buffer.byteLength(serialised) > PUBLIC_REQUEST_BODY_MAX_BYTES) {
       throw new PublicInputError("Request body is too large", "request_too_large");
     }
     return request.body;
   }
 
+  const rawBytes = Buffer.isBuffer(request.body)
+    ? request.body.length
+    : Buffer.byteLength(String(request.body ?? ""));
+  if (rawBytes > PUBLIC_REQUEST_BODY_MAX_BYTES) {
+    throw new PublicInputError("Request body is too large", "request_too_large");
+  }
   const raw = Buffer.isBuffer(request.body)
     ? request.body.toString("utf8")
     : String(request.body ?? "");
@@ -142,6 +156,65 @@ function boundedInteger(value, fallback, maximum, field) {
   return parsed;
 }
 
+function boundedText(value, maximum, field, reason) {
+  if (String(value ?? "").length > maximum) {
+    throw new PublicInputError(
+      `${field} must not exceed ${maximum} characters`,
+      reason,
+    );
+  }
+  return value;
+}
+
+function boundedArray(value, maximum, field, reason) {
+  const entries = Array.isArray(value) ? value : [];
+  if (entries.length > maximum) {
+    throw new PublicInputError(
+      `${field} must contain at most ${maximum} entries`,
+      reason,
+    );
+  }
+  return entries;
+}
+
+export function createInMemoryRateLimiter({
+  limit = PUBLIC_SEARCH_LIMITS.requestsPerWindow,
+  windowMs = PUBLIC_SEARCH_LIMITS.windowMs,
+  maxEntries = 5_000,
+} = {}) {
+  if (
+    !Number.isInteger(limit) || limit < 1
+    || !Number.isInteger(windowMs) || windowMs < 1
+    || !Number.isInteger(maxEntries) || maxEntries < 1
+  ) {
+    throw new TypeError("Rate limiter options are invalid");
+  }
+  const windows = new Map();
+
+  return {
+    consume(key, nowMs) {
+      let entry = windows.get(key);
+      if (!entry || entry.resetAt <= nowMs) {
+        entry = { count: 0, resetAt: nowMs + windowMs };
+      }
+      entry.count += 1;
+      windows.delete(key);
+      windows.set(key, entry);
+      while (windows.size > maxEntries) {
+        windows.delete(windows.keys().next().value);
+      }
+      return {
+        allowed: entry.count <= limit,
+        retryAfter: entry.count <= limit
+          ? 0
+          : Math.max(1, Math.ceil((entry.resetAt - nowMs) / 1000)),
+      };
+    },
+  };
+}
+
+const defaultPublicSearchLimiter = createInMemoryRateLimiter();
+
 export function createRolesHandler({
   fetchChinaRoleOptionsFn = fetchChinaRoleOptions,
 } = {}) {
@@ -167,7 +240,13 @@ export function createRolesHandler({
 
 export function createSearchHandler({
   searchChinaStrategiesFn = searchChinaStrategies,
+  rateLimiter = defaultPublicSearchLimiter,
+  clientKeyFn = publicSearchClientKey,
+  now = () => new Date(),
 } = {}) {
+  if (!rateLimiter || typeof rateLimiter.consume !== "function") {
+    throw new TypeError("A public search rate limiter is required");
+  }
   return async function searchHandler(request, response) {
     if (request.method !== "POST") {
       methodNotAllowed(response, "POST");
@@ -176,33 +255,73 @@ export function createSearchHandler({
 
     try {
       const body = parseBody(request);
-      const roleIds = Array.isArray(body.roleIds) ? body.roleIds : [];
-      const bondIds = Array.isArray(body.bondIds) ? body.bondIds : [];
       if (body.roleIds !== undefined && !Array.isArray(body.roleIds)) {
         throw new PublicInputError("roleIds must be an array", "invalid_roles");
       }
       if (body.bondIds !== undefined && !Array.isArray(body.bondIds)) {
         throw new PublicInputError("bondIds must be an array", "invalid_bonds");
       }
+      const roleIds = boundedArray(
+        body.roleIds,
+        PUBLIC_SEARCH_LIMITS.roleIds,
+        "roleIds",
+        "too_many_roles",
+      );
+      const bondIds = boundedArray(
+        body.bondIds,
+        PUBLIC_SEARCH_LIMITS.bondIds,
+        "bondIds",
+        "too_many_bonds",
+      );
+      const keyword = boundedText(
+        body.keyword,
+        PUBLIC_SEARCH_LIMITS.keywordCharacters,
+        "keyword",
+        "keyword_too_long",
+      );
+      const authorKeyword = boundedText(
+        body.authorKeyword,
+        PUBLIC_SEARCH_LIMITS.authorKeywordCharacters,
+        "authorKeyword",
+        "author_keyword_too_long",
+      );
+      const maxPages = boundedInteger(
+        body.maxPages,
+        PUBLIC_SEARCH_LIMITS.maxPages,
+        PUBLIC_SEARCH_LIMITS.maxPages,
+        "maxPages",
+      );
+      const pageSize = boundedInteger(
+        body.pageSize,
+        10,
+        PUBLIC_SEARCH_LIMITS.pageSize,
+        "pageSize",
+      );
+      const rateLimit = await rateLimiter.consume(
+        clientKeyFn(request),
+        now().getTime(),
+      );
+      if (!rateLimit?.allowed) {
+        const retryAfter = Math.max(1, Number(rateLimit?.retryAfter) || 1);
+        response.setHeader("retry-after", String(retryAfter));
+        sendJson(response, 429, {
+          error: {
+            code: "search_rate_limited",
+            message: "Too many public search requests",
+            retryAfter,
+          },
+        });
+        return;
+      }
 
       const result = await searchChinaStrategiesFn({
         source: body.source,
-        keyword: body.keyword,
-        authorKeyword: body.authorKeyword,
+        keyword,
+        authorKeyword,
         roleIds,
         bondIds,
-        maxPages: boundedInteger(
-          body.maxPages,
-          PUBLIC_SEARCH_LIMITS.maxPages,
-          PUBLIC_SEARCH_LIMITS.maxPages,
-          "maxPages",
-        ),
-        pageSize: boundedInteger(
-          body.pageSize,
-          10,
-          PUBLIC_SEARCH_LIMITS.pageSize,
-          "pageSize",
-        ),
+        maxPages,
+        pageSize,
         order: body.order ?? "Hot",
       });
       sendJson(response, 200, result);
@@ -307,6 +426,19 @@ export function publicClientKey(
   return createHmac("sha256", secret)
     .update(requestAddress(request))
     .digest("hex");
+}
+
+export function publicSearchClientKey(
+  request,
+  secret = process.env.CURRENCY_WAR_SEARCH_HASH_SECRET
+    ?? process.env.CURRENCY_WAR_CLIENT_HASH_SECRET
+    ?? process.env.CURRENCY_WAR_WORKER_TOKEN
+    ?? LOCAL_SEARCH_HASH_SECRET,
+) {
+  return createHmac("sha256", secret)
+    .update("currency-war-public-search\0")
+    .update(requestAddress(request))
+    .digest("base64url");
 }
 
 async function workerError(response) {
