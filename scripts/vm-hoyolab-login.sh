@@ -204,7 +204,10 @@ $LOGIN_HOST {
 }
 EOF
   caddy validate --config "$RUNTIME_DIR/Caddyfile.new" >/dev/null
-  install -m 0644 "$RUNTIME_DIR/Caddyfile.new" "$CADDYFILE"
+  install_file_with_metadata \
+    "$RUNTIME_DIR/Caddyfile.new" \
+    "$CADDYFILE" \
+    "$RUNTIME_DIR/Caddyfile.metadata"
   systemctl reload caddy
 
   printf 'LOGIN_HOST=%s\nLOGIN_PATH=%s\nLOGIN_URL=%s\n' \

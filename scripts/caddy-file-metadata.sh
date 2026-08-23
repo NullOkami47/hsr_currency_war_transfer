@@ -8,8 +8,8 @@ capture_file_metadata() {
   chmod 0600 "$metadata_path"
 }
 
-restore_file_metadata() {
-  backup_path="$1"
+install_file_with_metadata() {
+  source_path="$1"
   target_path="$2"
   metadata_path="$3"
   IFS=' ' read -r mode owner group extra <"$metadata_path"
@@ -20,7 +20,11 @@ restore_file_metadata() {
     echo "Invalid saved file metadata." >&2
     return 1
   fi
-  install -m "$mode" -o "$owner" -g "$group" "$backup_path" "$target_path"
+  install -m "$mode" -o "$owner" -g "$group" "$source_path" "$target_path"
+}
+
+restore_file_metadata() {
+  install_file_with_metadata "$1" "$2" "$3"
 }
 
 if [ "${0##*/}" = "caddy-file-metadata.sh" ]; then
@@ -29,12 +33,16 @@ if [ "${0##*/}" = "caddy-file-metadata.sh" ]; then
       [ "$#" -eq 3 ] || { echo "Usage: $0 capture SOURCE METADATA" >&2; exit 2; }
       capture_file_metadata "$2" "$3"
       ;;
+    install)
+      [ "$#" -eq 4 ] || { echo "Usage: $0 install SOURCE TARGET METADATA" >&2; exit 2; }
+      install_file_with_metadata "$2" "$3" "$4"
+      ;;
     restore)
       [ "$#" -eq 4 ] || { echo "Usage: $0 restore BACKUP TARGET METADATA" >&2; exit 2; }
       restore_file_metadata "$2" "$3" "$4"
       ;;
     *)
-      echo "Usage: $0 capture SOURCE METADATA | restore BACKUP TARGET METADATA" >&2
+      echo "Usage: $0 capture SOURCE METADATA | install SOURCE TARGET METADATA | restore BACKUP TARGET METADATA" >&2
       exit 2
       ;;
   esac

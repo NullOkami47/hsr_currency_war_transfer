@@ -54,27 +54,54 @@ test("VM login uses captured Caddy mode, owner and group for every restore", asy
 
   assert.match(script, /caddy-file-metadata\.sh/);
   assert.match(script, /capture_file_metadata "\$CADDYFILE"/);
+  assert.match(
+    script,
+    /install_file_with_metadata \\\s+"\$RUNTIME_DIR\/Caddyfile\.new" \\\s+"\$CADDYFILE"/,
+  );
   assert.match(script, /restore_file_metadata/);
   assert.doesNotMatch(script, /install -m 0644 .*Caddyfile\.backup/);
+  assert.doesNotMatch(script, /install -m 0644 .*"\$CADDYFILE"/);
   assert.match(helper, /stat -c '%a %u %g'/);
+  assert.match(helper, /install_file_with_metadata\(\)/);
   assert.match(helper, /install -m "\$mode" -o "\$owner" -g "\$group"/);
 });
 
-test("Caddy metadata helper round-trips a temporary file", {
+test("Caddy metadata helper preserves live and restored file metadata", {
   skip: process.platform === "win32" ? "POSIX ownership is not available on Windows" : false,
 }, async (t) => {
   const directory = await mkdtemp(join(tmpdir(), "caddy-metadata-"));
   t.after(() => rm(directory, { recursive: true, force: true }));
-  const original = join(directory, "Caddyfile");
-  const backup = join(directory, "Caddyfile.backup");
-  const metadata = join(directory, "Caddyfile.metadata");
-  await writeFile(original, "original\n", { mode: 0o640 });
+  for (const mode of [0o600, 0o640]) {
+    const original = join(directory, `Caddyfile-${mode.toString(8)}`);
+    const backup = `${original}.backup`;
+    const replacement = `${original}.new`;
+    const metadata = `${original}.metadata`;
+    await writeFile(original, "original\n", { mode });
+    await chmod(original, mode);
+    const originalStat = await stat(original);
 
-  await execFileAsync("sh", [metadataHelperPath, "capture", original, metadata]);
-  await writeFile(backup, "original\n", { mode: 0o600 });
-  await chmod(original, 0o666);
-  await execFileAsync("sh", [metadataHelperPath, "restore", backup, original, metadata]);
+    await execFileAsync("sh", [metadataHelperPath, "capture", original, metadata]);
+    await writeFile(backup, "original\n", { mode: 0o600 });
+    await writeFile(replacement, "temporary\n", { mode: 0o600 });
+    await execFileAsync("sh", [
+      metadataHelperPath,
+      "install",
+      replacement,
+      original,
+      metadata,
+    ]);
 
-  assert.equal((await stat(original)).mode & 0o777, 0o640);
-  assert.equal(await readFile(original, "utf8"), "original\n");
+    const liveStat = await stat(original);
+    assert.equal(liveStat.mode & 0o777, mode);
+    assert.equal(liveStat.uid, originalStat.uid);
+    assert.equal(liveStat.gid, originalStat.gid);
+    assert.equal(await readFile(original, "utf8"), "temporary\n");
+
+    await execFileAsync("sh", [metadataHelperPath, "restore", backup, original, metadata]);
+    const restoredStat = await stat(original);
+    assert.equal(restoredStat.mode & 0o777, mode);
+    assert.equal(restoredStat.uid, originalStat.uid);
+    assert.equal(restoredStat.gid, originalStat.gid);
+    assert.equal(await readFile(original, "utf8"), "original\n");
+  }
 });
