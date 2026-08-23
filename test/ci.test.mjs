@@ -12,8 +12,8 @@ test("CI verifies supported Node versions on Linux and Windows", async () => {
   assert.match(workflow, /push:\s*\n\s+branches: \[main\]/);
   assert.match(workflow, /os: \[ubuntu-latest, windows-latest\]/);
   assert.match(workflow, /node-version: \[20, 22\]/);
-  assert.match(workflow, /actions\/checkout@v4/);
-  assert.match(workflow, /actions\/setup-node@v4/);
+  assert.match(workflow, /actions\/checkout@v5/);
+  assert.match(workflow, /actions\/setup-node@v5/);
   assert.match(workflow, /run: npm ci/);
   assert.match(workflow, /run: npm test/);
   assert.match(workflow, /run: npm audit --audit-level=high/);
