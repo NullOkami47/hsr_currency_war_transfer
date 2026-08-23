@@ -19,7 +19,7 @@
     "worker": "node scripts/worker-server.mjs"
   },
   "dependencies": {
-    "playwright-core": "^1.54.1"
+    "playwright-core": "^1.62.1"
   },
   "engines": {
     "node": ">=20"
