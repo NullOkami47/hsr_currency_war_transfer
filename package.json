@@ -2,6 +2,7 @@
   "name": "hsr-currency-war-transfer-spike",
   "version": "0.1.0",
   "private": true,
+  "license": "MIT",
   "type": "module",
   "scripts": {
     "admin:totp:generate": "node scripts/generate-admin-totp.mjs",
@@ -19,7 +20,7 @@
     "worker": "node scripts/worker-server.mjs"
   },
   "dependencies": {
-    "playwright-core": "^1.54.1"
+    "playwright-core": "^1.62.1"
   },
   "engines": {
     "node": ">=20"

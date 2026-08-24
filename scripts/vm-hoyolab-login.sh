@@ -1,5 +1,9 @@
 #!/bin/sh
 set -eu
+umask 077
+
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+. "$SCRIPT_DIR/caddy-file-metadata.sh"
 
 WORKER_SERVICE="${CURRENCY_WAR_LOGIN_WORKER_SERVICE:-hsr-transfer-worker.service}"
 SERVICE_USER="${CURRENCY_WAR_LOGIN_USER:-azureuser}"
@@ -58,18 +62,27 @@ stop_login_units() {
 }
 
 restore_caddy() {
-  if [ -f "$RUNTIME_DIR/Caddyfile.backup" ]; then
-    install -m 0644 "$RUNTIME_DIR/Caddyfile.backup" "$CADDYFILE"
-    caddy validate --config "$CADDYFILE" >/dev/null
-    systemctl reload caddy
+  if [ ! -f "$RUNTIME_DIR/Caddyfile.backup" ] || [ ! -f "$RUNTIME_DIR/Caddyfile.metadata" ]; then
+    echo "Caddy recovery artifacts are incomplete; refusing to remove login state." >&2
+    return 1
   fi
+  restore_file_metadata \
+    "$RUNTIME_DIR/Caddyfile.backup" \
+    "$CADDYFILE" \
+    "$RUNTIME_DIR/Caddyfile.metadata"
+  caddy validate --config "$CADDYFILE" >/dev/null
+  systemctl reload caddy
 }
 
 rollback_start() {
   stop_login_units
-  restore_caddy || true
-  systemctl start "$WORKER_SERVICE" >/dev/null 2>&1 || true
-  rm -rf -- "$RUNTIME_DIR"
+  if restore_caddy; then
+    systemctl start "$WORKER_SERVICE" >/dev/null 2>&1 || true
+    rm -rf -- "$RUNTIME_DIR"
+  else
+    echo "Caddy restoration failed; recovery files were preserved and the worker remains stopped." >&2
+    return 1
+  fi
 }
 
 detect_login_host() {
@@ -146,6 +159,7 @@ start_login() {
 
   SERVICE_GROUP="$(id -gn "$SERVICE_USER")"
   install -d -m 0750 -o root -g "$SERVICE_GROUP" "$RUNTIME_DIR"
+  capture_file_metadata "$CADDYFILE" "$RUNTIME_DIR/Caddyfile.metadata"
   install -m 0600 "$CADDYFILE" "$RUNTIME_DIR/Caddyfile.backup"
   START_COMMITTED=0
   trap 'if [ "$START_COMMITTED" -ne 1 ]; then rollback_start; fi' EXIT HUP INT TERM
@@ -196,7 +210,10 @@ $LOGIN_HOST {
 }
 EOF
   caddy validate --config "$RUNTIME_DIR/Caddyfile.new" >/dev/null
-  install -m 0644 "$RUNTIME_DIR/Caddyfile.new" "$CADDYFILE"
+  install_file_with_metadata \
+    "$RUNTIME_DIR/Caddyfile.new" \
+    "$CADDYFILE" \
+    "$RUNTIME_DIR/Caddyfile.metadata"
   systemctl reload caddy
 
   printf 'LOGIN_HOST=%s\nLOGIN_PATH=%s\nLOGIN_URL=%s\n' \

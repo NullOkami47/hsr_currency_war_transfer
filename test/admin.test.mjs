@@ -6,6 +6,7 @@ import {
   createAdminLoginLimiter,
   createAdminApiHandler,
   createAdminSessionHandler,
+  verifyAdministratorCredentials,
 } from "../src/admin-http.mjs";
 
 const ADMIN_TOKEN = "admin-token-with-at-least-thirty-two-characters";
@@ -80,6 +81,70 @@ test("rejects a wrong administrator credential", async () => {
   );
   assert.equal(response.statusCode, 401);
   assert.equal(response.json().error.code, "unauthorised");
+});
+
+test("checks every configured administrator credential without short-circuiting", () => {
+  const calls = [];
+  const credentials = [
+    { id: "first", verify: () => { calls.push("first"); return true; } },
+    { id: "second", verify: () => { calls.push("second"); return false; } },
+  ];
+
+  const matched = verifyAdministratorCredentials(credentials, "supplied");
+
+  assert.equal(matched.id, "first");
+  assert.deepEqual(calls, ["first", "second"]);
+});
+
+test("fails closed without exposing administrator auth-store errors", async () => {
+  const sensitiveDetail = "redis://operator:secret@private-store.invalid";
+  const handler = createAdminSessionHandler({
+    adminToken: ADMIN_TOKEN,
+    loginLimiter: {
+      async retryAfter() { throw new Error(sensitiveDetail); },
+      async failure() {},
+      async success() {},
+    },
+  });
+  const response = responseRecorder();
+
+  await handler({
+    method: "POST",
+    body: { token: ADMIN_TOKEN },
+    headers: {},
+  }, response);
+
+  assert.equal(response.statusCode, 503);
+  assert.equal(response.json().error.code, "admin_auth_unavailable");
+  assert.equal(
+    response.json().error.message,
+    "Administrator authentication is temporarily unavailable",
+  );
+  assert.doesNotMatch(response.body, /redis|operator|secret|private-store/);
+});
+
+test("fails closed without exposing TOTP replay-store errors", async () => {
+  const sensitiveDetail = "https://operator:secret@replay-store.invalid";
+  const handler = createAdminSessionHandler({
+    adminToken: ADMIN_TOKEN,
+    adminTotpSecret: TOTP_SECRET,
+    now: TOTP_NOW,
+    loginLimiter: createAdminLoginLimiter(),
+    totpReplayStore: {
+      async consume() { throw new Error(sensitiveDetail); },
+    },
+  });
+  const response = responseRecorder();
+
+  await handler({
+    method: "POST",
+    body: { token: ADMIN_TOKEN, totp: TOTP_CODE },
+    headers: {},
+  }, response);
+
+  assert.equal(response.statusCode, 503);
+  assert.equal(response.json().error.code, "admin_auth_unavailable");
+  assert.doesNotMatch(response.body, /https|operator|secret|replay-store/);
 });
 
 test("requires both the administrator credential and a valid TOTP code", async () => {
@@ -176,6 +241,68 @@ test("does not let a client bypass login limits with spoofed forwarding headers"
   assert.equal(bypass.statusCode, 429);
 });
 
+test("administrator limiter follows the central proxy trust model", async () => {
+  async function failedLoginKey(requestAddressOptions, request) {
+    let capturedKey;
+    const handler = createAdminSessionHandler({
+      adminToken: ADMIN_TOKEN,
+      clientHashSecret: "admin-client-hash-secret",
+      requestAddressOptions,
+      loginLimiter: {
+        async retryAfter() { return 0; },
+        async failure(key) { capturedKey = key; },
+        async success() {},
+      },
+    });
+    const response = responseRecorder();
+    await handler({
+      method: "POST",
+      body: { token: "wrong-token" },
+      ...request,
+    }, response);
+    assert.equal(response.statusCode, 401);
+    return capturedKey;
+  }
+
+  const vercel = await failedLoginKey(
+    { vercel: true, trustProxy: false },
+    {
+      headers: { "x-vercel-forwarded-for": "203.0.113.40" },
+      socket: { remoteAddress: "127.0.0.1" },
+    },
+  );
+  const sameVercelClient = await failedLoginKey(
+    { vercel: true, trustProxy: false },
+    {
+      headers: { "x-vercel-forwarded-for": "203.0.113.40" },
+      socket: { remoteAddress: "127.0.0.2" },
+    },
+  );
+  const nonVercel = await failedLoginKey(
+    { vercel: false, trustProxy: false },
+    {
+      headers: { "x-vercel-forwarded-for": "203.0.113.40" },
+      socket: { remoteAddress: "127.0.0.2" },
+    },
+  );
+  const trustedProxy = await failedLoginKey(
+    { vercel: false, trustProxy: true },
+    {
+      headers: { "x-forwarded-for": "203.0.113.50" },
+      socket: { remoteAddress: "127.0.0.1" },
+    },
+  );
+
+  assert.equal(vercel, sameVercelClient);
+  assert.notEqual(vercel, nonVercel);
+  assert.notEqual(trustedProxy, nonVercel);
+  assert.match(vercel, /^[A-Za-z0-9_-]{40,}$/);
+  assert.doesNotMatch(
+    `${vercel}${nonVercel}${trustedProxy}`,
+    /203\.0\.113\.|127\.0\.0\./,
+  );
+});
+
 test("enabling TOTP revokes a password-only administrator session", async () => {
   const passwordOnly = createAdminSessionHandler({
     adminToken: ADMIN_TOKEN,
@@ -232,6 +359,50 @@ test("rejects replaying a successful TOTP code within its validity window", asyn
   assert.equal(replay.json().error.code, "unauthorised");
 });
 
+test("supports asynchronous shared login-limit and TOTP replay stores", async () => {
+  const calls = [];
+  const handler = createAdminSessionHandler({
+    adminToken: ADMIN_TOKEN,
+    adminTotpSecret: TOTP_SECRET,
+    now: TOTP_NOW,
+    loginLimiter: {
+      async retryAfter(key) {
+        calls.push(["retryAfter", key]);
+        return 0;
+      },
+      async failure(key) {
+        calls.push(["failure", key]);
+      },
+      async success(key) {
+        calls.push(["success", key]);
+      },
+    },
+    totpReplayStore: {
+      async consume(fingerprint) {
+        calls.push(["consume", fingerprint]);
+        return true;
+      },
+    },
+  });
+  const response = responseRecorder();
+
+  await handler({
+    method: "POST",
+    body: { token: ADMIN_TOKEN, totp: TOTP_CODE },
+    headers: { "x-vercel-forwarded-for": "203.0.113.50" },
+  }, response);
+
+  assert.equal(response.statusCode, 200);
+  assert.deepEqual(calls.map(([method]) => method), [
+    "retryAfter",
+    "consume",
+    "success",
+  ]);
+  for (const [, key] of calls) {
+    assert.doesNotMatch(key, /203\.0\.113\.50|287082/);
+  }
+});
+
 test("fails closed when the configured TOTP secret is invalid", async () => {
   const handler = createAdminSessionHandler({
     adminToken: ADMIN_TOKEN,
@@ -241,6 +412,77 @@ test("fails closed when the configured TOTP secret is invalid", async () => {
   await handler({ method: "GET", headers: {} }, response);
   assert.equal(response.statusCode, 503);
   assert.equal(response.json().error.code, "admin_unconfigured");
+});
+
+test("accepts production administrator login when TOTP is configured", async () => {
+  const handler = createAdminSessionHandler({
+    adminToken: ADMIN_TOKEN,
+    adminTotpSecret: TOTP_SECRET,
+    production: true,
+    now: TOTP_NOW,
+    loginLimiter: createAdminLoginLimiter(),
+  });
+  const response = responseRecorder();
+
+  await handler({
+    method: "POST",
+    body: { token: ADMIN_TOKEN, totp: TOTP_CODE },
+    headers: {},
+  }, response);
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.json().totpRequired, true);
+});
+
+test("fails closed in production when administrator TOTP is missing", async () => {
+  const handler = createAdminSessionHandler({
+    adminToken: ADMIN_TOKEN,
+    adminTotpSecret: null,
+    production: true,
+  });
+  const response = responseRecorder();
+
+  await handler({ method: "GET", headers: {} }, response);
+
+  assert.equal(response.statusCode, 503);
+  assert.equal(response.json().error.code, "admin_unconfigured");
+});
+
+test("allows an explicit production password-only opt-out", async () => {
+  const handler = createAdminSessionHandler({
+    adminToken: ADMIN_TOKEN,
+    adminTotpSecret: null,
+    production: true,
+    allowPasswordOnlyProduction: true,
+  });
+  const response = responseRecorder();
+
+  await handler({
+    method: "POST",
+    body: { token: ADMIN_TOKEN },
+    headers: {},
+  }, response);
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.json().totpRequired, false);
+});
+
+test("keeps password-only administrator login usable in local development", async () => {
+  const handler = createAdminSessionHandler({
+    adminToken: ADMIN_TOKEN,
+    adminTotpSecret: null,
+    production: false,
+  });
+  const response = responseRecorder();
+
+  await handler({
+    method: "POST",
+    body: { token: ADMIN_TOKEN },
+    headers: {},
+  }, response);
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.json().totpRequired, false);
 });
 
 test("accepts a password while storing only its PBKDF2 hash", async () => {

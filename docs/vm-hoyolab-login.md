@@ -49,6 +49,7 @@
 
 ## 驗證與故障排除
 
+- 若 `stop` 或啟動 rollback 回報 Caddy 還原失敗，腳本會保留 runtime recovery files 並維持 worker 停止。不要手動刪除 runtime directory，也不要先重啟 worker；應先由 VM 管理員檢查 `Caddyfile.backup` 與 `Caddyfile.metadata`，完成原設定還原及 `caddy validate`／reload 後才恢復 worker。
 - 登入後應先做兩次連續唯讀驗證；只做一次無法檢查「第一筆成功、第二筆登入失效」的問題。
 - 真正的發布測試必須由管理員或使用者明確指定策略，因為它可能建立或更新 Global 策略。
 - worker 第一次收到 `Login expired. Please log in again` 時，會自動重新載入 Currency Wars 事件頁、等待八秒，再重試原請求；第二次仍失敗時，會完整關閉並重建瀏覽器 context、再等待八秒後作最後一次嘗試，不會無限重試。

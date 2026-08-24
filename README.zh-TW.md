@@ -105,3 +105,7 @@ npm run transfer -- 6a587503f4749840a14a360d
 - `POST /game/lineup/edit`
 
 以上為第一方網頁應用程式端點，並非有正式文件的公開 API，可能隨時變更。
+
+## 授權條款
+
+本專案採用 [MIT 授權條款](LICENSE)。

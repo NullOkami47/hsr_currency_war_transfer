@@ -40,13 +40,33 @@ administrator enters the original password in `/admin`. Never commit either a
 real token or password hash. A long random password remains preferable because
 a hash cannot prevent online guessing of a weak password.
 
-Set `CURRENCY_WAR_ADMIN_TOTP_SECRET` to require a second, RFC 6238-compatible
+Production and Vercel require `CURRENCY_WAR_ADMIN_TOTP_SECRET` by default. It is
+a second, RFC 6238-compatible
 time-based code for every new administrator session. Enabling or rotating this
 secret immediately invalidates sessions signed without the current TOTP key.
 The setup key remains server-side and the browser sends only the current
 six-digit code. A successfully used code cannot create a second session within
 the same running API instance. Failed sign-ins share one generic response and
 are limited to five failures per client over ten minutes within each instance.
+These two memory stores are process-local. `createAdminSessionHandler` accepts
+async `loginLimiter` and `totpReplayStore` implementations for a shared store,
+but none is provisioned by this repository. Multi-instance production must wire
+such a store or enforce equivalent platform protection. Set
+`CURRENCY_WAR_ADMIN_CLIENT_HASH_SECRET` to a stable independent secret when
+sharing login-limit state; raw client addresses are never persisted.
+
+Production fails closed if TOTP is missing or invalid. The emergency opt-out
+`CURRENCY_WAR_ADMIN_ALLOW_PASSWORD_ONLY_PRODUCTION=1` deliberately weakens the
+administrator console to a single factor and should be time-limited, documented
+and removed after TOTP recovery. Local development remains password-only by
+default.
+
+On Vercel, also create and publish a Firewall rule matching `POST` and request
+path `/api/admin/session`, with a conservative fixed window such as five login
+requests per ten minutes per source IP. Start in Log mode to confirm the match,
+then enforce HTTP 429. A platform rule counts all login requests rather than
+knowing which attempts failed, so choose the final threshold after observing
+legitimate administrator traffic and review current Vercel pricing.
 
 Generate an independent setup key locally:
 
@@ -154,12 +174,23 @@ applies to that worker's publishing identity. There is no separate end-user
 account system. The IP limiter uses a keyed HMAC of the address supplied by the
 trusted deployment proxy; raw addresses are not sent to or stored by the
 worker. Set `CURRENCY_WAR_CLIENT_HASH_SECRET` to a stable random secret if the
-rate-limit identity must survive worker-token rotation. For a non-Vercel
-reverse proxy, set `CURRENCY_WAR_TRUST_PROXY=1` only after configuring it to
-overwrite, rather than append, untrusted client forwarding headers.
+rate-limit identity must survive worker-token rotation. The API trusts
+`x-vercel-forwarded-for` only when `VERCEL=1`. Outside Vercel it ignores both
+that header and ordinary `x-forwarded-for`, using the socket peer address. For
+a non-Vercel reverse proxy, set `CURRENCY_WAR_TRUST_PROXY=1` only after
+configuring it to overwrite, rather than append, untrusted client forwarding
+headers; this mode uses `x-forwarded-for` and still ignores the Vercel-specific
+header.
+
+Enabling public submissions lets anonymous Internet users consume the
+publishing account's quota. Use a dedicated HoYoLAB publishing account, not a
+valuable personal account.
 
 Active duplicate requests for the same China strategy reuse the existing job
-before quota checks, preventing refreshes from consuming additional quota.
+before capacity, quota and per-client checks, preventing refreshes from
+consuming another policy slot. The master switch and blacklist are still
+checked first, so an emergency disable or newly blocked source applies to an
+active duplicate.
 Rejected policies return stable 403 or 429 codes and never start a browser
 publication.
 
@@ -247,6 +278,11 @@ The worker persists queued and completed jobs in
 restart, deduplicates active jobs by China strategy ID, and executes transfers
 sequentially. Terminal records are pruned by age and count according to the
 administrator policy. Override the path with `CURRENCY_WAR_JOB_STATE_PATH`.
+On POSIX systems the application enforces mode `0700` for state directories and
+`0600` for JSON, temporary and lock files. For a systemd service, also set
+`UMask=0077` under `[Service]` as defence in depth. On Windows, store the state
+directory on an NTFS location whose ACL grants access only to the worker account;
+POSIX mode bits do not provide an equivalent Windows ACL.
 
 The three anonymous reads that initialise a transfer (Global configuration,
 Traditional Chinese configuration and China source detail) are each attempted

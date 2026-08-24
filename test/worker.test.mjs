@@ -211,6 +211,104 @@ test("enforces source blacklist, per-IP limit, account quota and queue capacity"
   );
 });
 
+async function policyQueue(t, settings) {
+  const directory = await mkdtemp(join(tmpdir(), "currency-war-worker-policy-"));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const store = new JsonWorkerJobStore(join(directory, "jobs.json"));
+  await store.updateSettings({
+    publicSubmissionsEnabled: true,
+    sourceBlacklistEnabled: true,
+    sourceBlacklist: [],
+    perIpLimit: 10,
+    perIpWindowMinutes: 60,
+    dailyAccountQuota: 10,
+    maxPendingJobs: 10,
+    ...settings,
+  });
+  const queue = new TransferJobQueue({
+    store,
+    transferFn: async () => new Promise(() => {}),
+  });
+  return { queue, store };
+}
+
+for (const [policy, settings, submissions, expectedCode] of [
+  [
+    "source blacklist",
+    { sourceBlacklist: [SOURCE_ID] },
+    [[SOURCE_ID, "client-one"]],
+    "source_blocked",
+  ],
+  [
+    "per-client limit",
+    { perIpLimit: 1 },
+    [[SOURCE_ID, "client-one"], ["6a4e123858aa043bf1070a99", "client-one"]],
+    "rate_limited",
+  ],
+  [
+    "daily publishing-account quota",
+    { dailyAccountQuota: 1 },
+    [[SOURCE_ID, "client-one"], ["6a4e123858aa043bf1070a99", "client-two"]],
+    "daily_quota_reached",
+  ],
+  [
+    "pending queue capacity",
+    { maxPendingJobs: 1 },
+    [[SOURCE_ID, "client-one"], ["6a4e123858aa043bf1070a99", "client-two"]],
+    "queue_full",
+  ],
+]) {
+  test(`enforces the public ${policy} independently`, async (t) => {
+    const { queue } = await policyQueue(t, settings);
+    for (const [sourceId, clientKey] of submissions.slice(0, -1)) {
+      await queue.submit(sourceId, { public: true, clientKey });
+    }
+    const [sourceId, clientKey] = submissions.at(-1);
+    await assert.rejects(
+      () => queue.submit(sourceId, { public: true, clientKey }),
+      (error) => error.code === expectedCode,
+    );
+  });
+}
+
+test("active duplicates reuse one job without consuming another policy slot", async (t) => {
+  const { queue } = await policyQueue(t, {
+    perIpLimit: 1,
+    dailyAccountQuota: 1,
+    maxPendingJobs: 1,
+  });
+  const first = await queue.submit(SOURCE_ID, {
+    public: true,
+    clientKey: "client-one",
+  });
+  const duplicate = await queue.submit(SOURCE_ID, {
+    public: true,
+    clientKey: "client-two",
+  });
+
+  assert.equal(duplicate.jobId, first.jobId);
+});
+
+test("disabled and blacklist policies still apply to active duplicates", async (t) => {
+  const { queue, store } = await policyQueue(t, {});
+  await queue.submit(SOURCE_ID, { public: true, clientKey: "client-one" });
+
+  await store.updateSettings({ publicSubmissionsEnabled: false });
+  await assert.rejects(
+    () => queue.submit(SOURCE_ID, { public: true, clientKey: "client-two" }),
+    (error) => error.code === "public_submissions_disabled",
+  );
+
+  await store.updateSettings({
+    publicSubmissionsEnabled: true,
+    sourceBlacklist: [SOURCE_ID],
+  });
+  await assert.rejects(
+    () => queue.submit(SOURCE_ID, { public: true, clientKey: "client-two" }),
+    (error) => error.code === "source_blocked",
+  );
+});
+
 test("updates settings and returns bounded administrator records", async (t) => {
   const directory = await mkdtemp(join(tmpdir(), "currency-war-worker-"));
   t.after(() => rm(directory, { recursive: true, force: true }));

@@ -109,9 +109,37 @@ must occur in at least one strategy stage. The service validates IDs
 against the current China configuration and rechecks each returned lineup
 locally because the upstream API may silently ignore invalid filters.
 
-Public requests are capped at 10 pages and 20 strategies per page. The response
+Public requests are limited to a 64 KiB JSON body, 120 characters for
+`keyword`, 80 characters for `authorKeyword`, 16 `roleIds`, and 16 `bondIds`.
+The arrays are validated before any upstream read. Requests are also capped at
+10 pages and 20 strategies per page. The response
 includes `pageInfo.truncated`; when true, the candidate list is a bounded
 result rather than an exhaustive index.
+
+The repository includes an instance-local development limiter of 30 searches
+per 60 seconds. Its client identity is a keyed HMAC; raw network addresses are
+not retained. Set `CURRENCY_WAR_SEARCH_HASH_SECRET` to an independent stable
+random value when a stable identity is needed. The handler accepts an async
+`rateLimiter.consume(key, nowMs)` implementation, so a deployment with shared
+state can inject a distributed limiter.
+
+When `VERCEL=1`, the API uses Vercel's `x-vercel-forwarded-for` header as the
+client-address source. Outside Vercel it ignores that header and ordinary
+`x-forwarded-for` input, falling back to the socket peer address. A separately
+managed reverse proxy may set `CURRENCY_WAR_TRUST_PROXY=1`, in which case the
+API uses `x-forwarded-for`; enable this only when the proxy overwrites, rather
+than appends to, any client-supplied forwarding header.
+
+The built-in memory limiter is defence in depth for one Node.js process only.
+It is **not** a global rate limit across Vercel Functions or regions. Production
+must also configure a Vercel Firewall/platform rule or inject a shared limiter.
+Do not count the in-memory map as the production abuse-control boundary.
+
+For the current Vercel deployment, create and publish a Firewall rate-limit rule
+whose conditions match `POST` and request path `/api/search`. A fixed window of
+30 requests per 60 seconds per source IP mirrors the application default; begin
+with the Log action, inspect legitimate traffic, then change the action to HTTP
+429. Review current Vercel limits and pricing before publishing the rule.
 
 The initial China configuration and direct strategy detail reads are attempted
 at most three times. Each recommendation page is attempted at most twice. A

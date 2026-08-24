@@ -26,6 +26,9 @@ test("administrator page exposes labelled safety controls and an audit table", a
   assert.match(html, /來源封鎖清單（blacklist）/);
   assert.match(html, /<th scope="col">/);
   assert.match(html, /<link rel="icon" href="\/favicon\.svg"/);
+  assert.match(html, /匿名 Internet 使用者會消耗發布帳戶的每日配額/);
+  assert.match(html, /專用的 HoYoLAB 發布帳戶/);
+  assert.match(html, /不要使用高價值的個人帳戶/);
   assert.doesNotMatch(html, /value="[^\"]*admin[^\"]*token/i);
 });
 

@@ -1,11 +1,26 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+import {
+  chmod,
+  mkdtemp,
+  readFile,
+  rm,
+  stat,
+  writeFile,
+} from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
 
 const scriptPath = fileURLToPath(
   new URL("../scripts/vm-hoyolab-login.sh", import.meta.url),
 );
+const metadataHelperPath = fileURLToPath(
+  new URL("../scripts/caddy-file-metadata.sh", import.meta.url),
+);
+const execFileAsync = promisify(execFile);
 
 test("VM login script uses a temporary HTTPS path and local-only VNC ports", async () => {
   const script = await readFile(scriptPath, "utf8");
@@ -29,4 +44,89 @@ test("VM login status does not reveal the VNC password", async () => {
 
   assert.match(statusBody, /intentionally not shown again/);
   assert.doesNotMatch(statusBody, /cat .*vnc\.pass|VNC_PASSWORD=/);
+});
+
+test("VM rollback preserves recovery artifacts when Caddy restore fails", async () => {
+  const script = await readFile(scriptPath, "utf8");
+  const restoreBody = script.slice(
+    script.indexOf("restore_caddy()"),
+    script.indexOf("rollback_start()"),
+  );
+  const rollbackBody = script.slice(
+    script.indexOf("rollback_start()"),
+    script.indexOf("detect_login_host()"),
+  );
+
+  assert.match(restoreBody, /Caddy recovery artifacts are incomplete/);
+  assert.match(restoreBody, /return 1/);
+  assert.match(rollbackBody, /if restore_caddy; then/);
+  assert.doesNotMatch(rollbackBody, /restore_caddy \|\| true/);
+  assert.match(
+    rollbackBody,
+    /Caddy restoration failed; recovery files were preserved and the worker remains stopped/,
+  );
+  assert.match(
+    rollbackBody,
+    /if restore_caddy; then[\s\S]*systemctl start[\s\S]*rm -rf/,
+  );
+});
+
+test("VM login uses captured Caddy mode, owner and group for every restore", async () => {
+  const [script, helper] = await Promise.all([
+    readFile(scriptPath, "utf8"),
+    readFile(metadataHelperPath, "utf8"),
+  ]);
+
+  assert.match(script, /caddy-file-metadata\.sh/);
+  assert.match(script, /capture_file_metadata "\$CADDYFILE"/);
+  assert.match(
+    script,
+    /install_file_with_metadata \\\s+"\$RUNTIME_DIR\/Caddyfile\.new" \\\s+"\$CADDYFILE"/,
+  );
+  assert.match(script, /restore_file_metadata/);
+  assert.doesNotMatch(script, /install -m 0644 .*Caddyfile\.backup/);
+  assert.doesNotMatch(script, /install -m 0644 .*"\$CADDYFILE"/);
+  assert.match(helper, /stat -c '%a %u %g'/);
+  assert.match(helper, /install_file_with_metadata\(\)/);
+  assert.match(helper, /install -m "\$mode" -o "\$owner" -g "\$group"/);
+});
+
+test("Caddy metadata helper preserves live and restored file metadata", {
+  skip: process.platform === "win32" ? "POSIX ownership is not available on Windows" : false,
+}, async (t) => {
+  const directory = await mkdtemp(join(tmpdir(), "caddy-metadata-"));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  for (const mode of [0o600, 0o640]) {
+    const original = join(directory, `Caddyfile-${mode.toString(8)}`);
+    const backup = `${original}.backup`;
+    const replacement = `${original}.new`;
+    const metadata = `${original}.metadata`;
+    await writeFile(original, "original\n", { mode });
+    await chmod(original, mode);
+    const originalStat = await stat(original);
+
+    await execFileAsync("sh", [metadataHelperPath, "capture", original, metadata]);
+    await writeFile(backup, "original\n", { mode: 0o600 });
+    await writeFile(replacement, "temporary\n", { mode: 0o600 });
+    await execFileAsync("sh", [
+      metadataHelperPath,
+      "install",
+      replacement,
+      original,
+      metadata,
+    ]);
+
+    const liveStat = await stat(original);
+    assert.equal(liveStat.mode & 0o777, mode);
+    assert.equal(liveStat.uid, originalStat.uid);
+    assert.equal(liveStat.gid, originalStat.gid);
+    assert.equal(await readFile(original, "utf8"), "temporary\n");
+
+    await execFileAsync("sh", [metadataHelperPath, "restore", backup, original, metadata]);
+    const restoredStat = await stat(original);
+    assert.equal(restoredStat.mode & 0o777, mode);
+    assert.equal(restoredStat.uid, originalStat.uid);
+    assert.equal(restoredStat.gid, originalStat.gid);
+    assert.equal(await readFile(original, "utf8"), "original\n");
+  }
 });

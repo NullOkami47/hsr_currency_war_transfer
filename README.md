@@ -162,3 +162,7 @@ Authenticated global write operations:
 
 These are first-party web application endpoints, not a documented public API.
 They may change without notice.
+
+## Licence
+
+This project is licensed under the [MIT License](LICENSE).

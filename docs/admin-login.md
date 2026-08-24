@@ -147,8 +147,12 @@ running API instance.
 - **You cannot manage Vercel:** there is no 2FA bypass. An authorised owner of
   the Vercel project must rotate the environment variable.
 
-You can disable 2FA by deleting `CURRENCY_WAR_ADMIN_TOTP_SECRET` and
-redeploying, but this is not recommended for a public production environment.
+Production and Vercel fail closed when `CURRENCY_WAR_ADMIN_TOTP_SECRET` is
+missing or invalid. Local development may still use password-only login. An
+operator can deliberately opt out in production only by setting
+`CURRENCY_WAR_ADMIN_ALLOW_PASSWORD_ONLY_PRODUCTION=1`; this is a high-risk,
+single-factor emergency mode. Record the decision, restrict its duration and
+remove the opt-out as soon as TOTP has been restored.
 
 ## Troubleshooting
 
@@ -162,8 +166,10 @@ redeploying, but this is not recommended for a public production environment.
 4. Confirm that the Vercel variable names and target environments are correct,
    and that a new deployment was created after the update.
 5. Repeated failures can temporarily limit the same client within a single API
-   instance. The default is five failed attempts in ten minutes. Stop retrying
-   and try again later with a fresh code.
+   instance. The default is five failed attempts in ten minutes. The failed-login
+   store and used-code replay store are process-local unless the injectable async
+   interfaces are connected to shared state; they are not global protection
+   across Vercel instances. Stop retrying and try again later with a fresh code.
 
 Sign-in failures deliberately return the same message, so they do not reveal
 whether the password or 2FA code was wrong. An invalid TOTP setup-key format
