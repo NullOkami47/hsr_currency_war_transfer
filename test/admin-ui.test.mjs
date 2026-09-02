@@ -88,7 +88,7 @@ test("uses international-service terminology across the localised website", asyn
     ].map((file) => readFile(new URL(`../public/${file}`, import.meta.url), "utf8")))
   ).join("\n");
 
-  assert.doesNotMatch(localisedUi, /全球服/);
+  assert.doesNotMatch(localisedUi, /\u5168\u7403\u670d/);
   assert.match(localisedUi, /國際服/);
   assert.match(localisedUi, /国际服/);
 });
