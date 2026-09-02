@@ -76,7 +76,7 @@ test("showcases the completed Global strategy action and blacklist policy", asyn
     "utf8",
   );
 
-  assert.match(showcase, /開啟已完成的全球服攻略/);
+  assert.match(showcase, /開啟已完成的國際服攻略/);
   assert.match(showcase, /gt__lineup_id=/);
   assert.match(showcase, /拒絕來源封鎖清單內的攻略/);
   assert.doesNotMatch(showcase, /allow-list/);

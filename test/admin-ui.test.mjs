@@ -74,5 +74,21 @@ test("completed transfers expose an official Global strategy link", async () => 
   assert.match(html, /target="_blank" rel="noreferrer"/);
   assert.match(script, /if \(data\.globalUrl\)/);
   assert.match(script, /elements\["view-global-strategy"\]\.href/);
-  assert.match(script, /viewGlobalStrategy: "開啟已完成的全球服攻略"/);
+  assert.match(script, /viewGlobalStrategy: "開啟已完成的國際服攻略"/);
+});
+
+test("uses international-service terminology across the localised website", async () => {
+  const localisedUi = (
+    await Promise.all([
+      "app.js",
+      "history-page.js",
+      "history.html",
+      "index.html",
+      "showcase.html",
+    ].map((file) => readFile(new URL(`../public/${file}`, import.meta.url), "utf8")))
+  ).join("\n");
+
+  assert.doesNotMatch(localisedUi, /全球服/);
+  assert.match(localisedUi, /國際服/);
+  assert.match(localisedUi, /国际服/);
 });
