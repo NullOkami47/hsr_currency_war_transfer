@@ -109,3 +109,13 @@ npm run transfer -- 6a587503f4749840a14a360d
 ## 授權條款
 
 本專案採用 [MIT 授權條款](LICENSE)。
+
+---
+
+<div align="center">
+
+### 🔗 友鏈
+
+感謝 [Linux Do](https://linux.do/)
+
+</div>

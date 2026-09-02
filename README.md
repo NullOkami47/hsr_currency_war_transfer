@@ -250,4 +250,8 @@ npm run worker
 
 <sub>為開拓者而製作，與 HoYoverse／米哈遊沒有官方關聯。</sub>
 
+### 🔗 友鏈
+
+感謝 [Linux Do](https://linux.do/)
+
 </div>
