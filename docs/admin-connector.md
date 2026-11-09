@@ -156,7 +156,9 @@ endpoint is `GET /health`; job endpoints require the bearer token.
 
 On first production start, public submission is disabled and the source
 blacklist is enabled but empty. Sign in at `/admin`, configure the policy,
-then explicitly enable public submission. The settings are persisted with the
+then explicitly enable public submission. The optional environment bootstrap
+flags apply only when the job-state file does not exist. They never overwrite
+a persisted administrator decision on restart. The settings are persisted with the
 job store and enforced inside the worker, not merely hidden in the website:
 
 | Setting | Default | Allowed range / effect |
@@ -190,7 +192,21 @@ Active duplicate requests for the same China strategy reuse the existing job
 before capacity, quota and per-client checks, preventing refreshes from
 consuming another policy slot. The master switch and blacklist are still
 checked first, so an emergency disable or newly blocked source applies to an
-active duplicate.
+active duplicate. Duplicate requests still consume the separate request budget,
+but leave the job-history file unchanged.
+
+Version 4 stores accepted-job timestamps and keyed client identities in a quota
+ledger separate from retained jobs. Completion, failure, retention changes,
+count pruning and restarts do not refund quota. Entries live for the maximum
+configurable client window (24 hours), and the daily count resets at UTC
+midnight independently of the sliding client window. The dashboard uses this
+ledger for daily usage. Legacy version-2/3 state is migrated before accepting
+requests and imposes a persisted 24-hour recovery cooldown for new public jobs;
+old history cannot prove that previously pruned quota was unused. The
+`quotaRecoveryUntil` dashboard field and `quota_migration_cooldown` response
+make this pause observable. Queued jobs remain recoverable. Review the policy
+after upgrading; do not delete state to bypass the cooldown.
+
 Rejected policies return stable 403 or 429 codes and never start a browser
 publication.
 
@@ -289,9 +305,14 @@ Traditional Chinese configuration and China source detail) are each attempted
 at most five times with exponential backoff. This absorbs a short upstream or
 network outage without ever repeating a create or edit write.
 
-The JSON job and transfer stores are designed for a single worker process. If
-the service later runs multiple worker instances, replace both with a
-transactional database that enforces one active job per source ID.
+The JSON job, transfer and security stores are designed for a single worker
+process. Multiple serverless API instances must point at this same worker.
+The companion `<job-state-path>.security.json` stores request budgets and
+active administrator sessions separately from job history. Keep it on the
+same protected persistent volume and include it in controlled backups. If the
+service later runs multiple worker processes, replace all stores with a shared
+transactional database and enforce one active job per source ID; do not share
+these JSON files between workers.
 
 The browser profile must stay on persistent encrypted storage and should never
 be committed, uploaded to Vercel or returned to users.

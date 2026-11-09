@@ -198,3 +198,30 @@ time.
 
 For the complete worker, HoYoLAB publishing-account and safety-policy setup,
 see the [admin publishing connector](admin-connector.md).
+
+
+## Session revocation and failed logout
+
+Production administrator sessions require the authenticated persistent worker.
+Login registers a random session identifier before returning a cookie; every
+session restore, dashboard read and settings write checks that identifier.
+Logout verifies CSRF and durably revokes the identifier before clearing the
+cookie. A copied cookie is then rejected by other API instances and after
+worker restarts. Session state expires after eight hours and is bounded to
+1,000 active sessions. Registration tolerates up to one minute of forward
+API/worker clock skew; the worker clamps the stored expiry to its own eight-hour
+maximum, so this tolerance does not extend an active session. Keep both hosts
+time-synchronised; larger positive skew fails closed. Old stateless cookies from earlier releases require a
+fresh login. Deploy the compatible worker before deploying the API.
+
+The worker exposes session operations only through its existing
+bearer-authenticated `/admin` route. The browser uses the existing
+`/api/admin/session` route and never sees the worker token or its state.
+Local development without a worker uses a process-local session registry;
+production never silently falls back to that registry.
+
+If revocation, transport or storage fails, the server returns an error without
+claiming success or clearing the cookie. The UI keeps the console open, reports
+that logout could not be confirmed and allows retry. Do not treat closing a tab
+as revocation. Already-authorised operations that were in flight before logout
+are not cancelled retroactively.

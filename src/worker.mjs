@@ -1,12 +1,10 @@
+import { withDeadline } from "./deadline.mjs";
 import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
-import { readFile, rename, writeFile } from "node:fs/promises";
+import { readPrivateJson, writePrivateJson, serialiseState } from "./private-json.mjs";
+import { JsonSecurityStore } from "./security-state.mjs";
+import { createRequestBudget, createConcurrencyGate, REQUEST_BUDGETS } from "./request-budget.mjs";
 import { parseChinaLineupInput } from "./api.mjs";
 import { WorkerPolicyError } from "./errors.mjs";
-import {
-  hardenPrivateFile,
-  preparePrivateStatePath,
-  PRIVATE_STATE_FILE_MODE,
-} from "./private-state.mjs";
 
 const ACTIVE_JOB_STATUSES = new Set(["queued", "running"]);
 const TERMINAL_JOB_STATUSES = new Set(["completed", "failed"]);
@@ -96,9 +94,10 @@ function normaliseSettings(value = {}, { strict = false } = {}) {
 
 function emptyJobState() {
   return {
-    version: 3,
+    version: 4,
     settings: normaliseSettings(),
     jobs: {},
+    quota: { events: [], blockedUntil: 0 },
   };
 }
 
@@ -109,6 +108,13 @@ function cloneEmptyState() {
 function pruneState(state, now = new Date()) {
   const settings = normaliseSettings(state.settings);
   state.settings = settings;
+  if (!state.quota || !Array.isArray(state.quota.events)
+      || !Number.isFinite(state.quota.blockedUntil)
+      || state.quota.events.some(event => !Number.isFinite(event.at) || typeof event.clientKey !== "string")) {
+    throw new Error("Invalid quota state");
+  }
+  // Retain the maximum configurable client window, regardless of current settings.
+  state.quota.events = state.quota.events.filter(event => event.at > now.getTime() - 86_400_000);
   const cutoff = now.getTime() - settings.retentionDays * 86_400_000;
   const jobs = Object.values(state.jobs ?? {});
   const active = jobs.filter((job) => ACTIVE_JOB_STATUSES.has(job.status));
@@ -167,47 +173,64 @@ function safeAdminError(error) {
 }
 
 export class JsonWorkerJobStore {
-  constructor(path) {
+  constructor(path, { now = () => new Date() } = {}) {
     if (!path) throw new TypeError("A worker job-state path is required");
     this.path = path;
+    this.now = now;
     this.writeChain = Promise.resolve();
   }
 
-  async readState() {
-    await preparePrivateStatePath(this.path);
-    await hardenPrivateFile(this.path).catch((error) => {
-      if (error.code !== "ENOENT") throw error;
-    });
-    try {
-      const state = JSON.parse(await readFile(this.path, "utf8"));
-      return pruneState({
-        version: 3,
-        settings: normaliseSettings(state?.settings),
-        jobs: state?.jobs ?? {},
-      });
-    } catch (error) {
-      if (error.code === "ENOENT") return cloneEmptyState();
-      throw error;
+  async readState(now = this.now(), raw = undefined) {
+    if (raw === undefined) raw = await readPrivateJson(this.path);
+    if (!raw) return cloneEmptyState();
+    if (![2, 3, 4].includes(raw.version) || !raw.settings || !raw.jobs) {
+      throw new Error("Invalid worker state");
     }
+    const legacy = raw.version < 4;
+    return pruneState({
+      version: 4,
+      settings: normaliseSettings(raw.settings),
+      jobs: raw.jobs,
+      quota: legacy ? {
+        events: Object.values(raw.jobs).map(job => ({
+          at: Date.parse(job.createdAt), clientKey: String(job.clientKey ?? ""),
+        })),
+        // Old retention may already have destroyed quota evidence. Never assume
+        // that missing history means unused quota during a rolling upgrade.
+        blockedUntil: now.getTime() + 86_400_000,
+      } : raw.quota,
+    }, now);
   }
 
-  async writeState(state) {
-    await preparePrivateStatePath(this.path);
-    const temporaryPath = `${this.path}.${process.pid}.${randomUUID()}.tmp`;
-    await writeFile(temporaryPath, `${JSON.stringify(state, null, 2)}\n`, {
-      encoding: "utf8",
-      mode: PRIVATE_STATE_FILE_MODE,
-    });
-    await rename(temporaryPath, this.path);
-    await hardenPrivateFile(this.path);
-  }
+  writeState(state) { return writePrivateJson(this.path, state); }
 
-  mutate(callback) {
-    const operation = this.writeChain.then(async () => {
-      const state = await this.readState();
-      const result = await callback(state);
-      pruneState(state);
+  initialise(bootstrap = {}) {
+    const operation = serialiseState(this.path, async () => {
+      const raw = await readPrivateJson(this.path);
+      if (raw) {
+        const state = await this.readState(this.now(), raw);
+        if (raw.version !== 4) await this.writeState(state);
+        return structuredClone(state.settings);
+      }
+      const state = cloneEmptyState();
+      state.settings = normaliseSettings(bootstrap, { strict: true });
       await this.writeState(state);
+      return structuredClone(state.settings);
+    });
+    this.writeChain = operation.catch(() => {});
+    return operation;
+  }
+
+  mutate(callback, now = this.now()) {
+    const operation = serialiseState(this.path, async () => {
+      const raw = await readPrivateJson(this.path);
+      const state = await this.readState(now, raw);
+      if (raw && raw.version !== 4) await this.writeState(state);
+      const before = JSON.stringify(state);
+      const result = await callback(state);
+      pruneState(state, now);
+      // A duplicate or no-op must not rewrite the entire history file.
+      if (!raw || JSON.stringify(state) !== before) await this.writeState(state);
       return result;
     });
     this.writeChain = operation.catch(() => {});
@@ -219,7 +242,7 @@ export class JsonWorkerJobStore {
     return (await this.readState()).jobs[jobId] ?? null;
   }
 
-  createOrGetActive(sourceId, context = {}, now = new Date()) {
+  createOrGetActive(sourceId, context = {}, now = this.now()) {
     return this.mutate((state) => {
       if (context.public) {
         const settings = normaliseSettings(state.settings);
@@ -257,9 +280,13 @@ export class JsonWorkerJobStore {
             { status: 429, retryAfter: 300 },
           );
         }
+        if (state.quota.blockedUntil > now.getTime()) {
+          throw new WorkerPolicyError("quota_migration_cooldown", "Publishing quotas are recovering after a state upgrade", {
+            status: 429, retryAfter: Math.ceil((state.quota.blockedUntil - now.getTime()) / 1000),
+          });
+        }
         const dayStart = startOfUtcDay(now);
-        const jobsToday = jobs.filter((job) =>
-          Date.parse(job.createdAt) >= dayStart).length;
+        const jobsToday = state.quota.events.filter(event => event.at >= dayStart).length;
         if (jobsToday >= settings.dailyAccountQuota) {
           const nextDay = dayStart + 86_400_000;
           throw new WorkerPolicyError(
@@ -273,11 +300,11 @@ export class JsonWorkerJobStore {
         }
         const windowStart = now.getTime()
           - settings.perIpWindowMinutes * 60_000;
-        const clientJobs = jobs.filter((job) =>
-          job.clientKey === context.clientKey
-          && Date.parse(job.createdAt) >= windowStart);
+        const clientJobs = state.quota.events.filter(event =>
+          event.clientKey === String(context.clientKey ?? "anonymous")
+          && event.at > windowStart);
         if (clientJobs.length >= settings.perIpLimit) {
-          const oldest = Math.min(...clientJobs.map((job) => Date.parse(job.createdAt)));
+          const oldest = Math.min(...clientJobs.map(event => event.at));
           throw new WorkerPolicyError(
             "rate_limited",
             "This client has reached the transfer submission limit",
@@ -293,6 +320,9 @@ export class JsonWorkerJobStore {
         }
       }
 
+      if (state.quota.events.length >= 20_000) {
+        throw new WorkerPolicyError("quota_capacity", "Publishing accounting is at capacity", { status: 429, retryAfter: 3600 });
+      }
       const timestamp = now.toISOString();
       const job = {
         id: randomUUID(),
@@ -303,8 +333,9 @@ export class JsonWorkerJobStore {
         ...(context.public ? { clientKey: String(context.clientKey ?? "anonymous") } : {}),
       };
       state.jobs[job.id] = job;
+      state.quota.events.push({ at: now.getTime(), clientKey: context.public ? String(context.clientKey ?? "anonymous") : "" });
       return { job, created: true };
-    });
+    }, now);
   }
 
   updateSettings(patch) {
@@ -317,9 +348,9 @@ export class JsonWorkerJobStore {
     });
   }
 
-  async dashboard(now = new Date()) {
+  async dashboard(now = this.now()) {
     await this.writeChain;
-    const state = pruneState(await this.readState(), now);
+    const state = pruneState(await this.readState(now), now);
     const jobs = Object.values(state.jobs)
       .sort((left, right) => String(right.createdAt).localeCompare(left.createdAt))
       .map((job) => ({
@@ -344,15 +375,15 @@ export class JsonWorkerJobStore {
         Object.values(state.jobs).filter((job) => job.status === status).length,
       ]),
     );
-    const jobsToday = Object.values(state.jobs).filter((job) =>
-      Date.parse(job.createdAt) >= startOfUtcDay(now)).length;
+    const jobsToday = state.quota.events.filter(event => event.at >= startOfUtcDay(now)).length;
     return {
       settings: structuredClone(state.settings),
       stats: {
         ...counts,
         active: counts.queued + counts.running,
         jobsToday,
-        remainingDailyQuota: Math.max(
+        quotaRecoveryUntil: state.quota.blockedUntil > now.getTime() ? new Date(state.quota.blockedUntil).toISOString() : null,
+        remainingDailyQuota: state.quota.blockedUntil > now.getTime() ? 0 : Math.max(
           0,
           state.settings.dailyAccountQuota - jobsToday,
         ),
@@ -362,7 +393,7 @@ export class JsonWorkerJobStore {
     };
   }
 
-  update(jobId, patch, now = new Date()) {
+  update(jobId, patch, now = this.now()) {
     return this.mutate((state) => {
       const current = state.jobs[jobId];
       if (!current) throw new Error(`Unknown transfer job: ${jobId}`);
@@ -375,7 +406,7 @@ export class JsonWorkerJobStore {
       };
       state.jobs[jobId] = updated;
       return updated;
-    });
+    }, now);
   }
 
   async recoverable() {
@@ -483,6 +514,14 @@ function authorised(request, token) {
 }
 
 async function readJsonBody(request, maximumBytes = 65_536) {
+  try {
+    return await withDeadline(signal => readJsonBodyContent(request, maximumBytes, signal), { timeoutMs: 5000 });
+  } catch (error) {
+    if (error.name === "TimeoutError") request.destroy?.();
+    throw error;
+  }
+}
+async function readJsonBodyContent(request, maximumBytes, signal) {
   if (request.body && typeof request.body === "object") {
     if (Buffer.byteLength(JSON.stringify(request.body)) > maximumBytes) {
       throw new TypeError("Request body is too large");
@@ -492,6 +531,7 @@ async function readJsonBody(request, maximumBytes = 65_536) {
   const chunks = [];
   let size = 0;
   for await (const chunk of request) {
+    signal.throwIfAborted();
     size += chunk.length;
     if (size > maximumBytes) throw new TypeError("Request body is too large");
     chunks.push(chunk);
@@ -505,9 +545,26 @@ async function readJsonBody(request, maximumBytes = 65_536) {
   }
 }
 
-export function createWorkerHandler({ queue, store, token, instanceId = null }) {
+export function createWorkerHandler({
+  queue, store, token, instanceId = null,
+  securityStore = store?.path ? new JsonSecurityStore(store.path + ".security.json") : null,
+  now = () => new Date(), maxConcurrent = 8,
+}) {
   if (!queue || !token) throw new TypeError("A queue and worker token are required");
 
+  const gate = createConcurrencyGate(maxConcurrent);
+  const localBudgets = Object.fromEntries(["submit", "poll"].map(kind => [kind, createRequestBudget(REQUEST_BUDGETS[kind])]));
+  async function admit(kind, clientKey) {
+    const time = now().getTime();
+    const local = localBudgets[kind].consume(clientKey, time);
+    if (!local.allowed) throw new WorkerPolicyError("request_rate_limited", "Too many transfer requests", { status: 429, retryAfter: local.retryAfter });
+    // Local limits reject floods before disk I/O. This durable authority is shared
+    // by all API instances and remains effective across worker restarts.
+    if (securityStore) {
+      const durable = await securityStore.consume(kind, clientKey, time);
+      if (!durable.allowed) throw new WorkerPolicyError("request_rate_limited", "Too many transfer requests", { status: 429, retryAfter: durable.retryAfter });
+    }
+  }
   return async function workerHandler(request, response) {
     const url = new URL(request.url ?? "/", "http://worker.local");
     if (request.method === "GET" && url.pathname === "/health") {
@@ -520,13 +577,32 @@ export function createWorkerHandler({ queue, store, token, instanceId = null }) 
       return;
     }
 
+    const release = gate.enter();
+    if (!release) {
+      response.setHeader("retry-after", "1");
+      sendJson(response, 429, { error: { code: "worker_busy", message: "Worker is busy", retryAfter: 1 } });
+      return;
+    }
     try {
+      if (url.search) throw new TypeError("Worker routes do not accept query parameters");
       if (request.method === "POST" && url.pathname === "/jobs") {
         const body = await readJsonBody(request);
-        sendJson(response, 202, await queue.submit(body.sourceId, {
-          public: true,
-          clientKey: String(body.clientKey ?? "anonymous").slice(0, 200),
-        }));
+        const clientKey = String(body.clientKey ?? "anonymous");
+        const sourceId = parseChinaLineupInput(String(body.sourceId ?? ""));
+        await admit("submit", clientKey);
+        sendJson(response, 202, await queue.submit(sourceId, { public: true, clientKey }));
+        return;
+      }
+
+      if (request.method === "POST" && url.pathname === "/admin" && securityStore) {
+        const body = await readJsonBody(request, 2048);
+        const time = now().getTime();
+        let active;
+        if (body.action === "session.register") active = await securityStore.register(body.id, body.expiresAt, time);
+        else if (body.action === "session.check") active = await securityStore.isActive(body.id, time);
+        else if (body.action === "session.revoke") { await securityStore.revoke(body.id, time); active = false; }
+        else throw new TypeError("Unknown administrator operation");
+        sendJson(response, 200, { active });
         return;
       }
 
@@ -544,6 +620,7 @@ export function createWorkerHandler({ queue, store, token, instanceId = null }) 
 
       const jobMatch = url.pathname.match(/^\/jobs\/([A-Za-z0-9_-]{1,100})$/);
       if (request.method === "GET" && jobMatch) {
+        await admit("poll", String(request.headers?.["x-currency-war-client"] ?? "anonymous"));
         const job = await queue.get(jobMatch[1]);
         if (!job) {
           sendJson(response, 404, { error: { code: "job_not_found" } });
@@ -573,6 +650,6 @@ export function createWorkerHandler({ queue, store, token, instanceId = null }) 
             : {}),
         },
       });
-    }
+    } finally { release(); }
   };
 }

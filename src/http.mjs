@@ -7,6 +7,8 @@ import {
 import { parseChinaLineupInput } from "./api.mjs";
 import { PublicInputError } from "./errors.mjs";
 import { requestAddress } from "./request-address.mjs";
+import { withDeadline } from "./deadline.mjs";
+import { createRequestBudget, createConcurrencyGate, REQUEST_BUDGETS } from "./request-budget.mjs";
 
 const PUBLIC_REQUEST_BODY_MAX_BYTES = 65_536;
 export const PUBLIC_SEARCH_LIMITS = Object.freeze({
@@ -218,25 +220,62 @@ const defaultPublicSearchLimiter = createInMemoryRateLimiter();
 
 export function createRolesHandler({
   fetchChinaRoleOptionsFn = fetchChinaRoleOptions,
+  rateLimiter = createRequestBudget(REQUEST_BUDGETS.roles),
+  clientKeyFn = publicSearchClientKey,
+  now = () => new Date(),
+  cacheTtlMs = 3_600_000,
+  failureTtlMs = 15_000,
+  timeoutMs = 15_000,
+  maxConcurrent = 32,
 } = {}) {
+  let cached, expiresAt = 0, failedUntil = 0, pending = null;
+  const gate = createConcurrencyGate(maxConcurrent);
   return async function rolesHandler(request, response) {
-    if (request.method !== "GET") {
-      methodNotAllowed(response, "GET");
-      return;
-    }
-
+    if (request.method !== "GET") { methodNotAllowed(response, "GET"); return; }
+    const release = gate.enter();
+    if (!release) { budgetExceeded(response, "roles_busy"); return; }
     try {
-      const result = await fetchChinaRoleOptionsFn();
-      sendJson(
-        response,
-        200,
-        result,
-        "public, s-maxage=3600, stale-while-revalidate=86400",
-      );
-    } catch (error) {
-      errorResponse(response, error);
-    }
+      validateQuery(request, []);
+      const time = now().getTime();
+      const budget = await rateLimiter.consume(clientKeyFn(request), time);
+      if (!budget?.allowed) { budgetExceeded(response, "roles_rate_limited", budget?.retryAfter); return; }
+      if (!cached || expiresAt <= time) {
+        if (failedUntil > time) throw new Error("Catalogue temporarily unavailable");
+        if (!pending) {
+          pending = withDeadline(signal => fetchChinaRoleOptionsFn({ signal }), { timeoutMs })
+            .then(result => { cached = result; expiresAt = now().getTime() + cacheTtlMs; return result; })
+            .catch(error => { failedUntil = now().getTime() + failureTtlMs; throw error; })
+            .finally(() => { pending = null; });
+        }
+        await pending;
+      }
+      sendJson(response, 200, cached, "public, s-maxage=3600, stale-while-revalidate=86400");
+    } catch (error) { errorResponse(response, error); }
+    finally { release(); }
   };
+}
+
+function budgetExceeded(response, code, retryAfter = 1) {
+  retryAfter = Math.max(1, Math.ceil(Number(retryAfter) || 1));
+  response.setHeader("retry-after", String(retryAfter));
+  sendJson(response, 429, { error: { code, message: "Too many requests; please retry later", retryAfter } });
+}
+
+function validateQuery(request, allowed) {
+  const params = new URL(request.url ?? "/", "http://local.invalid").searchParams;
+  for (const key of params.keys()) {
+    if (!allowed.includes(key) || params.getAll(key).length !== 1) {
+      throw new PublicInputError("Unsupported or repeated query parameter", "invalid_query");
+    }
+  }
+  for (const [key, value] of Object.entries(request.query ?? {})) {
+    if (!allowed.includes(key) || Array.isArray(value)) {
+      throw new PublicInputError("Unsupported or repeated query parameter", "invalid_query");
+    }
+    if (params.has(key) && params.get(key) !== String(value)) {
+      throw new PublicInputError("Conflicting query parameter", "invalid_query");
+    }
+  }
 }
 
 export function createSearchHandler({
@@ -510,6 +549,7 @@ export async function getTransferFromWorker(
     workerUrl = process.env.CURRENCY_WAR_WORKER_URL,
     workerToken = process.env.CURRENCY_WAR_WORKER_TOKEN,
     fetchFn = fetch,
+    clientKey = "anonymous",
   } = {},
 ) {
   if (!workerUrl || !workerToken) {
@@ -523,6 +563,7 @@ export async function getTransferFromWorker(
       headers: {
         accept: "application/json",
         authorization: `Bearer ${workerToken}`,
+        "x-currency-war-client": clientKey,
       },
       redirect: "error",
       signal: AbortSignal.timeout(10_000),
@@ -535,6 +576,12 @@ export async function getTransferFromWorker(
     );
   }
 
+  if (response.status === 429) {
+    const policy = await workerError(response);
+    throw new TransferRequestRejectedError(policy?.code ?? "transfer_rate_limited", "Too many transfer requests", {
+      status: 429, retryAfter: policy?.retryAfter ?? 1,
+    });
+  }
   if (response.status === 404) throw new TransferJobNotFoundError();
   if (!response.ok) {
     throw new TransferServiceUnavailableError(
@@ -556,27 +603,39 @@ export function createTransfersHandler({
   submitTransferFn = submitTransferToWorker,
   getTransferFn = getTransferFromWorker,
   clientKeyFn = publicClientKey,
+  submitLimiter = createRequestBudget(REQUEST_BUDGETS.submit),
+  pollLimiter = createRequestBudget(REQUEST_BUDGETS.poll),
+  now = () => new Date(),
+  maxConcurrent = 16,
 } = {}) {
+  const gate = createConcurrencyGate(maxConcurrent);
   return async function transfersHandler(request, response) {
     if (!["GET", "POST"].includes(request.method)) {
       methodNotAllowed(response, "GET, POST");
       return;
     }
 
+    const release = gate.enter();
+    if (!release) { budgetExceeded(response, "transfer_busy"); return; }
     try {
+      validateQuery(request, request.method === "GET" ? ["jobId"] : []);
+      const clientKey = clientKeyFn(request);
+      const limiter = request.method === "GET" ? pollLimiter : submitLimiter;
+      const budget = await limiter.consume(clientKey, now().getTime());
+      if (!budget?.allowed) { budgetExceeded(response, "transfer_rate_limited", budget?.retryAfter); return; }
       if (request.method === "GET") {
         const jobId = String(requestQuery(request, "jobId") ?? "");
-        if (!jobId) {
+        if (!/^[A-Za-z0-9_-]{1,100}$/.test(jobId)) {
           throw new PublicInputError("jobId is required", "invalid_job_id");
         }
-        sendJson(response, 200, publicTransferResult(await getTransferFn(jobId)));
+        sendJson(response, 200, publicTransferResult(await getTransferFn(jobId, { clientKey })));
         return;
       }
 
       const body = parseBody(request);
       const sourceId = parseChinaLineupInput(String(body.source ?? ""));
       const result = publicTransferResult(await submitTransferFn(sourceId, {
-        clientKey: clientKeyFn(request),
+        clientKey,
       }));
       sendJson(response, result.status === "queued" ? 202 : 200, result);
     } catch (error) {
@@ -610,6 +669,6 @@ export function createTransfersHandler({
         return;
       }
       errorResponse(response, error);
-    }
+    } finally { release(); }
   };
 }

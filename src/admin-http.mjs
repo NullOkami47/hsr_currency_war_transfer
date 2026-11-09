@@ -8,6 +8,7 @@ import {
 
 import { validatedWorkerUrl } from "./http.mjs";
 import { requestAddress } from "./request-address.mjs";
+import { createMemorySessionStore } from "./security-state.mjs";
 import { decodeTotpSecret, verifyTotpCode } from "./totp.mjs";
 
 const SESSION_COOKIE = "currency_war_admin";
@@ -15,6 +16,14 @@ const SESSION_TTL_SECONDS = 8 * 60 * 60;
 const LOGIN_WINDOW_MS = 10 * 60 * 1000;
 const LOGIN_MAX_FAILURES = 5;
 const LOCAL_ADMIN_CLIENT_HASH_SECRET = randomBytes(32);
+const localSessionStore = createMemorySessionStore();
+function defaultSessionStore(production) {
+  return production || process.env.CURRENCY_WAR_WORKER_URL
+    ? createWorkerSessionStore() : localSessionStore;
+}
+function authUnavailable(response) {
+  sendJson(response, 503, { error: { code: "admin_auth_unavailable", message: "Administrator authentication is temporarily unavailable" } });
+}
 
 function sendJson(response, status, body) {
   response.statusCode = status;
@@ -221,6 +230,7 @@ function createSession(token, now) {
   const payload = Buffer.from(JSON.stringify({
     expiresAt: now.getTime() + SESSION_TTL_SECONDS * 1000,
     csrfToken: randomBytes(24).toString("base64url"),
+    sessionId: randomBytes(32).toString("base64url"),
   })).toString("base64url");
   return {
     value: `${payload}.${sign(payload, token)}`,
@@ -228,26 +238,23 @@ function createSession(token, now) {
   };
 }
 
-function verifySession(request, credentials, now) {
+async function verifySession(request, credentials, now, sessionStore, requireActive = true) {
   const value = parseCookies(request)[SESSION_COOKIE];
-  if (!value) return null;
+  if (!value || value.length > 2048) return null;
   const [payload, suppliedSignature, extra] = value.split(".");
   if (!payload || !suppliedSignature || extra) return null;
   if (!credentials.some(({ sessionSecret }) =>
     sameSecret(sign(payload, sessionSecret), suppliedSignature))) return null;
+  let decoded;
   try {
-    const decoded = JSON.parse(Buffer.from(payload, "base64url").toString("utf8"));
-    if (
-      !Number.isFinite(decoded.expiresAt)
-      || decoded.expiresAt <= now.getTime()
-      || !/^[A-Za-z0-9_-]{20,}$/.test(decoded.csrfToken)
-    ) {
-      return null;
-    }
-    return decoded;
-  } catch {
-    return null;
-  }
+    decoded = JSON.parse(Buffer.from(payload, "base64url").toString("utf8"));
+    if (!Number.isFinite(decoded.expiresAt) || decoded.expiresAt <= now.getTime()
+        || !/^[A-Za-z0-9_-]{20,100}$/.test(decoded.csrfToken)
+        || !/^[A-Za-z0-9_-]{32,100}$/.test(decoded.sessionId)) return null;
+  } catch { return null; }
+  // Storage/transport failures propagate to a 503, never an authenticated result.
+  if (requireActive && !await sessionStore.isActive(decoded.sessionId, now.getTime())) return null;
+  return decoded;
 }
 
 function cookie(value, { secureCookies, maxAge = SESSION_TTL_SECONDS }) {
@@ -305,9 +312,14 @@ export function createAdminSessionHandler({
     ?? adminPasswordHash
     ?? LOCAL_ADMIN_CLIENT_HASH_SECRET,
   requestAddressOptions,
+  sessionStore = defaultSessionStore(production),
 } = {}) {
   if (
-    !loginLimiter
+    !sessionStore
+    || typeof sessionStore.register !== "function"
+    || typeof sessionStore.isActive !== "function"
+    || typeof sessionStore.revoke !== "function"
+    || !loginLimiter
     || typeof loginLimiter.retryAfter !== "function"
     || typeof loginLimiter.failure !== "function"
     || typeof loginLimiter.success !== "function"
@@ -402,6 +414,7 @@ export function createAdminSessionHandler({
         }
         await loginLimiter.success(clientKey);
         const session = createSession(credential.sessionSecret, nowValue);
+        await sessionStore.register(session.payload.sessionId, session.payload.expiresAt, nowValue.getTime());
         response.setHeader("set-cookie", cookie(session.value, { secureCookies }));
         sendJson(response, 200, {
           authenticated: true,
@@ -420,7 +433,10 @@ export function createAdminSessionHandler({
       return;
     }
 
-    const session = verifySession(request, credentials, now());
+    let session;
+    try {
+      session = await verifySession(request, credentials, now(), sessionStore, request.method !== "DELETE");
+    } catch { authUnavailable(response); return; }
     if (request.method === "DELETE") {
       if (!session || !sameSecret(session.csrfToken, request.headers?.["x-csrf-token"])) {
         sendJson(response, 403, {
@@ -428,6 +444,8 @@ export function createAdminSessionHandler({
         });
         return;
       }
+      try { await sessionStore.revoke(session.sessionId, now().getTime()); }
+      catch { authUnavailable(response); return; }
       response.setHeader("set-cookie", cookie("", { secureCookies, maxAge: 0 }));
       sendJson(response, 200, { authenticated: false });
       return;
@@ -507,6 +525,23 @@ async function workerAdminRequest(method, body, {
   return result;
 }
 
+export function createWorkerSessionStore(options = {}) {
+  async function operation(action, id, expiresAt) {
+    const result = await workerAdminRequest("POST", { action, id, ...(expiresAt === undefined ? {} : { expiresAt }) }, options);
+    if (typeof result?.active !== "boolean") throw new Error("Invalid worker session response");
+    return result.active;
+  }
+  return {
+    async register(id, expiresAt) {
+      if (!await operation("session.register", id, expiresAt)) throw new Error("Session registration failed");
+    },
+    isActive(id) { return operation("session.check", id); },
+    async revoke(id) {
+      if (await operation("session.revoke", id)) throw new Error("Session revocation failed");
+    },
+  };
+}
+
 export function fetchWorkerDashboard(options) {
   return workerAdminRequest("GET", undefined, options);
 }
@@ -525,6 +560,7 @@ export function createAdminApiHandler({
   now = () => new Date(),
   fetchDashboardFn = fetchWorkerDashboard,
   updateSettingsFn = updateWorkerSettings,
+  sessionStore = defaultSessionStore(production),
 } = {}) {
   return async function adminApiHandler(request, response) {
     const configuredCredentials = configuredAdminCredentials(
@@ -547,7 +583,9 @@ export function createAdminApiHandler({
       methodNotAllowed(response, "GET, PUT");
       return;
     }
-    const session = verifySession(request, credentials, now());
+    let session;
+    try { session = await verifySession(request, credentials, now(), sessionStore); }
+    catch { authUnavailable(response); return; }
     if (!session) {
       sendJson(response, 401, {
         error: { code: "unauthorised", message: "Administrator sign-in is required" },

@@ -1,3 +1,4 @@
+import { withDeadline } from "./deadline.mjs";
 import {
   fetchConfig,
   fetchLineupDetail,
@@ -267,39 +268,41 @@ export function getChinaRoleOptions(
 }
 
 export async function fetchChinaRoleOptions(
-  { fetchConfigFn = fetchConfig } = {},
+  { fetchConfigFn = fetchConfig, signal, timeoutMs = 15_000 } = {},
 ) {
-  const [simplifiedResult, traditionalResult, englishResult] =
-    await Promise.allSettled([
-      fetchConfigFn("cn"),
-      fetchConfigFn("global", { language: "zh-tw" }),
-      fetchConfigFn("global", { language: "en-us" }),
-    ]);
-  const simplifiedConfig =
-    simplifiedResult.status === "fulfilled" ? simplifiedResult.value : null;
-  const traditionalConfig =
-    traditionalResult.status === "fulfilled" ? traditionalResult.value : null;
-  const englishConfig =
-    englishResult.status === "fulfilled" ? englishResult.value : null;
-  const config = simplifiedConfig ?? traditionalConfig ?? englishConfig;
-  if (!config) {
-    throw simplifiedResult.reason;
-  }
-  return {
-    roles: getChinaRoleOptions(config, {
-      simplifiedConfig,
-      traditionalConfig,
-      englishConfig,
-    }),
-    bonds: getChinaBondOptions(config, {
-      simplifiedConfig,
-      traditionalConfig,
-      englishConfig,
-    }),
-    version: String(config.rpg_game_big_version ?? ""),
-    seasonId: String(config.season_id ?? ""),
-    subSeasonId: String(config.sub_season_id ?? ""),
-  };
+  return withDeadline(async (requestSignal) => {
+    const [simplifiedResult, traditionalResult, englishResult] =
+      await Promise.allSettled([
+        fetchConfigFn("cn", { signal: requestSignal }),
+        fetchConfigFn("global", { language: "zh-tw", signal: requestSignal }),
+        fetchConfigFn("global", { language: "en-us", signal: requestSignal }),
+      ]);
+    const simplifiedConfig =
+      simplifiedResult.status === "fulfilled" ? simplifiedResult.value : null;
+    const traditionalConfig =
+      traditionalResult.status === "fulfilled" ? traditionalResult.value : null;
+    const englishConfig =
+      englishResult.status === "fulfilled" ? englishResult.value : null;
+    const config = simplifiedConfig ?? traditionalConfig ?? englishConfig;
+    if (!config) {
+      throw simplifiedResult.reason;
+    }
+    return {
+      roles: getChinaRoleOptions(config, {
+        simplifiedConfig,
+        traditionalConfig,
+        englishConfig,
+      }),
+      bonds: getChinaBondOptions(config, {
+        simplifiedConfig,
+        traditionalConfig,
+        englishConfig,
+      }),
+      version: String(config.rpg_game_big_version ?? ""),
+      seasonId: String(config.season_id ?? ""),
+      subSeasonId: String(config.sub_season_id ?? ""),
+    };
+  }, { signal, timeoutMs });
 }
 
 function validateSearchBondIds(config, bondIds) {
