@@ -36,6 +36,20 @@ jobs:
             --test-reporter-destination=stdout
             --test-reporter-destination=test-results/junit.xml
           no_output_timeout: 10m
+      - run:
+          name: Format JUnit report for CircleCI
+          when: always
+          command: |
+            node --input-type=module <<'NODE'
+            import { readFile, writeFile } from 'node:fs/promises';
+            const path = 'test-results/junit.xml';
+            const xml = await readFile(path, 'utf8');
+            // Node emits top-level testcases; CircleCI requires a testsuite parent.
+            const report = xml
+              .replace('<testsuites>', '<testsuites><testsuite name="node-tests">')
+              .replace('</testsuites>', '</testsuite></testsuites>');
+            await writeFile(path, report);
+            NODE
       - when:
           condition:
             equal: ["22.23.4", << parameters.node-version >>]
