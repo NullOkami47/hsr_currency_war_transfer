@@ -40,7 +40,7 @@ jobs:
           name: Format JUnit report for CircleCI
           when: always
           command: |
-            node --input-type=module <<'NODE'
+            node --input-type=module \<<'NODE'
             import { readFile, writeFile } from 'node:fs/promises';
             const path = 'test-results/junit.xml';
             const xml = await readFile(path, 'utf8');
