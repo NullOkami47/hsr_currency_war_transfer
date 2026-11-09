@@ -1,3 +1,4 @@
+import { createMemorySessionStore } from "../src/security-state.mjs";
 import assert from "node:assert/strict";
 import { pbkdf2Sync } from "node:crypto";
 import test from "node:test";
@@ -419,6 +420,7 @@ test("accepts production administrator login when TOTP is configured", async () 
     adminToken: ADMIN_TOKEN,
     adminTotpSecret: TOTP_SECRET,
     production: true,
+    sessionStore: createMemorySessionStore(),
     now: TOTP_NOW,
     loginLimiter: createAdminLoginLimiter(),
   });
@@ -439,6 +441,7 @@ test("fails closed in production when administrator TOTP is missing", async () =
     adminToken: ADMIN_TOKEN,
     adminTotpSecret: null,
     production: true,
+    sessionStore: createMemorySessionStore(),
   });
   const response = responseRecorder();
 
@@ -453,6 +456,7 @@ test("allows an explicit production password-only opt-out", async () => {
     adminToken: ADMIN_TOKEN,
     adminTotpSecret: null,
     production: true,
+    sessionStore: createMemorySessionStore(),
     allowPasswordOnlyProduction: true,
   });
   const response = responseRecorder();

@@ -80,14 +80,11 @@ const stopSessionKeepalive = sessionKeepaliveMinutes === 0
       intervalMs: sessionKeepaliveMinutes * 60_000,
     });
 
+await jobStore.initialise(process.env.CURRENCY_WAR_PUBLIC_SUBMISSIONS === "1" ? {
+  publicSubmissionsEnabled: true,
+  sourceBlacklistEnabled: process.env.CURRENCY_WAR_SOURCE_BLACKLIST_ENABLED !== "0",
+} : {});
 await queue.start();
-if (process.env.CURRENCY_WAR_PUBLIC_SUBMISSIONS === "1") {
-  await jobStore.updateSettings({
-    publicSubmissionsEnabled: true,
-    sourceBlacklistEnabled:
-      process.env.CURRENCY_WAR_SOURCE_BLACKLIST_ENABLED !== "0",
-  });
-}
 const server = createServer(createWorkerHandler({
   queue,
   store: jobStore,

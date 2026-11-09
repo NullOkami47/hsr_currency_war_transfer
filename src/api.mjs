@@ -3,6 +3,7 @@ import { resolve4 } from "node:dns/promises";
 import { request as httpsRequest } from "node:https";
 
 import { PublicInputError } from "./errors.mjs";
+import { abortable, withDeadline } from "./deadline.mjs";
 
 export const REGIONS = Object.freeze({
   cn: Object.freeze({
@@ -123,13 +124,15 @@ async function fetchWithEdgeFallback(
   },
 ) {
   try {
+    options.signal?.throwIfAborted();
     return await fetchFn(url, options);
   } catch (error) {
+    options.signal?.throwIfAborted();
     if (!TRANSIENT_CONNECTION_CODES.has(connectionCode(error))) throw error;
 
     let addresses;
     try {
-      addresses = normaliseAddresses(await resolve4Fn(url.hostname));
+      addresses = normaliseAddresses(await abortable(resolve4Fn(url.hostname), options.signal));
     } catch {
       throw error;
     }
@@ -141,6 +144,7 @@ async function fetchWithEdgeFallback(
     let lastError = error;
 
     for (const address of candidates) {
+      options.signal?.throwIfAborted();
       try {
         return await addressRequestFn(url, options, address);
       } catch (candidateError) {
@@ -149,6 +153,7 @@ async function fetchWithEdgeFallback(
     }
 
     for (const hostname of fallbackHostnames) {
+      options.signal?.throwIfAborted();
       const fallbackUrl = new URL(url);
       fallbackUrl.hostname = hostname;
       try {
@@ -204,6 +209,7 @@ async function request(
     resolve4Fn = resolve4,
     addressRequestFn = requestAddress,
     edgeFallbackLimit = 4,
+    timeoutMs = 15_000,
   } = {},
 ) {
   const config = regionConfig(region);
@@ -215,39 +221,41 @@ async function request(
     }
   }
 
-  const requestOptions = {
-    method,
-    headers: requestHeaders(region, { authenticatedHeaders, language }),
-    body: body === undefined ? undefined : JSON.stringify(body),
-    signal,
-  };
-  const safeToRetry = method === "GET" || path === "/game/lineup/index";
-  const response = safeToRetry
-    ? await fetchWithEdgeFallback(url, requestOptions, {
-        fetchFn,
-        resolve4Fn,
-        addressRequestFn,
-        edgeFallbackLimit,
-        fallbackHostnames: config.safeReadFallbackHostnames,
-      })
-    : await fetchFn(url, requestOptions);
+  return withDeadline(async (requestSignal) => {
+    const requestOptions = {
+      method,
+      headers: requestHeaders(region, { authenticatedHeaders, language }),
+      body: body === undefined ? undefined : JSON.stringify(body),
+      signal: requestSignal,
+    };
+    const safeToRetry = method === "GET" || path === "/game/lineup/index";
+    const response = safeToRetry
+      ? await fetchWithEdgeFallback(url, requestOptions, {
+          fetchFn,
+          resolve4Fn,
+          addressRequestFn,
+          edgeFallbackLimit,
+          fallbackHostnames: config.safeReadFallbackHostnames,
+        })
+      : await fetchFn(url, requestOptions);
 
-  if (!response.ok) {
-    throw new CurrencyWarApiError(
-      `Currency War API returned HTTP ${response.status}`,
-      { status: response.status },
-    );
-  }
+    if (!response.ok) {
+      throw new CurrencyWarApiError(
+        `Currency War API returned HTTP ${response.status}`,
+        { status: response.status },
+      );
+    }
 
-  const envelope = await response.json();
-  if (envelope.retcode !== 0) {
-    throw new CurrencyWarApiError(
-      envelope.message || `Currency War API retcode ${envelope.retcode}`,
-      { retcode: envelope.retcode },
-    );
-  }
+    const envelope = await response.json();
+    if (envelope.retcode !== 0) {
+      throw new CurrencyWarApiError(
+        envelope.message || `Currency War API retcode ${envelope.retcode}`,
+        { retcode: envelope.retcode },
+      );
+    }
 
-  return envelope.data;
+    return envelope.data;
+  }, { signal, timeoutMs });
 }
 
 export function fetchConfig(region, options = {}) {

@@ -50,7 +50,26 @@ The browser must never receive the worker bearer token. The HoYoLAB profile and
 cookies must remain on protected persistent worker storage and must never be
 committed, uploaded to Vercel or included in diagnostics.
 
-The repository's memory-based search and administrator limiters protect one
-process only. A multi-instance/serverless production deployment also requires
-platform-level rate limiting or an injected shared-state implementation, as
-described in `docs/search-api.md` and `docs/admin-connector.md`.
+Catalogue and search caches/limiters and administrator login/TOTP limiters
+protect one API process only. Multi-instance/serverless production deployments
+also require platform ingress controls or injected shared implementations;
+see `docs/search-api.md` and `docs/admin-connector.md`.
+
+Transfer submission and polling have both per-instance backpressure and a
+durable request budget on the common authenticated worker. Publishing quotas
+are a separate ledger, independent of retained job history. Administrator
+sessions are registered, checked and revoked on that same worker in production;
+unavailable session storage fails closed. No new public privileged route is
+exposed: session operations use the existing bearer-authenticated worker
+`/admin` route.
+
+Run exactly one worker process for each state directory and publishing account.
+The JSON stores serialise operations within that process; they are not a
+multi-process database. Keep the job, mapping and security state together on
+protected persistent storage. Deleting or restoring old security state can
+reset budgets; treat state restore as a controlled administrative operation.
+Deploy the worker before the API when adopting the session registry. Existing
+stateless administrator cookies require a fresh login. Legacy job-state
+migration conservatively pauses new public jobs for 24 hours because previous
+retention may already have erased accounting evidence. No credential, profile
+or publishing-account data is included in that migration.

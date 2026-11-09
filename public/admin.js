@@ -266,13 +266,19 @@ elements["admin-settings-form"].addEventListener("submit", async (event) => {
 
 elements["admin-refresh"].addEventListener("click", () => loadDashboard());
 elements["admin-logout"].addEventListener("click", async () => {
+  elements["admin-logout"].disabled = true;
   try {
-    await jsonRequest("/api/admin/session", {
+    const result = await jsonRequest("/api/admin/session", {
       method: "DELETE",
       headers: { "x-csrf-token": state.csrfToken },
     });
-  } finally {
+    if (result.authenticated !== false) throw new Error("Logout was not acknowledged");
     showLogin("已安全登出。");
+  } catch {
+    status(elements["admin-save-status"], "登出未完成，無法確認伺服器已撤銷工作階段。請重試。", "error");
+    elements["admin-save-status"].focus();
+  } finally {
+    elements["admin-logout"].disabled = false;
   }
 });
 

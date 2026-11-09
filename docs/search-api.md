@@ -57,7 +57,21 @@ School Bonds for the website's multi-select controls:
 ```
 
 The response is shared-cacheable for one hour and may be served stale while
-Vercel refreshes it.
+Vercel refreshes it. This route accepts no query parameters; cache-busting or
+repeated parameters return 400 before upstream work. Within one API instance,
+concurrent misses share one catalogue load, successful results remain cached
+for one hour and failed loads have a 15-second cooldown. Each load starts at
+most three locale reads, with one 15-second overall deadline covering fetch,
+DNS/address/hostname fallback and response-body reads. Catalogue concurrency
+is capped at 32 handlers and requests at 30 per client / 120 total per minute.
+A 429 response includes `Retry-After` and is never cached.
+
+The catalogue limiter can be replaced through the asynchronous
+`rateLimiter.consume(key, nowMs)` handler option. A shared CDN cache plus a
+platform ingress rule for the exact `/api/roles` path remains necessary across
+cold starts, instances and regions. Reject query variants at ingress as well;
+do not configure independent limits keyed by the full query string. The
+repository does not provision or verify production WAF rules.
 
 `matchIds` is present only when the upstream config represents one visible
 character with several internal upgrade IDs. The website shows one option;
@@ -240,3 +254,28 @@ cannot bypass the interface. When a stored Global mapping cannot be read due
 to a transport or upstream failure, publication stops rather than creating a
 duplicate. A replacement is created only after a clear HTTP 404 or a successful
 detail response confirming that the mapped strategy no longer exists.
+
+
+### Transfer abuse controls
+
+Both public transfer methods reject unknown/repeated query parameters. POST
+accepts no query parameters; GET requires exactly one 1–100 character
+alphanumeric/underscore/hyphen job ID before contacting the worker. The API
+caps concurrent transfer handlers at 16 and applies separate per-minute
+budgets: submissions 10 per client / 60 total; polling 60 per client / 600 total.
+
+The common worker applies those same budgets before job-store access and
+persists them in `<job-state-path>.security.json`. They are shared by all API
+instances pointing at that worker and survive restarts. Both methods send only
+a server-derived HMAC client identity. A missing identity shares the anonymous
+bucket. The worker also caps authenticated handlers at eight and rejects local
+floods before accessing persistent state. Rejected budget requests do not
+rewrite that state; allowed requests update the small accounting file, not the
+job-history file. Active duplicate submissions reuse the job and do not rewrite
+job history or consume additional publishing quota; they still consume the
+request budget.
+
+429 errors such as `request_rate_limited`, `transfer_busy` or `worker_busy`
+include a retry interval. A worker/storage failure fails closed. These are
+application resource bounds, not volumetric DDoS protection: retain TLS,
+ingress request/body/connection limits and one persistent worker per account.
