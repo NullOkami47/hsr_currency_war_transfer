@@ -60,3 +60,11 @@ GitHub Actions run `43062138181` completed success on the same exact head: four 
 ### Review corrections
 
 Sol/medium review identified an over-broad Docker context exception and missing whole-probe deadline. The context now re-excludes descendants before allowing only the two infrastructure files. The handler enforces a 60-second total probe deadline; on timeout it fails closed, returns503 and marks health unhealthy, refusing further probes. The executable exits1 after a short response flush so the container runtime terminates its process tree. A timeout is not reported as clean shutdown or successful profile cleanup. No production instance has been deployed to test supervisor behaviour. New injected hung-probe regression passed after the fix; before the fix it hung and was manually stopped (exit1).
+
+### Reviewed implementation: final independent verification
+
+Exact implementation **`6f5fbb6a9b5e67114974ecfc4b0315467c8a278e`** was independently cloned into a new `/tmp/hsr-gcp-reviewed.*` directory on Box. Same commands as above with checkout changed to that SHA: npm ci exit0/audit0; **248/248 tests passed, zero skipped/failed**, exit0; real Chrome157.0.8103.38 probe exit0, two launches, synthetic cookie persisted, sandbox requested. Node24.21.0/npm11.19.0/Linuxx64, NodeRSS135,417,856 bytes (not browser-tree memory). Overall exit0. Full log: `D:/CodexWork/free-worker-migration-evidence/gcp/box-6f5fbb6.txt`.
+
+Local reviewed suite:248total/247pass/0fail/1existing POSIXskip, exit0, `gcp/local-reviewed-tests.txt`. Sol/medium read-only follow-up review closed both findings and independently ran the probe HTTP tests5/5, exit0. It did not run Chrome/cloud.
+
+GitHub Actions run43065638614 for the exact6f5fbb6 implementation SHA completed success. This evidence-only follow-up changes documentation; no executable changes after the tested SHA.
