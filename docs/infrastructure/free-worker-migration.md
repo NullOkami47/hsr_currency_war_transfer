@@ -8,16 +8,16 @@
 ## 目前決策與存取狀態
 
 保留 Vercel 網站／API 與現有 Azure worker；先在免費目標上驗證，再另外切換。
-原任務已授權免費實驗，不需重複索取相同授權。本分工只負責原始碼、文件、測試及 PR，
-沒有執行雲端部署、Production 寫入或讀取真實秘密／profile。
+原任務已授權免費實驗，不需重複索取相同授權。Uppcoder 曾建立獨立實驗 stack，
+沒有 Production 遷移、Production 寫入或使用真實秘密／profile。
 
 | 候選 | 目前證據與限制 | 狀態 |
 |---|---|---|
-| Uppcoder Spark（優先評估） | 官方動態方案表：€0、1 always-on stack、500 CPU 秒／日、2 GB RAM、2 GB disk；CPU 計量範圍、browser 依賴、sandbox、重啟、profile 持久化及安全互動登入通道仍待實測。登入後不代表已部署或驗收。 | 依主協調者更新：已登入，免費 stack 實驗進行中，結果待補。 |
+| Uppcoder Spark | 已登入並實測免費 Node.js stack：Chromium 缺系統函式庫，無權透過 apt 安裝；Node.js 加官方 E2E Testing 被預檢以需 2 apps、免費上限 1 app 拒絕。使用者明確同意刪除實驗 stack 後，目前為零 stacks。 | **`UPPCODER_NO_GO`：限此次測試的受支援免費 Node.js 架構。** 其他自訂或供應商映像未驗證，不能推論全部不可行。 |
 | Oracle A1（備選） | 現行 Always Free 專頁：合計 2 OCPU／12 GB、每月 1,500 OCPU-hours／9,000 GB-hours。不可沿用較舊 4／24 額度。容量、帳號資格、home region 與實際費用都未核實。 | 最初只抵達要求 cloud account name 的登入頁；目前註冊進行中，未確認 tenant console 存取。 |
 | Simular Box | CLI 遠端 Linux x64 測試與 Chrome 啟動已成功；MCP OAuth 仍有 issuer 相容性錯誤。 | 測試環境可用；沒有免費常駐 Production 的可用性、費用或託管承諾驗證。 |
 
-來源：2026-11-11 研究代理的公開網站／Chrome DOM 查證，及主協調者提供的存取結果。
+來源：2026-11-11 公開網站／Chrome DOM 查證及實際實驗紀錄；細節見驗證報告。
 [Uppcoder Pricing](https://portal.uppcoder.com/pricing)、
 [免費方案指南](https://portal.uppcoder.com/guides/free-app-hosting-no-credit-card)、
 [條款](https://portal.uppcoder.com/terms)、
@@ -28,8 +28,8 @@ Oracle 有容量及閒置回收限制；免費額度不是服務持續運作保�
 目前沒有此 worker 在 Spark 的用量證據，不能宣稱必然超額或已適合。
 Uppcoder 的公開 TLS、terminal／SSH 及備份說明也不足以證明 browser session 能跨重建保留。
 條款對以轉送他人流量為主要用途的 proxy／tunnel 有限制，不能一概認定管理自有 app 的 SSH
-轉送違規；採用具體互動設計前仍需核對適用範圍。未釐清者標記 `BLOCKED_PREFLIGHT`，
-不要據此宣稱供應商全面不可用。
+轉送違規；採用具體互動設計前仍需核對適用範圍。此次 `UPPCODER_NO_GO` 基於實測的
+瀏覽器依賴與免費 app 上限，並非對供應商所有映像的判斷。
 
 ## 原始碼與部署連結稽核
 
@@ -65,7 +65,8 @@ Uppcoder 的公開 TLS、terminal／SSH 及備份說明也不足以證明 browse
 ## 目標準備（未執行）
 
 1. 先確認免費方案資格、費用、CPU／RAM／磁碟、持久化路徑與允許的啟動方式。
-   Spark 要先證明單一 worker 可受監督重啟、安全登入及保留狀態；不滿足即維持 Azure。
+   Spark 此次架構已判定 `UPPCODER_NO_GO`；若日後有供應商支援的單 app browser 映像，
+   仍須重新證明依賴、受監督重啟、安全登入及保留狀態，否則維持 Azure。
    Oracle 要先取得可用 console、確認 home-region 容量與標示為免費的最小配置，不能靜默升級。
 2. 選擇相容的 Linux／Node／瀏覽器版本。ARM 優先評估 Playwright 支援的 Ubuntu arm64，
    實際檢查 `uname -m`、`node --version`、瀏覽器版本及依賴。ARM 與 Chrome 並非全面不相容，

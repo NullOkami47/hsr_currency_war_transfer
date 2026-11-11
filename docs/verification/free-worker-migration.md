@@ -1,7 +1,7 @@
 # 免費 worker 遷移驗證紀錄
 
 日期：2026-11-11（Asia/Hong_Kong）。結論：**原始碼設定與本機／Box x64 測試已驗證，
-候選供應商與 Production 遷移仍未驗收。** 部署／回滾步驟見
+Uppcoder 測試架構為 `UPPCODER_NO_GO`，Oracle 與 Production 遷移仍未驗收。** 部署／回滾步驟見
 [操作手冊](../infrastructure/free-worker-migration.md)。
 
 ## 來源及修改範圍
@@ -65,14 +65,48 @@ Box Linux x64 成果亦不能外推至 Uppcoder、Oracle 或 ARM。
 查證與條款。研究有更新，故不將較舊檔案 hash 當成最終版本標識。
 重點已整合進操作手冊；原任務已授權免費實驗，不能把 access／前置條件不足寫成欠缺授權。
 
-- Uppcoder 初次實際存取只到 Sign in；`/dashboard`／`/stacks` 顯示 Page not found，
-  不代表正式路由或權限拒絕。最新主協調者更新為**已登入、正進行免費 stack 實驗**。
-  本報告尚未取得該實驗的可執行環境、資源、持久化、MFA 或成功部署結果；維持待補。
+- Uppcoder 帳號**已登入**；已實測 Spark 免費方案，結果為 **`UPPCODER_NO_GO`**，
+  範圍限此次受支援的免費 Node.js 架構。詳見下節；其他自訂或供應商映像未驗證。
 - Oracle 初次 `cloud.oracle.com` 導向要求 cloud account name 的登入頁，沒有 tenant console。
   最新更新為**註冊進行中**。沒有實際免費資格、home-region 容量、費用或 provisioning 證據。
 - 現行 A1 Always Free 專頁為 **2 OCPU／12 GB**（1,500 OCPU-hours／9,000 GB-hours 每月）。
   較大 paid-tenancy allowance 與舊 4／24 說明不能當成未升級帳號保證。
   來源：[官方 Always Free](https://docs.oracle.com/en-us/iaas/Content/FreeTier/freetier_topic-Always_Free_Resources.htm)。
+
+## Uppcoder 免費環境實驗
+
+依 repo 外 `uppcoder-experiment.md` 與 `uppcoder-supported-browser-options.md`：後者是較早的
+公開文件調查，其對 E2E Testing 可用性的未知狀態，已由後續實際介面與預檢結果補充。
+實驗無資料庫、真實秘密或既有 browser profile；以下是實驗紀錄，不是本次文件編輯重新執行。
+
+- Spark 帳戶頁顯示 €0／月、無付款方式。建立私有實驗 Node.js stack `hsr-worker-compat`
+  （2113），checkout `7828024e914db59777fd6fb49d0601d8e2590ce1`，平台顯示 Deployment
+  Complete。Debian 12 x86_64、非 root uid 1000、Node 26.13.0、npm 11.20.0；觀察到的
+  cgroup 3 GiB／1 CPU 不是免費方案額度承諾。SSH host key 為首次使用時信任（TOFU），
+  未經獨立認證。
+- `npm ci` exit 0、audit 0 vulnerabilities。預設 `npm test` 為 **226 pass／1 fail／0 skip**：
+  `worker.test.mjs:74` 等待 transfer call 時觀察到 0；單獨執行該檔 **13／13 pass**，
+  完整測試以 `--test-concurrency=1` 執行 **227／227 pass、0 skip、exit 0**。
+  並行時序可能相關，但未證明是失敗原因。
+- Playwright 1.62.1 官方 CLI 成功下載 Chromium；以 `chromiumSandbox: true` 啟動持久
+  context 失敗，exit 1（browser exit 127），缺少 `libatk-1.0.so.0`；`ldd` 亦列出其他
+  缺失函式庫。環境沒有免密 sudo，無法自行以特權 apt 安裝系統套件；沒有用停用 sandbox
+  或未核准的 binary 繞過。供應商 FAQ 描述系統套件需由供應商／映像支援。
+- UI 顯示官方 E2E Testing，但既有 stack 的 Apply 停用，工具須在建立 app 時加入。
+  使用者明確同意**僅刪除並重建此實驗 stack**，因此刪除 2113 與合成標記；這不是
+  持久化失敗測試，不能據此宣稱重啟或重建會遺失狀態。重新配置 Node.js 加 E2E Testing、
+  不加資料庫時，平台預檢拒絕：需 2 apps，超過免費方案 1 app 上限（0／1）；介面表示
+  未建立任何項目且未收費。未升級付費方案，實驗紀錄的最新帳戶狀態為**零 stacks**。
+- 結論僅適用已測架構：缺少 browser 系統依賴，官方 E2E 組合又超出免費 app 額度。
+  其他自訂映像是否可行未知；如日後出現供應商支援的單 app browser 映像可重新評估。
+  沒有完成 HoYoLAB 登入、讀取、發布、worker 外部 API、狀態重啟、MFA 或 ingress 驗收。
+
+## Production 唯讀頁面 smoke
+
+主協調者回報 2026-11-11 以 `Invoke-WebRequest` GET：
+`https://hsrcurrencywartransfervercel.vercel.app/` 回應 HTTP 200、14,267 bytes；
+`/admin` 回應 HTTP 200、9,552 bytes。未登入或提交。本次文件編輯未重新執行；
+此結果只證明當時公開頁面可取得，不證明 Azure backend 健康、登入或授權正常。
 
 ## GitHub 與部署稽核
 
@@ -96,7 +130,7 @@ Box Linux x64 成果亦不能外推至 Uppcoder、Oracle 或 ARM。
 | 驗收 | 狀態 |
 |---|---|
 | ARM executable／channel 真機啟動及實際 browser 相容性 | 未執行。 |
-| Uppcoder 持久 browser worker、每日資源預算、重建／重啟 | 實驗進行中，結果待補。 |
+| Uppcoder 持久 browser worker、每日資源預算、重建／重啟 | 已測免費 Node.js 架構為 `UPPCODER_NO_GO`；持久化、用量及重啟仍未驗證。 |
 | Oracle 免費資格、容量、VM／磁碟及 ARM runtime | 註冊進行中，未驗證。 |
 | HoYoLAB 登入、MFA、過期恢復及真實建立／編輯 | 未執行；沒有 Production 寫入。 |
 | 真實持久狀態搬移、session 撤銷延續、端到端發布／去重 | 未執行；本機既有 regression suite 不能替代。 |
