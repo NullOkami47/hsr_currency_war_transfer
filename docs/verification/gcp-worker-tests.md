@@ -34,3 +34,29 @@ Account evidence: actual ChingG badge, active paid billing overview, initial cre
 - E2E_PENDING.
 - PRODUCTION_CUTOVER_BLOCKED.
 - AZURE_FALLBACK_PRESERVED: no Azure, production Vercel or DNS changes by this task. Current Azure runtime health was not independently revalidated.
+
+## Independent exact-commit Box verification
+
+Verified implementation commit **`0215ef5acaebe0c57e9a2fb1364cbd96be1c83dc`** from a newly created `/tmp/hsr-gcp-verify.*` checkout of the public repository. No local dependencies, production secrets, browser profiles or application state were copied.
+
+Environment: Linux x86_64, uid1000, Node24.21.0, npm11.19.0, Google Chrome157.0.8103.38. Commands:
+
+```sh
+git clone --quiet https://github.com/NullOkami47/hsr_currency_war_transfer.git "$work"
+cd "$work"
+git checkout --detach 0215ef5acaebe0c57e9a2fb1364cbd96be1c83dc
+npm ci
+npm test
+CURRENCY_WAR_BROWSER_CHANNEL=chrome node --input-type=module -e 'const {probeBrowser}=await import("./scripts/infrastructure/gcp-browser-probe.mjs"); console.log(JSON.stringify(await probeBrowser()));'
+node scripts/infrastructure/oracle-synthetic-http.mjs
+```
+
+Results: npm ci exit0, audit0 vulnerabilities; full suite **247 passed / 247 total, zero failures/skips**, exit0. The real browser probe exit0: Chrome157.0.8103.38, sandbox requested, two launches, synthetic cookie persisted across browser close/reopen, final Node RSS136,011,776 bytes. This RSS excludes Chrome children and is not a Cloud Run RAM sizing measurement. Loopback HTTP/state tool exit0. Overall remote command exit0. Full evidence: `D:/CodexWork/free-worker-migration-evidence/gcp/box-0215ef5.txt`.
+
+This ran the JavaScript on Box's existing Chrome installation, **not the Docker image and not GCP**. It confirms the browser probe logic and Linux regression suite. It does not confirm image build, Cloud Run sandbox support, durable external storage, account login, IAM/TLS ingress or billing.
+
+GitHub Actions run `43062138181` completed success on the same exact head: four required Ubuntu/Windows × Node20/22 checks passed. Existing CircleCI checks also passed; no CI policies were changed. A later evidence-only commit does not alter executable source; its own CI state must still be checked separately.
+
+### Review corrections
+
+Sol/medium review identified an over-broad Docker context exception and missing whole-probe deadline. The context now re-excludes descendants before allowing only the two infrastructure files. The handler enforces a 60-second total probe deadline; on timeout it fails closed, returns503 and marks health unhealthy, refusing further probes. The executable exits1 after a short response flush so the container runtime terminates its process tree. A timeout is not reported as clean shutdown or successful profile cleanup. No production instance has been deployed to test supervisor behaviour. New injected hung-probe regression passed after the fix; before the fix it hung and was manually stopped (exit1).

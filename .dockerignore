@@ -3,6 +3,8 @@
 !package.json
 !package-lock.json
 !scripts/
+scripts/**
 !scripts/infrastructure/
+scripts/infrastructure/**
 !scripts/infrastructure/gcp-browser-probe.mjs
 !scripts/infrastructure/Dockerfile.gcp-probe

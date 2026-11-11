@@ -52,3 +52,9 @@ Before cutover: drain submissions, account for queued/running jobs, protect and 
 After GO: change only approved production worker endpoint/secret, test public submissions and `/admin`, monitor queue age, authentication failures, duplicate outcomes, browser failures and billing. Rollback after target writes requires reverse reconciliation/import of new mappings, job and quota/security state before Azure resumes; never restart stale state. Azure decommission is a separate approval.
 
 No rollback rehearsal, live authentication, durable cloud state test or production cutover has occurred.
+
+### GCP independent probe result
+
+The new probe ran successfully on Box from clean checkout `0215ef5acaebe0c57e9a2fb1364cbd96be1c83dc`: Chrome157.0.8103.38, two sandbox-requested launches and synthetic cookie close/reopen persistence; full Linux suite247/247. This was JavaScript against Box Chrome, not an image build or Cloud Run deployment. See the GCP verification record for commands and limits.
+
+The compatibility gate has a 60-second overall deadline in addition to launch timeouts. On deadline it fails closed and the executable exits1; container termination must clean up any remaining browser processes. It never admits another browser after a timeout. This failure path requires a real container restart test before cloud acceptance.

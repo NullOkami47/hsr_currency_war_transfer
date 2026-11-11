@@ -49,10 +49,15 @@ export async function probeBrowser() {
     node: process.version, arch: process.arch, nodeRssBytes: process.memoryUsage().rss };
 }
 
-export function createProbeHandler({ token, probe = probeBrowser } = {}) {
+export function createProbeHandler({ token, probe = probeBrowser, probeTimeoutMs = 60_000,
+  onTimeout = () => {} } = {}) {
   if (typeof token !== "string" || token.length < 32 || token.length > 256) {
     throw new Error("HSR_PROBE_TOKEN must contain 32 to 256 characters");
   }
+  if (!Number.isInteger(probeTimeoutMs) || probeTimeoutMs < 1 || probeTimeoutMs > 120_000) {
+    throw new Error("Invalid probe deadline");
+  }
+  let poisoned = false;
   const digest = value => createHash("sha256").update(value).digest();
   const expected = digest(`Bearer ${token}`);
   let busy = false;
@@ -62,7 +67,7 @@ export function createProbeHandler({ token, probe = probeBrowser } = {}) {
       response.end(JSON.stringify(value));
     };
     if (request.method === "GET" && request.url === "/health") {
-      send(200, { status: "ok", mode: "synthetic-browser-probe" });
+      send(poisoned ? 503 : 200, { status: poisoned ? "restart_required" : "ok", mode: "synthetic-browser-probe" });
       return;
     }
     const supplied = request.headers.authorization;
@@ -79,22 +84,40 @@ export function createProbeHandler({ token, probe = probeBrowser } = {}) {
       send(400, { error: "body_not_permitted" });
       return;
     }
+    if (poisoned) {
+      send(503, { error: "restart_required" });
+      return;
+    }
     if (busy) {
       response.setHeader("retry-after", "5");
       send(429, { error: "probe_busy" });
       return;
     }
     busy = true;
-    try { send(200, await probe()); }
-    catch { send(503, { error: "synthetic_browser_probe_failed" }); }
-    finally { busy = false; }
+    let timer;
+    const deadline = Symbol("deadline");
+    try {
+      const result = await Promise.race([
+        Promise.resolve().then(probe),
+        new Promise(resolve => { timer = setTimeout(() => resolve(deadline), probeTimeoutMs); }),
+      ]);
+      if (result === deadline) {
+        // Never release ownership while a stuck browser may still be alive.
+        // The executable exits so the container runtime kills its process tree.
+        poisoned = true;
+        send(503, { error: "probe_deadline_exceeded" });
+        onTimeout();
+      } else send(200, result);
+    } catch { send(503, { error: "synthetic_browser_probe_failed" }); }
+    finally { clearTimeout(timer); if (!poisoned) busy = false; }
   };
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
   const port = Number(process.env.PORT ?? 8080);
   if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error("Invalid PORT");
-  const server = createServer(createProbeHandler({ token: process.env.HSR_PROBE_TOKEN }));
+  const server = createServer(createProbeHandler({ token: process.env.HSR_PROBE_TOKEN,
+    onTimeout: () => { setTimeout(() => process.exit(1), 100).unref(); } }));
   server.requestTimeout = 10_000;
   server.headersTimeout = 10_000;
   server.listen(port, "0.0.0.0");

@@ -65,3 +65,22 @@ test("browser errors are redacted and release admission for a later attempt", as
   assert.deepEqual(await failure.json(), { error: "synthetic_browser_probe_failed" });
   assert.equal((await fetch(`${base}/probe`, authorised)).status, 200);
 });
+
+test("overall probe deadline fails closed without admitting another browser", async t => {
+  let calls = 0;
+  let fatalities = 0;
+  const server = createServer(createProbeHandler({
+    token, probeTimeoutMs: 25, onTimeout: () => { fatalities++; },
+    probe: async () => { calls++; return new Promise(() => {}); },
+  }));
+  await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
+  t.after(() => new Promise(resolve => server.close(resolve)));
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const response = await fetch(`${base}/probe`, authorised);
+  assert.equal(response.status, 503);
+  assert.deepEqual(await response.json(), { error: "probe_deadline_exceeded" });
+  assert.equal(fatalities, 1);
+  assert.equal((await fetch(`${base}/probe`, authorised)).status, 503);
+  assert.equal((await fetch(`${base}/health`)).status, 503);
+  assert.equal(calls, 1);
+});
