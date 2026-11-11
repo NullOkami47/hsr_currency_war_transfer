@@ -43,7 +43,8 @@ function findLineupId(value) {
 export class BrowserSessionPublisher {
   constructor({
     profileDir,
-    browserChannel = "chrome",
+    browserChannel = process.env.CURRENCY_WAR_BROWSER_CHANNEL || "chrome",
+    browserExecutablePath = process.env.CURRENCY_WAR_BROWSER_EXECUTABLE_PATH || undefined,
     headless = false,
     authRecoveryDelayMs = 8_000,
     launchPersistentContext,
@@ -55,6 +56,7 @@ export class BrowserSessionPublisher {
 
     this.profileDir = profileDir;
     this.browserChannel = browserChannel;
+    this.browserExecutablePath = browserExecutablePath;
     this.headless = headless;
     this.authRecoveryDelayMs = authRecoveryDelayMs;
     this.launchPersistentContext = launchPersistentContext;
@@ -89,7 +91,9 @@ export class BrowserSessionPublisher {
     }
 
     this.context = await launchPersistentContext(this.profileDir, {
-      channel: this.browserChannel,
+      ...(this.browserExecutablePath
+        ? { executablePath: this.browserExecutablePath }
+        : { channel: this.browserChannel }),
       headless: this.headless,
       viewport: { width: 1440, height: 1000 },
     });
