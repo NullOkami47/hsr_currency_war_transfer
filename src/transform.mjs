@@ -41,6 +41,7 @@ function nestedIdSet(list, childKeys, key = "id") {
 function allowedIds(config) {
   return {
     roles: idSet(config.role_list),
+    spotLights: idSet(config.spot_light_list),
     // Basic equipment is nested under advanced equipment's compose_list in
     // the public configuration, while published lineups refer to those
     // nested items directly.
@@ -119,14 +120,32 @@ function transformRole(
     recEquipIndex = -1;
   }
 
+  const firstSpotLights = filterIdItems(
+    role.first_spot_lights, ids.spotLights, ignored, "spot-light",
+    `${path}.first_spot_lights`,
+  );
+  const secondSpotLights = filterIdItems(
+    role.second_spot_lights, ids.spotLights, ignored, "spot-light",
+    `${path}.second_spot_lights`,
+  );
+  let recSpotLightIndex = Number(role.rec_spot_light_index ?? -1);
+  if (recSpotLightIndex >= 0 && firstSpotLights.length === 0) {
+    ignore(ignored, "recommended-spot-light-slot", id,
+      `${path}.rec_spot_light_index`, "all-recommended-spot-lights-were-ignored");
+    recSpotLightIndex = -1;
+  }
+
   return {
     id,
     rec_equip_index: recEquipIndex,
+    rec_spot_light_index: recSpotLightIndex,
     board_index: Number(role.board_index ?? 0),
     star: Number(role.star ?? 1),
     is_carry: Boolean(role.is_carry),
     first_equipments: firstEquipments,
     second_equipments: secondEquipments,
+    first_spot_lights: firstSpotLights,
+    second_spot_lights: secondSpotLights,
   };
 }
 
