@@ -686,7 +686,7 @@ function renderBondGrid() {
 
 async function loadRoles() {
   try {
-    const response = await fetch("/api/roles?schema=5");
+    const response = await fetch("/api/roles");
     if (!response.ok) throw new Error("roles");
     const data = await response.json();
     state.roles = data.roles ?? [];
