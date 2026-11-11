@@ -1,0 +1,14 @@
+# Synthetic compatibility gate only; not the authenticated publishing worker.
+FROM node:24.18.0-bookworm-slim
+WORKDIR /app
+COPY package.json package-lock.json ./
+ENV PLAYWRIGHT_BROWSERS_PATH=/opt/playwright
+RUN npm ci --omit=dev --ignore-scripts \
+    && node node_modules/playwright-core/cli.js install --with-deps chromium \
+    && chmod -R a+rX /opt/playwright \
+    && rm -rf /var/lib/apt/lists/*
+COPY scripts/infrastructure/gcp-browser-probe.mjs ./scripts/infrastructure/
+USER node
+ENV PORT=8080
+EXPOSE 8080
+CMD ["node", "scripts/infrastructure/gcp-browser-probe.mjs"]

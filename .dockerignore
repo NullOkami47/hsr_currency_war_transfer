@@ -1,0 +1,8 @@
+# Explicit allow-list: never send local profiles, state, .env, Git or credentials.
+**
+!package.json
+!package-lock.json
+!scripts/
+!scripts/infrastructure/
+!scripts/infrastructure/gcp-browser-probe.mjs
+!scripts/infrastructure/Dockerfile.gcp-probe

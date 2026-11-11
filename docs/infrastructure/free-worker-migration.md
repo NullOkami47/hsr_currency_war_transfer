@@ -202,3 +202,12 @@ WantedBy=multi-user.target
 
 回滾紀錄須含原因、兩端完整 SHA、停啟時間、最後已確認工作、狀態校驗碼及重新開放時間，
 不可含任何 token、OTP 或 profile 內容。備份／還原及實際切換仍待後續驗證。
+
+## 2026-11-12：GCP 接續任務
+
+使用者已選定 GCP，停止研究其他供應商。現況與後續實作界線見
+[GCP Cloud Run](gcp-cloud-run.md)、[成本保護](gcp-cost-protection.md)及
+[GCP 驗證](../verification/gcp-worker-tests.md)。ChingG 非預設 Google 帳號已實際核對。
+帳戶警告已儲存；專案存取、專案預算／cap 及零現金支出限制仍阻擋計費實驗。
+新增的容器與 HTTP/browser probe 僅供合成相容性驗證，不是可直接承接 Production 的 worker。
+Azure 保留，未做 cutover。

@@ -174,3 +174,9 @@ WSL 無權建立 network namespace，沒有把未執行的 browser launch 計為
 `D:/CodexWork/free-worker-migration-evidence/oracle/box-b220723-tests.txt`。
 這是官方 CLI 路徑的獨立 Linux x64 證據，沒有執行 Oracle、ARM、登入或真實發布。
 本段後續提交只補文字證據；可執行來源以此固定 SHA 為準，不能聲稱尚未測的後續變更已通過。
+
+## 2026-11-12：GCP 接續驗證
+
+[GCP 驗證紀錄](gcp-worker-tests.md)記錄 main 合併、慢儲存競態測試修正、
+合成 browser probe、本機及後續 exact-commit Box 結果。舊 Oracle/Uppcoder 結果保持歷史原貌。
+尚無 GCP 部署、真實登入或 E2E 發布成功證據；Azure 保留。
