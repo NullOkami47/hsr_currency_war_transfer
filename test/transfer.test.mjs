@@ -430,7 +430,10 @@ test("transfer retains spotlight fields and detects upstream spotlight loss", as
     second_spot_lights: [{ id: "100403" }],
   });
   const deps = dependencies({sourceLineup});
-  deps.options.fetchConfigFn = async () => ({...config(),spot_light_list:[{id:"110301"},{id:"100403"}]});
+  sourceLineup.tourn_detail.role_stages[2].back_roles.push({
+    id:"1002", board_index:1, rec_spot_light_index:1, first_spot_lights:[{id:"100403"}],
+  });
+  deps.options.fetchConfigFn = async () => ({...config(),role_list:[{id:"1001"},{id:"1002"}],spot_light_list:[{id:"110301"},{id:"100403"}]});
   const result = await transferStrategy(SOURCE_ID, deps.options);
   assert.equal(result.status,"created");
   const sent = deps.calls.create[0].tourn_detail.role_stages[2].front_roles[0];
@@ -450,4 +453,30 @@ test("transfer retains spotlight fields and detects upstream spotlight loss", as
   await assert.rejects(transferStrategy(SOURCE_ID,broken.options),error=>
     error.differences?.some(d=>d.path.includes('first_spot_lights')));
   assert.equal(broken.calls.set.length,0);
+});
+
+test("modern transfers reject fewer than two supported spotlight recommendations before writing", async () => {
+  const deps=dependencies();
+  deps.options.fetchConfigFn=async()=>({...config(),spot_light_list:[{id:"110301"}]});
+  await assert.rejects(transferStrategy(SOURCE_ID,deps.options),e=>e.reason==='unsupported_spotlight_recommendations');
+  assert.equal(deps.calls.create.length,0);
+});
+
+test("verification does not hide extra unsupported spotlight IDs or normalise a wrong index", async () => {
+  for (const mutation of ['extra-id','wrong-index']) {
+    const deps=dependencies();
+    const original=deps.options.fetchLineupDetailFn;
+    deps.options.fetchLineupDetailFn=async (...args)=>{
+      const result=await original(...args);
+      if(args[0]==='global'){
+        const role=result.lineup.tourn_detail.role_stages[2].front_roles[0];
+        if(mutation==='extra-id') role.second_spot_lights=[{id:'not-in-config'}];
+        else role.rec_spot_light_index=2;
+      }
+      return result;
+    };
+    deps.options.verification={attempts:1,retryDelayMs:0};
+    await assert.rejects(transferStrategy(SOURCE_ID,deps.options),e=>e.differences?.some(d=>d.path.includes('spot_light')));
+    assert.equal(deps.calls.set.length,0);
+  }
 });

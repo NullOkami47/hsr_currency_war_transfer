@@ -151,6 +151,21 @@ export function applySourceAttribution(
 
 function normalisePublished(lineup, globalConfig) {
   const payload = toGlobalPublishPayload(lineup, globalConfig).payload;
+  // Verification must preserve the actual IDs/index, even when the current
+  // catalogue would filter an ID or clear an empty recommendation on import.
+  for (const [index, stage] of payload.tourn_detail.role_stages.entries()) {
+    const original = lineup.tourn_detail.role_stages[index];
+    for (const side of ["front_roles", "back_roles"]) {
+      for (const role of stage[side]) {
+        const actual = original?.[side]?.find((item) => String(item.id) === role.id);
+        if (!actual) continue;
+        role.rec_spot_light_index = Number(actual.rec_spot_light_index ?? -1);
+        for (const field of ["first_spot_lights", "second_spot_lights"]) {
+          role[field] = (actual[field] ?? []).map((item) => ({ id: String(item.id) }));
+        }
+      }
+    }
+  }
   return {
     ...payload,
     // The official editor calculates this prefix before calling create/edit.
@@ -274,6 +289,17 @@ async function transferResolved(
   }
 
   const transformed = toGlobalPublishPayload(sourceLineup, globalConfig);
+  if (globalConfig.spot_light_list?.length) {
+    const stage = finalStage(transformed.payload);
+    const selected = [...(stage?.front_roles ?? []), ...(stage?.back_roles ?? [])]
+      .filter((role) => role.rec_spot_light_index >= 0 && role.first_spot_lights.length > 0);
+    if (selected.length < 2) {
+      throw new PublicInputError(
+        "This strategy needs at least two globally supported spotlight recommendations before it can be transferred",
+        "unsupported_spotlight_recommendations",
+      );
+    }
+  }
   const attributed = applySourceAttribution(
     transformed.payload,
     sourceLineup,
