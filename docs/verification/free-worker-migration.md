@@ -163,3 +163,14 @@ log：`D:/CodexWork/free-worker-migration-evidence/oracle/local-final-tests.txt`
 三份 JavaScript syntax check、五段 shell bash-n。這些不是 Oracle／ARM 實機結果，
 WSL 無權建立 network namespace，沒有把未執行的 browser launch 計為 pass。
 精確交付 commit 由 PR head 指定；遠端獨立 exact-commit 結果另於後續證據紀錄。
+
+### Box 獨立驗證新增交付 commit
+
+以官方 Box CLI 於全新 `/tmp/hsr-oracle-verify.*` checkout 固定
+`b220723cbf26bb6c3f5cf619dd9612b4a3c6933c`，Linux x86_64、Node24.21.0、npm11.19.0。
+`npm ci` exit0（audit0 vulnerabilities）；`npm test` **237/237 pass、0fail、0skip**；
+`node scripts/infrastructure/oracle-synthetic-http.mjs` exit0，驗證 loopback health、未授權拒絕、
+合成工作及 JSON 重讀。整個遠端命令 exit0。完整 log：
+`D:/CodexWork/free-worker-migration-evidence/oracle/box-b220723-tests.txt`。
+這是官方 CLI 路徑的獨立 Linux x64 證據，沒有執行 Oracle、ARM、登入或真實發布。
+本段後續提交只補文字證據；可執行來源以此固定 SHA 為準，不能聲稱尚未測的後續變更已通過。
