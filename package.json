@@ -17,7 +17,17 @@
     "test": "node --test",
     "transfer": "node scripts/transfer.mjs",
     "vm:login": "sh scripts/vm-hoyolab-login.sh",
-    "worker": "node scripts/worker-server.mjs"
+    "worker": "node scripts/worker-server.mjs",
+    "backup:inspect": "node scripts/infrastructure/discover-worker-state.mjs",
+    "backup:snapshot": "node scripts/infrastructure/worker-state-backup.mjs snapshot",
+    "backup:verify": "node scripts/infrastructure/worker-state-backup.mjs verify",
+    "backup:restore": "node scripts/infrastructure/worker-state-backup.mjs restore",
+    "backup:drill": "node scripts/infrastructure/synthetic-restore-drill.mjs",
+    "gcp:preflight": "node scripts/infrastructure/gcp-standby.mjs preflight",
+    "gcp:start": "node scripts/infrastructure/gcp-standby.mjs start",
+    "gcp:stop": "node scripts/infrastructure/gcp-standby.mjs stop",
+    "gcp:verify": "node scripts/infrastructure/gcp-standby.mjs verify",
+    "gcp:memory": "node scripts/infrastructure/measure-browser-memory.mjs"
   },
   "dependencies": {
     "playwright-core": "^1.62.1"

@@ -68,3 +68,35 @@ Exact implementation **`6f5fbb6a9b5e67114974ecfc4b0315467c8a278e`** was independ
 Local reviewed suite:248total/247pass/0fail/1existing POSIXskip, exit0, `gcp/local-reviewed-tests.txt`. Sol/medium read-only follow-up review closed both findings and independently ran the probe HTTP tests5/5, exit0. It did not run Chrome/cloud.
 
 GitHub Actions run43065638614 for the exact6f5fbb6 implementation SHA completed success. This evidence-only follow-up changes documentation; no executable changes after the tested SHA.
+
+## 2026-11-12: Compute Engine standby and Azure backup implementation
+
+Starting source was `35496e3985628254fe6ef64551e5903b39755598`. Fresh GitHub readback confirmed four required Actions checks succeeded for that exact SHA in run43066126680; existing CircleCI checks also passed. No check policy changed.
+
+### Azure read-only evidence
+
+Azure CLI confirms the Azure for Students subscription Enabled and VM `hsr-transfer-worker` running in francecentral. Run Command readback: service active/running, MainPID559799, User azureuser, cwd `/opt/hsr-transfer-worker`, EnvironmentFile `/etc/hsr-transfer-worker.env`.
+
+Privileged process-environment allowlist inspection confirms three actual paths: `/var/lib/hsr-transfer-worker/transfers.json`, `/var/lib/hsr-transfer-worker/jobs.json`, `/var/lib/hsr-transfer-worker/jobs.json.security.json`; each exists and is0600. Separate profile directory is0700 and excluded. No secret environment value, JSON content or Cookie was retrieved. Private discovery receipt: `D:/CodexWork/free-worker-migration-evidence/gcp/azure-state-paths.json`.
+
+SSH failed during banner exchange; management-channel readback succeeded. No service stop/restart, production worker deployment/config change, firewall change, Vercel mutation or strategy operation performed. Storage Account list returned[]; no new storage provisioned. **Production off-VM backup destination: NOT_CONFIGURED. Latest verified production backup: NONE. Daily schedule: NOT_INSTALLED.** Destination/key custody and daily admission/service pause require approval.
+
+Cost Management queried daily ActualCost for2026-11-04..10:7USD rows, sum4.952970565101519, average0.7075672235859313/day; last5days0.4780453412822438/day. Whole-subscription costs, not remaining credit. Sponsorship portal reports no active Sponsorship for current browser identity; balances API returns NotFound. Remaining student credit, expiry and days remaining UNKNOWN. Credit alerts not configured. No long-lived credentials exported.
+
+### Synthetic restore evidence
+
+Windowsx64 Node24.18.0: `node scripts/infrastructure/synthetic-restore-drill.mjs` passed at2026-11-11T17:55:17.592Z (2026-11-12 01:55:17 +08). Real JsonWorkerJobStore/JsonTransferStore/JsonSecurityStore created a synthetic completed job/mapping/quota/policy/request-budget/session set; encrypted, verified, restored and compared all3exact files plus store dashboard. All preserved. Ciphertext SHA256 `7bdd58d234a4840218b1cab43f1de23fe05159ceb85712d18b4562566c2344c7`. Fixture removed; not a retained production archive or cloud restore.
+
+New modules first failed with ERR_MODULE_NOT_FOUND, then implementation passed meaningful refusal, integrity and recovery tests. Tested outer-checksum and GCM ciphertext tampering, wrong encrypted private-key passphrases, missing security, transfer locks, active/ambiguous jobs, no-overwrite restore, seven-day retention and preservation of the last successful archive. Coordinated backup tests cover drain-before-stop, failed snapshot recovery and fail-closed health. These are injected operations, not actual systemd production tests.
+
+Actual SSH collection, DPAPI unlock, installed daily scheduler, protected off-VM archive, production restore and GCP systemd tests remain unverified. Parser/node checks do not prove those operations.
+
+### GCP gates
+
+ChingG account badge reverified. Proposed project dashboard still reports missing resourcemanager.projects.get; resource list lacks HSR. User explicitly authorised project creation. Form filled with requested name and exact proposed ID; OpenCLI returns clicked but page stays unchanged. No creation success without resource/dashboard readback. No VM, network, disk, NAT or other resource provisioned.
+
+GCP_STANDBY_PARTIAL; IPV6_END_TO_END_PENDING; E2_MICRO_PENDING; COST_PROTECTION_PARTIAL; CUTOVER_PROCEDURE_PARTIAL; AZURE_PRODUCTION_PRESERVED. GCP final power state N/A: no VM created. Actual GCP Chrome/process memory, IPv6 ingress/egress, strict origin TLS, Vercel Function connectivity, service persistence/restart and fresh HoYoLAB authentication remain PENDING. No live strategy or production cutover performed.
+
+### Local regression gate before the recovery implementation commit
+
+`npm test` on Windowsx64 Node24.18.0:267total/265pass/0fail/2POSIXskips before the final encrypted maintenance-metadata assertion; the final committed suite result is recorded in the independent verification receipt below. PowerShell AST parsing for both collector and schedule installer succeeded. The daily schedule has not been installed or run.

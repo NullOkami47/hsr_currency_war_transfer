@@ -91,3 +91,18 @@ The console offers an enforced spend-cap budget type. Its availability is not ev
 The task explicitly says to stop billable experiments if billing cannot reliably prevent cash charges or unexpected use of reserved credits. Official spend caps permit delayed overages and exclude supporting services; credit priority is unknown. Therefore **no billable staging deployment was attempted**. Budget warnings cannot remove this limitation. Continuing requires a revised user-approved financial risk boundary and completed project protections, or authoritative evidence satisfying the original constraint. No resource was created merely to discover credit order.
 
 Future daily cost checks should inspect account/project/SKU usage and credit IDs, preserve pre/post balances and distinguish delayed data from zero consumption. No scheduled automation was created in this step.
+
+## Compute Engine standby: current direction
+
+2026-11-12: the active objective is a stopped Compute Engine standby VM. Earlier Cloud Run tables remain historical research; no Cloud Run deployment or spend cap is needed for this design. The user explicitly authorised creation of the HSR project. Project creation must be confirmed by actual resource readback.
+
+| State | Conditional USD monthly estimate |
+| --- | --- |
+| Stopped standby | Compute $0; retained 20-30 GB pd-standard can be $0 only within the account's unused 30 GB-month allowance. No hourly IPv6 address charge. Extra disks/snapshots/backup destinations may cost money. |
+| Active e2-micro with IPv6 | Target $0 for eligible shared compute/disk usage; traffic beyond the eligible 1 GB allowance, excluded destinations and other services are additional. IPv6 egress and Chrome viability are unverified. |
+| Active with necessary direct IPv4 | Published $0.005/hour, about $3.595/720-hour month or $3.715/744-hour month after the stated one-hour exemption, plus any other charges. Separate approval required. |
+| Public NAT for one VM | Gateway $0.0014/hour plus IPv4 $0.005/hour, $0.045/GiB processed and data transfer. Generally more expensive than direct IPv4 for one VM. Not provisioned. |
+
+Current official sources read on 2026-11-12: [Free Tier](https://docs.cloud.google.com/free/docs/free-cloud-features), [network pricing](https://cloud.google.com/vpc/network-pricing), [VM runtime limits](https://docs.cloud.google.com/compute/docs/instances/limit-vm-runtime). These are conditional estimates, not invoices or a zero-cost guarantee. Verify actual billing-currency SKU prices and all-project usage before provisioning. No current FX rate was verified.
+
+Developer/Welcome credits may pay eligible charges while valid; exact SKU eligibility and deduction priority remain unverified. A new account does not prove unused shared allowances or correct billing linkage. Provider maxRunDuration with STOP bounds temporary runtime, not disk/network/delayed charges. Budgets are alerts. No e2-small, NAT, load balancer or paid IPv4 created.

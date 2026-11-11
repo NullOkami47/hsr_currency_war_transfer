@@ -211,3 +211,7 @@ WantedBy=multi-user.target
 帳戶警告已儲存；專案存取、專案預算／cap 及零現金支出限制仍阻擋計費實驗。
 新增的容器與 HTTP/browser probe 僅供合成相容性驗證，不是可直接承接 Production 的 worker。
 Azure 保留，未做 cutover。
+
+## 2026-11-12: Compute Engine standby and Azure recovery priority
+
+The target is now a Compute Engine standby, retaining Azure production until student credits approach exhaustion. See [Compute Engine](gcp-compute-engine.md), [consistent encrypted backup](azure-worker-backup.md) and [cutover/rollback](azure-to-gcp-cutover.md). Older Uppcoder, Oracle and Cloud Run findings remain dated evidence. No further Cloud Run redesign is planned.
