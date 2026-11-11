@@ -421,3 +421,33 @@ test("rejects an expired China strategy before publishing", async () => {
   );
   assert.equal(transfer.calls.create.length, 0);
 });
+
+test("transfer retains spotlight fields and detects upstream spotlight loss", async () => {
+  const sourceLineup = source();
+  Object.assign(sourceLineup.tourn_detail.role_stages[2].front_roles[0], {
+    rec_spot_light_index: 0,
+    first_spot_lights: [{ id: "110301", name: "display only" }],
+    second_spot_lights: [{ id: "100403" }],
+  });
+  const deps = dependencies({sourceLineup});
+  deps.options.fetchConfigFn = async () => ({...config(),spot_light_list:[{id:"110301"},{id:"100403"}]});
+  const result = await transferStrategy(SOURCE_ID, deps.options);
+  assert.equal(result.status,"created");
+  const sent = deps.calls.create[0].tourn_detail.role_stages[2].front_roles[0];
+  assert.equal(sent.rec_spot_light_index,0);
+  assert.deepEqual(sent.first_spot_lights,[{id:"110301"}]);
+  assert.deepEqual(sent.second_spot_lights,[{id:"100403"}]);
+
+  const broken = dependencies({sourceLineup});
+  broken.options.fetchConfigFn = deps.options.fetchConfigFn;
+  broken.options.fetchLineupDetailFn = async (region) => {
+    if(region==='cn') return {lineup:sourceLineup};
+    const payload = structuredClone(broken.calls.create[0]);
+    payload.tourn_detail.role_stages[2].front_roles[0].first_spot_lights=[];
+    return {lineup:publishedFrom(payload)};
+  };
+  broken.options.verification={attempts:1,retryDelayMs:0};
+  await assert.rejects(transferStrategy(SOURCE_ID,broken.options),error=>
+    error.differences?.some(d=>d.path.includes('first_spot_lights')));
+  assert.equal(broken.calls.set.length,0);
+});

@@ -102,11 +102,14 @@ test("creates the explicit global write payload without display-only fields", ()
     {
       id: "1002",
       rec_equip_index: 0,
+      rec_spot_light_index: -1,
       board_index: 0,
       star: 3,
       is_carry: true,
       first_equipments: [{ id: "350201" }],
       second_equipments: [{ id: "350202" }],
+      first_spot_lights: [],
+      second_spot_lights: [],
     },
   );
   assert.deepEqual(
@@ -197,4 +200,47 @@ test("rejects a global URL as a China source", () => {
       ),
     /Only act\.miyoushe\.com/,
   );
+});
+
+test("preserves both spotlight recommendation sets in global write and verification payloads", () => {
+  const changed = source();
+  const role = changed.tourn_detail.role_stages[2].front_roles[0];
+  Object.assign(role, {
+    rec_spot_light_index: 1,
+    first_spot_lights: [{ id: "110301", name: "display only" }],
+    second_spot_lights: [{ id: "100403" }],
+  });
+  const globalConfig = { ...config(), spot_light_list: [{id:"110301"},{id:"100403"}] };
+  const result = toGlobalPublishPayload(changed, globalConfig);
+  const actual = result.payload.tourn_detail.role_stages[2].front_roles[0];
+  assert.equal(actual.rec_spot_light_index, 1);
+  assert.deepEqual(actual.first_spot_lights, [{id:"110301"}]);
+  assert.deepEqual(actual.second_spot_lights, [{id:"100403"}]);
+});
+
+test("reports unmapped spotlights and clears a recommendation with no surviving first set", () => {
+  const changed = source();
+  Object.assign(changed.tourn_detail.role_stages[2].front_roles[0], {
+    rec_spot_light_index: 0,
+    first_spot_lights: [{id:"cn-only"}],
+    second_spot_lights: [{id:"100403"}],
+  });
+  const result = toGlobalPublishPayload(changed, {...config(),spot_light_list:[{id:"100403"}]});
+  const actual = result.payload.tourn_detail.role_stages[2].front_roles[0];
+  assert.equal(actual.rec_spot_light_index, -1);
+  assert.deepEqual(actual.first_spot_lights, []);
+  assert.deepEqual(actual.second_spot_lights, [{id:"100403"}]);
+  assert.ok(result.ignored.some(x=>x.type==='spot-light' && x.id==='cn-only'));
+  assert.ok(result.ignored.some(x=>x.type==='recommended-spot-light-slot'));
+});
+
+test("supplies safe spotlight defaults for historical lineups", () => {
+  const result = toGlobalPublishPayload(source(), config());
+  for (const stage of result.payload.tourn_detail.role_stages) {
+    for (const role of [...stage.front_roles,...stage.back_roles]) {
+      assert.equal(role.rec_spot_light_index, -1);
+      assert.deepEqual(role.first_spot_lights, []);
+      assert.deepEqual(role.second_spot_lights, []);
+    }
+  }
 });
