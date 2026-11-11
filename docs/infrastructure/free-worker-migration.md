@@ -14,8 +14,8 @@
 | 候選 | 目前證據與限制 | 狀態 |
 |---|---|---|
 | Uppcoder Spark | 已登入並實測免費 Node.js stack：Chromium 缺系統函式庫，無權透過 apt 安裝；Node.js 加官方 E2E Testing 被預檢以需 2 apps、免費上限 1 app 拒絕。使用者明確同意刪除實驗 stack 後，目前為零 stacks。 | **`UPPCODER_NO_GO`：限此次測試的受支援免費 Node.js 架構。** 其他自訂或供應商映像未驗證，不能推論全部不可行。 |
-| Oracle A1（備選） | 現行 Always Free 專頁：合計 2 OCPU／12 GB、每月 1,500 OCPU-hours／9,000 GB-hours。不可沿用較舊 4／24 額度。容量、帳號資格、home region 與實際費用都未核實。 | 最初只抵達要求 cloud account name 的登入頁；目前註冊進行中，未確認 tenant console 存取。 |
-| Simular Box | CLI 遠端 Linux x64 測試與 Chrome 啟動已成功；MCP OAuth 仍有 issuer 相容性錯誤。 | 測試環境可用；沒有免費常駐 Production 的可用性、費用或託管承諾驗證。 |
+| Oracle A1（備選） | 現行 Always Free 專頁：合計 2 OCPU／12 GB、每月 1,500 OCPU-hours／9,000 GB-hours。不可沿用較舊 4／24 額度。Home Region 與建立頁免費標示已核實；容量請求遭拒，完整帳戶配額及實際帳務未核實。 | 已登入新加坡 Home Region；實際申請 1 OCPU／6 GB A1、Ubuntu 24.04 ARM64，被 AD-1 容量不足拒絕。`ORACLE_BLOCKED`，沒有 VM 或 ARM browser 驗收。 |
+| Simular Box | CLI 遠端 Linux x64 測試與 Chrome 啟動已成功；以獨立官方 Codex CLI 0.167.1 完成 OAuth 後，原版 0.144.1 原生 MCP `box_list` 已成功。原生 shell 仍被核准層取消，尚未驗收。 | 測試環境可用；沒有免費常駐 Production 的可用性、費用或託管承諾驗證。 |
 
 來源：2026-11-11 公開網站／Chrome DOM 查證及實際實驗紀錄；細節見驗證報告。
 [Uppcoder Pricing](https://portal.uppcoder.com/pricing)、
@@ -30,6 +30,23 @@ Uppcoder 的公開 TLS、terminal／SSH 及備份說明也不足以證明 browse
 條款對以轉送他人流量為主要用途的 proxy／tunnel 有限制，不能一概認定管理自有 app 的 SSH
 轉送違規；採用具體互動設計前仍需核對適用範圍。此次 `UPPCODER_NO_GO` 基於實測的
 瀏覽器依賴與免費 app 上限，並非對供應商所有映像的判斷。
+
+## Oracle 實際建立結果與資源回查
+
+2026-11-11 已在 Chrome 登入 Console，確認新加坡 `ap-singapore-1` 為 Home Region。
+建立 staging 請求一次：`VM.Standard.A1.Flex`（Always Free-eligible）、1 OCPU／6 GB、
+Canonical Ubuntu 24.04 Minimal aarch64（2026.10.27-0）、預設 46.6 GB boot，
+無附加磁碟、無 public IP、SSH 公鑰、fault domain 由 Oracle 選擇。
+請求被 API 拒絕：**Out of capacity for shape VM.Standard.A1.Flex in availability domain AD-1**。
+未改用付費 shape、未升級帳號、未循環重試；沒有可測的 VM，因此 ARM、Chrome channel、
+systemd、TLS、持久化及登入仍未驗證。這證明當時 AD 的 A1 容量阻礙，沒有證明 ARM 不相容。
+
+建立失敗後，Console 新加坡 root compartment 的 Instances、VCNs、Block volumes、Boot volumes
+四個清單均顯示 No items to display，未發現本次請求殘留資源，沒有進行刪除。
+這是特定 region／compartment 的清單證據，非全帳戶帳務稽核；Limits 頁沒有返回可讀配額，
+帳戶用量與最終帳務仍未核實。零月費仍是目標，未取得成功部署與帳務證據前不作保證。
+原 Azure 仍保留；實際 cutover 及真實攻略寫入仍須分別取得 GO。
+可取得容量後的準備與合成驗證見 [Oracle staging 操作稿](oracle-staging-bootstrap.md)。
 
 ## 原始碼與部署連結稽核
 
@@ -61,6 +78,26 @@ Uppcoder 的公開 TLS、terminal／SSH 及備份說明也不足以證明 browse
 `playwright-core` 不附瀏覽器，須另安裝相容版本與系統依賴。自訂 executable 是相容性選項，
 不代表任意 Chromium／ARM 組合都已獲驗證。
 [Playwright API](https://playwright.dev/docs/api/class-browsertype#browser-type-launch-persistent-context)。
+
+## 資源與營運需求
+
+原始碼沒有宣告硬體最低值；尚無長時間負載量測，不能把建議規格視為已驗證最低需求。
+本次選 1 OCPU／6 GB A1、約 47 GB boot 作為測試起點，容量不足而未建成。
+Box 約 3.8 GiB RAM 的 x86_64 browser／測試成功，只能作開發參考。
+建議至少為 OS、Node、相容 Chromium、字型、獨立 profile、三份狀態及輪替 logs 保留容量；
+正式 sizing 必須量測尖峰 RSS／CPU、profile／狀態增長與磁碟水位。
+無論架構，必須有相容 shared libraries、支援的 browser executable、非 root 執行與可用 sandbox。
+Node 需符合 package.json 的 >=20，VM 優先採仍受支援的 LTS；ARM 成功必須另有真實啟動證據。
+
+營運需輪替 journal／proxy log、監控磁碟與服務退出、/health 失敗、佇列停滯及認證錯誤。
+避免記錄 bearer token、OTP、cookie、payload 個資或完整 profile；health 成功不等於登入成功。
+備份需離機、限權且加密，還原時校驗 mappings、jobs、security state 一致，不靠 Box-local 唯一副本。
+
+| 方案 | 月費判斷 | 目前結果 |
+|---|---|---|
+| Uppcoder Spark | 官方 €0；本次未升級 | 不相容的已測架構，實驗已刪除 |
+| Oracle A1 | 成功配置且總用量在核實免費額度內時，計算／儲存目標為零 | 容量不足，沒有成功部署；帳務未核實，不能保證零費用 |
+| Azure fallback | 保留現有訂閱的實際費用，金額未取得 | 本次沒有停止、縮放、除役或改付費設定 |
 
 ## 目標準備（未執行）
 
