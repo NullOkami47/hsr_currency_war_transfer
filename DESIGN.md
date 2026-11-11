@@ -43,6 +43,7 @@ The memorable opening moment is an abstract CN-to-GL star-route diagram built fr
 | `--colour-cost-3` | `#5f73a8` | Cost-3 portrait field (blue) |
 | `--colour-cost-4` | `#80699d` | Cost-4 portrait field |
 | `--colour-cost-5` | `#b58a3a` | Cost-5 portrait field (yellow) |
+| `--colour-cost-7` | `#c44747` | Cost-7 portrait field (red) |
 
 ### Dark theme override
 
@@ -79,6 +80,7 @@ system feedback. Components keep consuming the semantic tokens above;
 | `--colour-cost-3` | `#485d91` | Dark cost-3 portrait field (blue) |
 | `--colour-cost-4` | `#654f82` | Dark cost-4 portrait field |
 | `--colour-cost-5` | `#8a692d` | Dark cost-5 portrait field (yellow) |
+| `--colour-cost-7` | `#a8323e` | Dark cost-7 portrait field (red) |
 
 The browser colour scheme and `theme-color` metadata follow the active theme.
 An explicit user choice is stored locally; otherwise the first visit follows
@@ -153,7 +155,7 @@ Base unit: `4px`.
   Simplified Chinese, Traditional Chinese, and English aliases regardless of
   the active language. Every chip uses the source portrait icon with a textual
   fallback.
-- A single-choice tag row filters the catalogue by all characters, costs 1–5,
+- A single-choice tag row filters the catalogue by all characters, costs 1–5 and 7,
   or expert consultant status. Tags use native buttons with `aria-pressed`, a
   visible selected state, and SVG icons. Text filtering and the selected tag
   combine with AND semantics; selected characters remain selected when hidden.
@@ -394,3 +396,5 @@ Paper texture is created with subtle CSS radial/linear gradients using declared 
 | --- | --- | --- | --- |
 | Public transfer submission requires an external admin worker queue | `/api/transfers` | Vercel must not receive or launch the administrator's persistent browser profile | Keep submissions disabled until the worker and administrator console are configured; enforce blacklist, quota, rate and queue limits before enabling |
 | Administrator SEO score is intentionally below 100 | `/admin` | The operational console must retain `noindex, nofollow`; Lighthouse treats that protection as an SEO failure | Keep the route out of search indexes and audit performance, accessibility and best practices independently |
+
+Seven-cost 星神★阿哈 uses a red portrait field in both themes. Its 4/5/7 variants share one catalogue option and retain all matching IDs; the active cost filter controls its picker colour, and lineup portraits use the actual variant cost.

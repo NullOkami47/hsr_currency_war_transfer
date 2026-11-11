@@ -367,7 +367,7 @@ function bondAliases(bond) {
 }
 
 function roleCosts(role) {
-  return [...new Set((role.costs ?? []).map(String))].filter((cost) => /^[1-5]$/.test(cost));
+  return [...new Set((role.costs ?? []).map(String))].filter((cost) => /^[1-57]$/.test(cost));
 }
 
 function roleMatchesCategory(role) {
@@ -513,7 +513,7 @@ function portrait(role, size = "normal", costOverride = "") {
   const wrapper = document.createElement("span");
   wrapper.className = "portrait";
   const displayCost = String(costOverride || role.displayCost || roleCosts(role)[0] || "");
-  if (/^[1-5]$/.test(displayCost)) {
+  if (/^[1-57]$/.test(displayCost)) {
     wrapper.classList.add(`portrait--cost-${displayCost}`);
   }
   wrapper.title = displayName;
@@ -557,7 +557,7 @@ function roleFilterIcon(kind) {
 function renderRoleFilters() {
   const filters = [
     { id: "all", label: t("rolesAll"), icon: "all", compact: true },
-    ...[1, 2, 3, 4, 5].map((cost) => ({
+    ...[1, 2, 3, 4, 5, 7].map((cost) => ({
       id: `cost-${cost}`,
       label: t("roleCost", { cost }),
       icon: "cost",

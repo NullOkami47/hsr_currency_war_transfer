@@ -26,6 +26,7 @@
   --colour-cost-3: #5f73a8;
   --colour-cost-4: #80699d;
   --colour-cost-5: #b58a3a;
+  --colour-cost-7: #c44747;
   --font-display: "Noto Serif TC", "PMingLiU", Georgia, serif;
   --font-body: "Noto Sans TC", "Microsoft JhengHei", system-ui, sans-serif;
   --font-mono: ui-monospace, "Cascadia Code", monospace;
@@ -95,6 +96,7 @@ html[data-theme="dark"] {
   --colour-cost-3: #485d91;
   --colour-cost-4: #654f82;
   --colour-cost-5: #8a692d;
+  --colour-cost-7: #a8323e;
   --shadow-floating: 0 12px 32px rgb(0 0 0 / 0.36);
   --shadow-hero: 0 18px 30px rgb(0 0 0 / 0.3);
 }
@@ -595,7 +597,8 @@ html[data-theme="light"] .bond-icon img {
 .portrait--cost-2,
 .portrait--cost-3,
 .portrait--cost-4,
-.portrait--cost-5 {
+.portrait--cost-5,
+.portrait--cost-7 {
   color: var(--colour-white);
 }
 
@@ -617,6 +620,10 @@ html[data-theme="light"] .bond-icon img {
 
 .portrait--cost-5 {
   background: var(--colour-cost-5);
+}
+
+.portrait--cost-7 {
+  background: var(--colour-cost-7);
 }
 
 .portrait img {
