@@ -11,6 +11,9 @@ User=hsr-worker
 Group=hsr-worker
 WorkingDirectory=/opt/hsr-transfer-worker-staging
 EnvironmentFile=/etc/hsr-worker-synthetic.env
+Environment=HOME=/var/lib/hsr-transfer-worker-staging/home
+Environment=XDG_CONFIG_HOME=/var/lib/hsr-transfer-worker-staging/home/.config
+Environment=XDG_CACHE_HOME=/var/lib/hsr-transfer-worker-staging/home/.cache
 ExecStart=/usr/bin/node /opt/hsr-transfer-worker-staging/scripts/infrastructure/synthetic-worker-server.mjs
 Restart=on-failure
 RestartSec=5
@@ -25,7 +28,7 @@ ReadWritePaths=/var/lib/hsr-transfer-worker-staging
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
 MemoryAccounting=true
 CPUAccounting=true
-TasksMax=128
+TasksMax=256
 RuntimeMaxSec=3600
 StandardOutput=journal
 StandardError=journal

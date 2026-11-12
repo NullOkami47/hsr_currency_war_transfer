@@ -79,3 +79,5 @@ HSR_SYSTEMD_DRILL_ALLOW_SUDO=1 npm run gcp:systemd-drill
 ```
 
 程序演練會驗證真實 Chrome job、兩次程序重建的 state persistence、duplicate mapping、以及在合成 running 邊界 SIGKILL 後回復佇列且 quota 不變。systemd 演練驗證實際 supervisor crash restart、state、accounting 和停止。兩者都不是 GCP 證據；GCP 要在相同 commit 實際執行，並補 origin TLS/Vercel/IPv6 與機型 sizing。
+
+systemd 實測修正：Chrome 在 ProtectHome/strict filesystem 下需要自己的可寫 HOME/XDG；使用 `/var/lib/hsr-transfer-worker-staging/home`，JSON 僅放 sibling `state` 目錄，避免 browser cache 進入 state allowlist。安裝前建立兩個0700、由服務帳號擁有的目錄。TasksMax256 是有限 runtime 配額：128 的實際演練遇到 pthread_create EAGAIN，調整後 Chrome 成功；未停用 Chrome sandbox、NoNewPrivileges、ProtectSystem 或 PrivateTmp。
