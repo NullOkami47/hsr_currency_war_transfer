@@ -279,7 +279,10 @@ before the transfer is reported as complete.
 Immediately after a confirmed write, the transfer store checkpoints the global
 ID and submitted content hash with `verificationPending: true` and a null share
 code. A retry of the same source content resumes verification of that ID,
-including after a worker restart. Verification failures retain the checkpoint;
+including from a later worker process once the transfer lock is released.
+Abrupt process termination can leave the existing store lock in place; an
+administrator must confirm the old process has stopped before recovering that
+lock. Verification failures retain the checkpoint;
 they do not establish a completed transfer. A pending ID is never automatically
 replaced on a missing-detail response. If the source changes, the existing ID
 must first be readable before it can be edited in place. Successful verification
