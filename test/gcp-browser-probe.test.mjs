@@ -84,3 +84,33 @@ test("overall probe deadline fails closed without admitting another browser", as
   assert.equal((await fetch(`${base}/health`)).status, 503);
   assert.equal(calls, 1);
 });
+
+test("explicit synthetic Chrome selection reaches both real launch boundaries without production environment", async t => {
+  const { chromium } = await import("playwright-core");
+  const { probeBrowser } = await import("../scripts/infrastructure/gcp-browser-probe.mjs");
+  const originalPlatform = Object.getOwnPropertyDescriptor(process, "platform");
+  const originalUid = Object.getOwnPropertyDescriptor(process, "getuid");
+  const saved = [process.env.CURRENCY_WAR_BROWSER_CHANNEL, process.env.CURRENCY_WAR_BROWSER_EXECUTABLE_PATH];
+  delete process.env.CURRENCY_WAR_BROWSER_CHANNEL;
+  delete process.env.CURRENCY_WAR_BROWSER_EXECUTABLE_PATH;
+  Object.defineProperty(process, "platform", { value: "linux", configurable: true });
+  Object.defineProperty(process, "getuid", { value: () => 1000, configurable: true });
+  t.after(() => {
+    Object.defineProperty(process, "platform", originalPlatform);
+    if (originalUid) Object.defineProperty(process, "getuid", originalUid); else delete process.getuid;
+    for (const [i, key] of ["CURRENCY_WAR_BROWSER_CHANNEL", "CURRENCY_WAR_BROWSER_EXECUTABLE_PATH"].entries()) {
+      if (saved[i] === undefined) delete process.env[key]; else process.env[key] = saved[i];
+    }
+  });
+  const calls = [];
+  t.mock.method(chromium, "launchPersistentContext", async (directory, options) => {
+    calls.push(options);
+    return { route: async () => {}, pages: () => [{ setContent: async () => {}, title: async () => "HSR synthetic browser probe" }], browser: () => ({ version: () => "synthetic-injected" }), addCookies: async () => {}, cookies: async () => [{ name: "synthetic", value: "probe-only" }], close: async () => {} };
+  });
+  await probeBrowser({ browserChannel: "chrome" });
+  assert.equal(calls.length, 2);
+  assert.ok(calls.every(options => options.channel === "chrome" && options.chromiumSandbox === true));
+  calls.length = 0;
+  await probeBrowser({ browserChannel: "chrome", browserExecutablePath: "/verified/synthetic/chrome" });
+  assert.ok(calls.every(options => options.executablePath === "/verified/synthetic/chrome" && !Object.hasOwn(options, "channel")));
+});

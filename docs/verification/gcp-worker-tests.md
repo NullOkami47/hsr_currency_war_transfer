@@ -130,3 +130,7 @@ Current production backup location/timestamp remain **NOT_CONFIGURED/NONE**. The
 ### Synthetic standby service development
 
 Adds an executable synthetic service, process-restart drill and transient systemd drill. Test evidence is recorded only after actual execution; the scripts' existence does not prove GCP, Chrome, systemd or crash recovery. New HTTP tests first failed for missing module, then caught cleanup ordering and stale lock admission; corrected implementations pass. All fixtures remain synthetic, production credentials/profile rejected. No production changes or GCP resources.
+
+### 6060ecd real-process check caught a browser selection bug
+
+Fresh Box checkout6060ecdd232c331c32e5ca47dddfb036326f8960 installed cleanly and passed277/277tests, but the actual child-process Chrome job failed; exit1. The systemd stage did not run because the command stopped at the failed process drill. Root cause: probeBrowser accepted explicit channel/executable parameters, but its launch block still read only CURRENCY_WAR environment settings. The synthetic service correctly refuses that production namespace, so the requested Chrome was ignored. Added a launch-boundary regression, observed it fail, and corrected the options. This is a failed verification, not evidence for GCP or restart readiness. Log: `gcp/box-6060ecd.txt` outside Git.

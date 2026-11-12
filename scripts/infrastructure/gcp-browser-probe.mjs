@@ -20,9 +20,9 @@ export async function probeBrowser({
   let version;
   try {
     const options = {
-      ...(process.env.CURRENCY_WAR_BROWSER_EXECUTABLE_PATH
-        ? { executablePath: process.env.CURRENCY_WAR_BROWSER_EXECUTABLE_PATH }
-        : { channel: process.env.CURRENCY_WAR_BROWSER_CHANNEL || "chromium" }),
+      ...(browserExecutablePath
+        ? { executablePath: browserExecutablePath }
+        : { channel: browserChannel }),
       chromiumSandbox: true, headless: true, timeout: 20_000,
       serviceWorkers: "block",
     };
