@@ -67,6 +67,61 @@ test('Azure dry-run uses fixed scoped list and conditional reads without DELETE'
   assert.ok(s.calls.every(c => c.method !== 'DELETE' && c.maxBytes <= 64 * 1024 * 1024));
 });
 
+// Read-only production ListBlobs, API 2021-12-02, 2026-11-12: no Marker,
+// empty Content-CRC64 inside Properties and empty OrMetadata beside Properties.
+// Payloads/ETags/names remain synthetic; this records the observed XML structure.
+function observedAzureXml(xml) {
+  return xml.replace('<Marker/>', '').replaceAll('<Properties>', '<Properties><Content-CRC64 />')
+    .replaceAll('</Properties>', '</Properties><OrMetadata />');
+}
+
+test('actual Azure empty-page-marker schema passes the complete dry-run without any DELETE', async () => {
+  const s = fakeAzure(), request = s.request;
+  const storage = azure(s, { request: async (url, options) => {
+    const response = await request(url, options);
+    return url.includes('?') ? { ...response, body: Buffer.from(observedAzureXml(response.body.toString('utf8'))) } : response;
+  } });
+  const result = await executeBackupRetention({ storage, pinnedBaseline: pin, now: clock });
+  assert.equal(result.status, 'ready'); assert.equal(result.mode, 'dry-run'); assert.equal(s.objects.size, 6);
+  assert.equal(s.calls.filter(c => c.method === 'DELETE').length, 0);
+  assert.deepEqual(result.candidates.map(p => p.archiveName), [expired.name]);
+});
+
+for (const [description, transform] of [
+  ['omitted Marker when no marker was requested', xml => xml.replace('<Marker/>', '')],
+  ['empty Content-CRC64 property', xml => xml.replaceAll('<Properties>', '<Properties><Content-CRC64 />')],
+  ['empty OrMetadata sibling', xml => xml.replaceAll('</Properties>', '</Properties><OrMetadata />')],
+]) {
+  test(`Azure accepts observed ${description}`, async () => {
+    const s = fakeAzure();
+    const storage = azure(s, { request: async () => ({ status: 200, body: Buffer.from(transform(s.xml())) }) });
+    const result = await storage.list({ prefix: 'hsr-state/', limit: 257, signal: controller().signal });
+    assert.equal(result.complete, true); assert.equal(result.objects.length, 6);
+  });
+}
+
+test('observed schema still rejects pagination ambiguity and nonempty or malformed optional metadata', async () => {
+  const s = fakeAzure(), original = observedAzureXml(s.xml());
+  for (const xml of [
+    original.replace('<NextMarker/>', ''),
+    original.replace('<NextMarker/>', '<NextMarker>opaque-continuation</NextMarker>'),
+    original.replace('<NextMarker/>', '<Marker>opaque-continuation</Marker><NextMarker/>'),
+    original.replace('<NextMarker/>', '<ContinuationToken>opaque</ContinuationToken><NextMarker/>'),
+    original.replace('<NextMarker/>', '<Marker/><Marker/><NextMarker/>'),
+    original.replace('<OrMetadata />', '<OrMetadata>unsupported</OrMetadata>'),
+    original.replace('<OrMetadata />', '<OrMetadata><Unknown/></OrMetadata>'),
+    original.replace('<OrMetadata />', '<OrMetadata policy="unsupported"/>'),
+    original.replace('<OrMetadata />', '<OrMetadata/><OrMetadata/>'),
+    original.replace('<Content-CRC64 />', '<Content-CRC64><Unknown/></Content-CRC64>'),
+    original.replace('<Content-CRC64 />', '<Content-CRC64/><Content-CRC64/>'),
+    original.replace('<Content-CRC64 />', '<Content-CRC64 other="unsupported"/>'),
+    original.replace('<Content-CRC64 />', '<UnrecognisedField/>'),
+  ]) {
+    const storage = azure(s, { request: async () => ({ status: 200, body: Buffer.from(xml) }) });
+    await assert.rejects(storage.list({ prefix: 'hsr-state/', limit: 257, signal: controller().signal }));
+  }
+});
+
 test('Azure apply removes only expired pair with exact ETag and no snapshots/versions option', async () => {
   const s = fakeAzure(), storage = azure(s, { apply: true });
   const result = await executeBackupRetention({ storage, pinnedBaseline: pin, now: clock, apply: true });

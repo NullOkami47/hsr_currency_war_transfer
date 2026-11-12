@@ -117,7 +117,7 @@ function fields(node, allowed, required = []) {
 }
 function scalar(node) { check(node && node.children.length === 0); return node.text; }
 const PROPERTY_NAMES = ['Creation-Time', 'Last-Modified', 'Etag', 'Content-Length', 'Content-Type', 'Content-Encoding',
-  'Content-Language', 'Content-MD5', 'Cache-Control', 'Content-Disposition', 'BlobType', 'AccessTier', 'AccessTierInferred',
+  'Content-Language', 'Content-MD5', 'Content-CRC64', 'Cache-Control', 'Content-Disposition', 'BlobType', 'AccessTier', 'AccessTierInferred',
   'AccessTierChangeTime', 'LeaseStatus', 'LeaseState', 'LeaseDuration', 'ServerEncrypted', 'ArchiveStatus', 'RehydratePriority',
   'EncryptionScope', 'ImmutabilityPolicyUntilDate', 'ImmutabilityPolicyMode', 'LegalHold', 'CopyId', 'CopyStatus', 'CopySource',
   'CopyProgress', 'CopyCompletionTime', 'CopyStatusDescription', 'IncrementalCopy', 'DestinationSnapshot'];
@@ -126,15 +126,20 @@ function inventory(body, maximum, now) {
   const root = xmlTree(body);
   check(root.name === 'EnumerationResults' && Object.keys(root.attributes).sort().join() === 'ContainerName,ServiceEndpoint'
     && root.attributes.ContainerName === CONTAINER && root.attributes.ServiceEndpoint === `https://${ACCOUNT}.blob.core.windows.net/`);
-  const f = fields(root, ['Prefix', 'Marker', 'MaxResults', 'Blobs', 'NextMarker'], ['Prefix', 'Marker', 'MaxResults', 'Blobs', 'NextMarker']);
-  check(scalar(f.get('Prefix')) === PREFIX && scalar(f.get('Marker')) === '' && scalar(f.get('NextMarker')) === '');
+  const f = fields(root, ['Prefix', 'Marker', 'MaxResults', 'Blobs', 'NextMarker'], ['Prefix', 'MaxResults', 'Blobs', 'NextMarker']);
+  // Azure omits Marker when none was requested. NextMarker must still explicitly
+  // prove completion; nonempty, duplicate and unrecognised pagination fail closed.
+  check(scalar(f.get('Prefix')) === PREFIX && (!f.has('Marker') || scalar(f.get('Marker')) === '') && scalar(f.get('NextMarker')) === '');
   const maxResults = scalar(f.get('MaxResults'));
   check(/^[1-9]\d{0,2}$/.test(maxResults) && Number(maxResults) <= maximum);
   const blobs = f.get('Blobs'); check(!blobs.text.trim() && blobs.children.length <= maximum);
   const names = new Set(), objects = [];
   for (const blob of blobs.children) {
     check(blob.name === 'Blob' && Object.keys(blob.attributes).length === 0);
-    const b = fields(blob, ['Name', 'Properties'], ['Name', 'Properties']);
+    const b = fields(blob, ['Name', 'Properties', 'OrMetadata'], ['Name', 'Properties']);
+    // The live API emits an empty object-replication metadata element by default.
+    // Populated replication metadata is unsupported, never silently discarded.
+    if (b.has('OrMetadata')) check(scalar(b.get('OrMetadata')) === '');
     const name = scalar(b.get('Name'));
     check(name.startsWith(PREFIX) && name.length <= 1024 && !/[\u0000-\u001f\u007f]/.test(name) && !names.has(name)); names.add(name);
     const properties = fields(b.get('Properties'), PROPERTY_NAMES, ['Last-Modified', 'Etag', 'Content-Length', 'BlobType']);
