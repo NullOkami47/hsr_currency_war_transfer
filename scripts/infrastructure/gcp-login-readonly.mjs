@@ -282,7 +282,7 @@ export async function runReadOnlyLogin({ config, confirmReady, launchPersistentC
     context = await launchPersistentContext(settings.profileDir, { channel: "chrome", headless: settings.resume === true, chromiumSandbox: true,
       proxy: { server: startupGate.server },
       serviceWorkers: "block", acceptDownloads: false, timeout: Math.min(20000, settings.maxSeconds * 1000),
-      args: ["--disable-extensions", "--disable-background-networking", "--disable-component-update", "--no-first-run", "--no-default-browser-check", "--no-startup-window"] });
+      args: ["--disable-extensions", "--disable-background-networking", "--disable-component-update", "--no-first-run", "--no-default-browser-check"] });
     const work = async () => {
       controller.signal.throwIfAborted();
       await installReadOnlyRoutes(context, policy);

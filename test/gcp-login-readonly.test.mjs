@@ -86,7 +86,7 @@ test('resume uses the same-VM receipt and headless strict guards, never creates 
       launchPersistentContext: async (path, opts) => { assert.equal(path, profile); options = opts; return context; } });
     assert.deepEqual(result, { authenticatedReadOnlyChecks: 2, strategyWrites: false });
     assert.equal(options.headless, true); assert.equal(options.chromiumSandbox, true);
-    assert.ok(options.args.includes('--no-startup-window'));
+    assert.match(options.proxy.server, /^http:\/\/127\.0\.0\.1:\d+$/);
     assert.ok(steps.indexOf('guard') < steps.indexOf('navigate'));
     assert.equal(checks, 2); assert.equal(steps.at(-1), 'close');
     await assert.rejects(readFile(join(profile, '.readonly-owner')), { code: 'ENOENT' });

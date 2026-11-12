@@ -8,7 +8,12 @@ export async function createLoginStartupGate({ hosts, connectFn = connect }) {
   let admitted = false;
   const sockets = new Set();
   const server = createServer((_, response) => response.writeHead(403).end());
-  const track = socket => { sockets.add(socket); socket.once('close', () => sockets.delete(socket)); return socket; };
+  const track = socket => {
+    sockets.add(socket);
+    socket.on('error', () => socket.destroy());
+    socket.once('close', () => sockets.delete(socket));
+    return socket;
+  };
   server.on('connection', track);
   server.on('connect', (request, client, head) => {
     const match = /^([a-z0-9.-]+):443$/.exec(request.url ?? '');
