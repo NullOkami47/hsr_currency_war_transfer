@@ -80,3 +80,5 @@ CLI `restore` 需在 Linux 上證明 target service 已停止。跨機遷移建�
 - Daily schedule：**未安裝**。
 - 合成演練：實際 store 建立 mapping/job/quota/security 後，加密、驗證、還原、逐 byte 與實際 store dashboard 比較；結果見 [GCP 驗證](../verification/gcp-worker-tests.md)。合成成功不是正式備份成功。
 - 復原風險：目的地/金鑰 custody 尚待核准、SSH 逾時、沒有正式 archive、沒有首次正式 restore drill、日常 pause 尚未核准、PC 非常開、備份至下一次間的 RPO 最長約一天且可能更長、來源斷電時未完成 publish 仍需唯讀核對後人工 reconciliation。
+
+補充實測：正式 state schema 為 transfers1/jobs4/security1，符合備份工具的版本要求；當次唯讀統計為26mappings、6completed/3failed jobs，未見 queued/running。環境檔 root-owned0600，符合 coordinator 的保護檢查。這些分別的 live reads 不是一致性 archive。Azure 最後健康核對仍為原 MainPID559799、active/running，起始時間2026-11-11T09:27:57Z，loopback health ok。部署目錄沒有 `.git`，不能把本機 branch SHA 當成正式 worker SHA。

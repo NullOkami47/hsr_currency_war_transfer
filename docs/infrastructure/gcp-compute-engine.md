@@ -59,3 +59,5 @@ Cloudflare DNS proxy 解決入口雙協定，不解決 VM 的 IPv4-only egress�
 停止 synthetic service，核對無 browser/process writer，`gcp:stop` 後讀回 VM TERMINATED；保留標準 boot disk、非機密 configuration、精確版本及測試收據。不得將 Stop 當成磁碟免費證據。自動 STOP policy 仍保留，未來每次 staging start 都重新讀回；正式 cutover 後如果要取消時限，必須納入該次明確核准且確認已不再是臨時實驗。
 
 目前尚無已建立且驗證的 GCP VM；final power state 是 **N/A（未建立）**，不是 TERMINATED。選型、安裝 runbook 和 guarded controls 不等於 standby ready。
+
+最新 Box 合成診斷的 proportional PSS peak 約436.35MiB（整棵 Node/Chrome tree），RSS 約1.11GiB（共享頁面重複計算）；只有19個抽樣點，不是 HoYoLAB 真實工作負載，也不是 GCP 1GiB 的可行性證據。仍維持先測 e2-micro，沒有因此選擇或購買 paid VM。

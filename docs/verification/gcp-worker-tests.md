@@ -112,3 +112,17 @@ GitHub Actions43077980297: four required Ubuntu/Windows Node20/22 jobs succeeded
 ### Project creation input blocker clarified
 
 Task-scoped OpenCLI2.0.3 installed on D:, official daemon restarted; extension1.0.27 connected. New Chrome window/bound session remains on ChingG's projectcreate page, requested name and proposed ID `hsr-currency-war-worker` filled. Native input explicitly rejected: `Native input requires a visible browser page; input was not dispatched.` Readback reports document hidden. No successful project-create submission or cloud resource is claimed. Making Chrome visible or completing the already authorised Create action is a user-interaction dependency, not a request for new project-creation authority.
+
+### Reviewed recovery implementation: exact-commit evidence
+
+**Implementation commit: 877220027e32b8201a64cb287094b2b03fe2c370.**
+
+- Windowsx64 Node24.18.0: npm test **269total /267pass /0fail /2POSIXskips**, exit0. PowerShell AST parse for collector and task installer exit0. Log `D:/CodexWork/free-worker-migration-evidence/gcp/backup-reviewed-local-tests.txt`.
+- Independent Box **fresh checkout** `/tmp/hsr-recovery-reviewed.sNZ0CK`, exact SHA above; Linuxx64 uid1000, Node24.21.0/npm11.19.0, Chrome157.0.8103.38. npmci --ignore-scripts exit0/audit0. npm test **269/269pass,0fail,0skip**, exit0. Overall remote exit0; log `D:/CodexWork/free-worker-migration-evidence/gcp/box-8772200.txt`.
+- Real synthetic restore drill PASS at **2026-11-12T00:24:46.913Z** (08:24:46 +08):3exact files, mappings/job results/quota/policy/security all preserved. Ciphertext SHA256 `0a09707d61478ccbc5d2aec89e9c4e2085b4ff88f97ddc043ff8fd5be603b023`. Ephemeral synthetic fixtures removed. This timestamp is **not** a production backup timestamp.
+- Real Chrome two-launch persistent-context test PASS, sandbox requested, synthetic cookie preserved. Process-tree sampled RSS peak1,193,951,232bytes; proportional PSS peak457,547,776bytes (about436.35MiB),12processes,19samples/18completePSSsamples,0sampled swap. RSS/PSS sampling is not isolated cgroup sizing; Box has about3.79GiB. **E2_MICRO_PENDING** until actual VM cgroup/OS/workload tests.
+- Four required GitHub Actions checks succeeded for exact8772200 in run **43126865381**; existing CircleCI Node20/22/24 checks succeeded. No required CI disabled or extra cloud resource launched.
+
+Azure final health readback: same MainPID559799, active/running, ActiveEnterTimestamp2026-11-11T09:27:57Z, `/health` returned status ok. Later in-VM **aggregate-only, read-only** inspection found transfer schema1 with26mappings, jobs schema4 with6completed/3failed and no active jobs in that observation, quota/policy present, security schema1 with request/session objects. Root-owned EnvironmentFile is0600. These separate live reads are not a consistent backup. `/opt/hsr-transfer-worker` is a deployed directory without `.git`; production source SHA was not inferred from the development branch. No profile, JSON body or credentials left Azure.
+
+Current production backup location/timestamp remain **NOT_CONFIGURED/NONE**. The new code is on the PR branch only. Neither daily schedule nor maintenance pause was enabled. Chrome remains hidden for automated native input; project form prepared but no creation success claimed. A documentation-only follow-up may reference this exact executable commit; its own CI status must be checked separately.
