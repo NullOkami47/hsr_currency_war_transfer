@@ -19,6 +19,10 @@ test('observed login preset supports version-independent official assets and exa
   assert.equal(decide(policy, 'https://account.hoyolab.com/login-platform/index.html', 'GET', 'document'), true);
   assert.equal(decide(policy, 'https://passport-api-sg.hoyolab.com/account/ma-passport/api/webLoginByPassword', 'POST', 'xhr'), true);
   assert.equal(decide(policy, 'https://sg-public-api-static.hoyolab.com/account/ma-passport/api/getSwitchStatus', 'GET', 'xhr'), true);
+  assert.equal(decide(policy, 'https://sg-act-public-api.hoyolab.com/common/badge/v1/login/account', 'POST', 'xhr'), true);
+  assert.equal(decide(policy, 'https://sg-act-public-api.hoyolab.com/common/badge/v1/login/account', 'OPTIONS', 'fetch'), true);
+  assert.equal(decide(policy, 'https://sg-act-public-api.hoyolab.com/common/badge/v1/login/account', 'GET', 'xhr'), false);
+  assert.equal(decide(policy, 'https://sg-act-public-api.hoyolab.com/common/badge/v1/login/unknown', 'POST', 'xhr'), false);
   assert.equal(decide(policy, 'https://act.hoyolab.com/sr/event/currency-wars/main.future.js', 'GET', 'script'), true);
   assert.equal(decide(policy, 'https://act-webstatic.hoyoverse.com/darkmatter/icon.png', 'GET', 'image'), true);
   assert.equal(decide(policy, 'https://act.hoyolab.com/sr/event/currency-wars/index.html', 'POST', 'fetch'), false);

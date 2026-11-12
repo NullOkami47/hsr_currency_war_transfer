@@ -70,6 +70,10 @@ export function compileReadOnlyPolicy({ authRequests = [], assetOrigins = [], of
       }
       if (method === 'GET' && OBSERVED_READS.has(url.origin + url.pathname)) return true;
       if (strategyPath(url.pathname)) return false;
+      // Official event-login/v2 getInfoByAccount uses this POST to establish
+      // the event session. It is not a strategy operation; adjacent APIs deny.
+      if (officialLogin && url.origin === 'https://sg-act-public-api.hoyolab.com'
+        && url.pathname === '/common/badge/v1/login/account' && ['POST', 'OPTIONS'].includes(method)) return true;
       if (auth.some(rule => rule.origin === url.origin && rule.path === url.pathname && rule.methods.includes(method))) return true;
       if (officialLogin && method === 'GET' && url.origin === 'https://account.hoyolab.com'
         && /^\/login-platform\/[^/]+\.(?:js|css|png|jpe?g|webp|svg|ico|woff2?|ttf)$/.test(url.pathname)
