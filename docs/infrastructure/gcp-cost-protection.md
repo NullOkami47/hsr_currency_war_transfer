@@ -106,3 +106,27 @@ Future daily cost checks should inspect account/project/SKU usage and credit IDs
 Current official sources read on 2026-11-12: [Free Tier](https://docs.cloud.google.com/free/docs/free-cloud-features), [network pricing](https://cloud.google.com/vpc/network-pricing), [VM runtime limits](https://docs.cloud.google.com/compute/docs/instances/limit-vm-runtime). These are conditional estimates, not invoices or a zero-cost guarantee. Verify actual billing-currency SKU prices and all-project usage before provisioning. No current FX rate was verified.
 
 Developer/Welcome credits may pay eligible charges while valid; exact SKU eligibility and deduction priority remain unverified. A new account does not prove unused shared allowances or correct billing linkage. Provider maxRunDuration with STOP bounds temporary runtime, not disk/network/delayed charges. Budgets are alerts. No e2-small, NAT, load balancer or paid IPv4 created.
+
+## 2026-11-12 帳戶與網路前置作業更新（尚未建立 VM）
+
+本段取代較早「專案 ID、billing linkage、project budgets 未確認」的狀態。使用官方 Google Cloud CLI 593.0.0，以本次 OAuth 明確登入原指定 ChingG 帳戶；CLI 與受限設定目錄位於 D:/CodexWork/gcp-tools，credential/code 未放入 repo 或聊天。
+
+- 已建立並從 dashboard 與 Resource Manager CLI 讀回專案 `hsr-currency-war-worker`，編號 `282550645630`，ACTIVE、無組織。
+- `billing projects describe` 確認連結原有效付費帳戶，billingEnabled=true；帳戶幣別由 API 確認 HKD。舊 closed 帳戶未使用。
+- Credits 頁仍顯示 Free Credit HK$2,353.66，2027-02-10 到期；七筆 Developer 月信用額各 HK$78.46、100%。報表存在延遲；沒有實際 transaction 證明誰先扣款。優先序 UNKNOWN。
+- 已啟用 Compute API 與 Billing Budgets API。已存檔並用 budgets list 獨立讀回：`hsr-project-gross-warning` HK$30/month、EXCLUDE_ALL_CREDITS、actual 50/75/90/100% 與 forecast100%；`hsr-project-net-warning` HK$1/month、INCLUDE_ALL_CREDITS、actual1/50/100%。HK$30 是本次選定的保守門檻，不宣稱是已驗證匯率換算的 US$5。帳戶既有 HK$0.10 net 警示保留。default IAM recipients 未停用；未實測寄信，未成功列出收件人 role membership。Budget 是警示，不是付款硬上限。
+- 已建立 `hsr-worker-vpc`（custom）、`hsr-worker-us-central1`（10.42.0.0/24），只允許 IAP 35.235.240.0/20 對標籤 hsr-worker-standby 的 TCP22。沒有公開 worker/VNC/CDP/HTTPS ingress、NAT、負載平衡器或 static address。
+- `us-central1-a` e2-micro API 回傳 2 guest CPUs、1024 MB RAM；Ubuntu image `ubuntu-2404-noble-amd64-v20261105` READY/x86_64。這不證明建立時有實際容量或 Chrome 可運行。
+- 新專案 instance/disks list 均空；同有效 billing account 僅此專案與原 gcp-pay 專案，後者 Compute API 未啟用。當前零資源不能證明整月 shared Free Tier 未曾使用。
+
+### IPv4 出口門檻
+
+Google DoH 與 Cloudflare DoH 即時 AAAA 查詢：`sg-act-public-api.hoyolab.com`、`act.hoyolab.com` 只有 CNAME，沒有 AAAA；A 查詢均有位址。`github.com` 亦無 AAAA。npm、Node、Google 下載站具有 AAAA 不足以令整個 worker 相容。這是外部 DNS 證據，尚未冒稱在 GCP VM 上測過連線。
+
+原純 IPv6 direct-egress 方案不能直接連這些 IPv4-only 端點。候選改為同一 e2-micro、20GB pd-standard、臨時 external IPv4、無 VM service account、IAP SSH、Google maxRunDuration=1h / STOP；建立前需使用者核准 IPv4 及非零費用風險。停止會釋放 ephemeral IPv4，但保留 boot disk。既有 `gcp-standby.mjs` 明確拒絕 IPv4；不能繞過它或造假的 costEvidence。得到核准後須以明確的 IPv4 staging 操作與 readback 驗證，或先更新並測試控制工具。
+
+官方 IPv4 定價 US$0.005/hour，monthly first hour allowance 是 billing-account shared；持續開機720h時 IPv4部分約US$3.60/月（扣一小時後US$3.595），不含其他資源或出站。Credit 可能抵扣符合資格費用，不能保證指定抵扣順序、永久免費或零現金支出。Public NAT 另有 gateway、處理流量與 IP 費，沒有部署。
+
+已備妥 guarded provisioning 腳本於本次工作目錄 work/gcp-online/New-GcpStandby.ps1，明確要求 -AuthoriseTemporaryIPv4，且若專案已有 VM 就拒絕重複建立。尚未執行。**GCP 尚未上線，VM final state N/A；等待 IPv4／費用邊界確認。** Azure 與 Vercel production 未切換。
+
+來源：Google 官方 [IPv4 定價](https://cloud.google.com/vpc/network-pricing)、[Free Tier](https://docs.cloud.google.com/free/docs/free-cloud-features)、[VM 時限](https://docs.cloud.google.com/compute/docs/instances/limit-vm-runtime)、[budgets](https://docs.cloud.google.com/billing/docs/how-to/budgets)。實際 JSON 收據與 DNS 查詢位於本次工作目錄 work/gcp-online，非帳單延遲結算保證。
