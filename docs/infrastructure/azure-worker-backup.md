@@ -26,7 +26,7 @@
 - 每個來源上限 8 MiB；加密 archive 上限 64 MiB。這是保護 1 GB VM 的保守限制，超限時須先評估，不自行放寬。
 - `coordinated-worker-backup.mjs` 先鎖定維護流程，記住公開提交開關，關閉新提交，最多等候 120 秒排空，停止**指定服務**，核對 inactive/dead、MainPID=0 和其他已知寫入程序後讀取三檔，再次檢查服務已停止。
 - 服務停止後才做最終狀態讀取；不是依序複製正在寫入的檔案。維護期間禁止其他管理員啟動手動 transfer/adopt 或修改政策。
-- 日常備份會在 `finally` 嘗試恢復原服務、核對健康，再還原原公開提交開關。服務不健康時保持提交關閉並回報失敗。此日常工具**不可**當作 cutover 的最終備份命令，因為它會重啟 Azure；cutover 使用停止後的低階 snapshot。
+- 日常備份會在 `finally` 嘗試恢復原服務、核對健康，再還原原公開提交開關。服務不健康時保持提交關閉並回報失敗。若 stop 結果或唯一寫入者未確認，也不會自動重啟 publisher；必須人工復核。只有兩次 stopped/exclusive 檢查成功後才恢復服務。此日常工具**不可**當作 cutover 的最終備份命令，因為它會重啟 Azure；cutover 使用停止後的低階 snapshot。
 - SHA-256 manifest 保留靜止時三檔的位元組、長度與 hash；加密 maintenance metadata 另保存暫停前的公開提交開關。還原先保持提交關閉，經核准再依該值恢復。AES-256-GCM 加密內容，隨機資料金鑰以 RSA-OAEP-SHA256 包裝；RSA 至少 3072 bits。私鑰不部署到任一 VM。
 - receipt 包含 ciphertext hash、timestamp、recipient fingerprint，不包含明文 state。傳輸後須在外部備份主機解密並逐檔核對，才能登記 `latest-verified.json`。
 - `restore` 拒絕既有目的目錄；只寫入固定的三個檔名，0700/0600，逐檔 fsync，成功後留下 `restore-receipt.json`。中途失敗會清除自己建立的還原目錄；斷電可能留下不完整目錄，沒有成功 receipt 不能啟動 worker。

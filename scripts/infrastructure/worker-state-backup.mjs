@@ -48,12 +48,12 @@ async function quiescence(check) {
   await check();
 }
 
-async function readSource(path) {
+async function readSource(path, maximumBytes = MAX_FILE) {
   if ((await lstat(path)).isSymbolicLink()) throw new Error("Source symlink is forbidden");
   const file = await open(path, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
   try {
     const stat = await file.stat();
-    if (!stat.isFile() || stat.size > MAX_FILE) throw new Error("State file is not a bounded regular file");
+    if (!stat.isFile() || stat.size > maximumBytes) throw new Error("State file is not a bounded regular file");
     return await file.readFile();
   } finally { await file.close(); }
 }
@@ -156,7 +156,7 @@ export async function pruneBackups({ directory, privateKey, now = () => new Date
     const path = join(directory, name), receiptPath = path.replace(/\.enc\.json$/, ".receipt.json");
     try {
       if (!(await lstat(path)).isFile() || (await lstat(path)).isSymbolicLink() || (await lstat(receiptPath)).isSymbolicLink()) continue;
-      const bytes = await readSource(path), receipt = JSON.parse(await readFile(receiptPath, "utf8"));
+      const bytes = await readSource(path, MAX_ARCHIVE), receipt = JSON.parse(await readFile(receiptPath, "utf8"));
       const decoded = verifyStateBackup(bytes, privateKey, receipt);
       for (const file of Object.values(decoded.files)) file.fill(0);
       const time = Date.parse(receipt.createdAt);
@@ -221,4 +221,3 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
   console.error("Backup operation failed; no recovery success is claimed. Inspect protected diagnostics locally; do not print state or keys.");
   process.exitCode = 1;
 });
-

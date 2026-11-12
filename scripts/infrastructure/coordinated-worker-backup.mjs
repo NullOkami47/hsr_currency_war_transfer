@@ -18,7 +18,7 @@ function dashboard(value) {
 export async function coordinatedBackup({ operations: ops, authorised = false, maxPolls = 120 }) {
   if (!authorised) throw new Error("Explicit production pause authorisation required");
   if (!Number.isInteger(maxPolls) || maxPolls < 1 || maxPolls > 600) throw new Error("Invalid bounded drain limit");
-  let locked = false, disabled = false, stopAttempted = false, originalEnabled;
+  let locked = false, disabled = false, stopAttempted = false, stoppedVerified = false, originalEnabled;
   try {
     await ops.acquire(); locked = true;
     const initial = dashboard(await ops.dashboard());
@@ -35,10 +35,16 @@ export async function coordinatedBackup({ operations: ops, authorised = false, m
     stopAttempted = true;
     await ops.stop();
     await ops.assertStopped();
+    stoppedVerified = true;
     return await ops.snapshot({ publicSubmissionsEnabledBeforePause: originalEnabled });
   } finally {
     try {
-      if (stopAttempted) { await ops.start(); await ops.health(); }
+      if (stopAttempted) {
+        if (!stoppedVerified) throw new Error("Service stop/exclusive ownership is unverified; publishing remains paused for manual recovery");
+        await ops.assertStopped();
+        await ops.start();
+        await ops.health();
+      }
       if (disabled) await ops.setSubmissions(originalEnabled);
     } finally { if (locked) await ops.release(); }
   }

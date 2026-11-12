@@ -100,3 +100,15 @@ GCP_STANDBY_PARTIAL; IPV6_END_TO_END_PENDING; E2_MICRO_PENDING; COST_PROTECTION_
 ### Local regression gate before the recovery implementation commit
 
 `npm test` on Windowsx64 Node24.18.0:267total/265pass/0fail/2POSIXskips before the final encrypted maintenance-metadata assertion; the final committed suite result is recorded in the independent verification receipt below. PowerShell AST parsing for both collector and schedule installer succeeded. The daily schedule has not been installed or run.
+
+### Independent Linux verification of recovery baseline
+
+Fresh Box checkout at **b1c6698868c78766ed7349283ef0a76bfb93c0a4**: Linuxx64 uid1000, Node24.21.0, npm11.19.0, Chrome157.0.8103.38. Commands: git clone; checkout exact SHA; npm ci --ignore-scripts; npm test; synthetic-restore-drill; CURRENCY_WAR_BROWSER_CHANNEL=chrome node scripts/infrastructure/measure-browser-memory.mjs. npmci exit0/audit0; **268/268 tests pass,0fail,0skip**, overall exit0. Log: `D:/CodexWork/free-worker-migration-evidence/gcp/box-b1c6698.txt`.
+
+Synthetic restore passed at2026-11-11T18:28:40.072Z, ciphertext hash `ffd3924cf073e395929f5be5080c1f2f76143f074a126342a6a829954cd3e5da`, three exact files and all state classes retained. Real sandbox-requested Chrome launched twice and persisted only a synthetic cookie across restart. Sampled entire Node+Chrome RSS peak1,174,409,216bytes/13processes/31samples. RSS double-counts shared pages and sampling misses instantaneous peaks. Box has about3.79GiB RAM, no swap; **this does not establish e2-micro compatibility**. GCP cgroup peak/OOM evidence remains absent.
+
+GitHub Actions43077980297: four required Ubuntu/Windows Node20/22 jobs succeeded for exactb1c6698. Existing CircleCI Node20/22/24 also succeeded. A later review found unsafe auto-resume after an uncertain stop/exclusive-writer failure; a new regression reproduced it before the fix. The corrected coordinator refuses automatic restart/reopening when ownership is unproven and rechecks stopped state before healthy recovery. Those corrections and optional PSS sampling require their own verification, recorded below.
+
+### Project creation input blocker clarified
+
+Task-scoped OpenCLI2.0.3 installed on D:, official daemon restarted; extension1.0.27 connected. New Chrome window/bound session remains on ChingG's projectcreate page, requested name and proposed ID `hsr-currency-war-worker` filled. Native input explicitly rejected: `Native input requires a visible browser page; input was not dispatched.` Readback reports document hidden. No successful project-create submission or cloud resource is claimed. Making Chrome visible or completing the already authorised Create action is a user-interaction dependency, not a request for new project-creation authority.

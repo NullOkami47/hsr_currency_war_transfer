@@ -20,7 +20,7 @@ test("daily coordinated backup closes admission, drains, stops, snapshots, recov
   const f=fixture();
   const result=await coordinatedBackup({ operations:f.ops, authorised:true, maxPolls:2 });
   assert.equal(result.sha256,"synthetic-hash");
-  assert.deepEqual(f.calls,["lock","dashboard","submissions:false","dashboard","stop","stopped","snapshot","start","health","submissions:true","unlock"]);
+  assert.deepEqual(f.calls,["lock","dashboard","submissions:false","dashboard","stop","stopped","snapshot","stopped","start","health","submissions:true","unlock"]);
 });
 test("missing authority and busy queue never stop the production worker", async () => {
   const a=fixture();
@@ -47,12 +47,24 @@ test("already disabled submissions remain disabled and missing queue evidence fa
   await assert.rejects(coordinatedBackup({operations:bad.ops,authorised:true}),/dashboard/);
   assert.ok(!bad.calls.includes("stop"));
 });
-test("failed stop is reconciled with a start and unhealthy service never reopens submissions", async () => {
+test("failed stop requires manual reconciliation and unhealthy service never reopens submissions", async () => {
   const f=fixture(); f.ops.stop=async()=>{f.calls.push("stop");throw new Error("stop failed");};
-  await assert.rejects(coordinatedBackup({operations:f.ops,authorised:true}),/stop failed/);
-  assert.ok(f.calls.includes("start"));
+  await assert.rejects(coordinatedBackup({operations:f.ops,authorised:true}),/unverified|manual recovery/);
+  assert.ok(!f.calls.includes("start"));
   const g=fixture(); g.ops.health=async()=>{throw new Error("unhealthy");};
   await assert.rejects(coordinatedBackup({operations:g.ops,authorised:true}),/unhealthy/);
   assert.ok(!g.calls.includes("submissions:true"));
 });
 
+
+test("uncertain stop or another state writer must keep publishing and admission paused for manual recovery", async () => {
+  const f=fixture();
+  f.ops.assertStopped=async()=>{f.calls.push("stopped-uncertain");throw new Error("another state writer");};
+  await assert.rejects(coordinatedBackup({operations:f.ops,authorised:true}),/unverified|manual recovery/);
+  assert.ok(!f.calls.includes("start"),"must not restart publisher when exclusive ownership is unproven");
+  assert.ok(!f.calls.includes("submissions:true"));
+  const g=fixture();g.ops.stop=async()=>{g.calls.push("stop");throw new Error("unknown stop outcome");};
+  await assert.rejects(coordinatedBackup({operations:g.ops,authorised:true}),/unverified|manual recovery/);
+  assert.ok(!g.calls.includes("start"));
+  assert.ok(!g.calls.includes("submissions:true"));
+});

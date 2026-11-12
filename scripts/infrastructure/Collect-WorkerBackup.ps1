@@ -23,7 +23,7 @@ if (-not $originalPassphrase) {
     [Environment]::SetEnvironmentVariable('HSR_BACKUP_KEY_PASSPHRASE', $credential.GetNetworkCredential().Password, 'Process')
 }
 $repo = [IO.Path]::GetFullPath($cfg.repository)
-if ($destination.StartsWith($repo.TrimEnd('\') + '\', [StringComparison]::OrdinalIgnoreCase)) { throw 'Backups cannot be stored inside the repository.' }
+if ($destination.Equals($repo, [StringComparison]::OrdinalIgnoreCase) -or $destination.StartsWith($repo.TrimEnd('\') + '\', [StringComparison]::OrdinalIgnoreCase)) { throw 'Backups cannot be stored inside the repository.' }
 $lockPath = Join-Path $destination '.collector.lock'
 $lock = [IO.File]::Open($lockPath, [IO.FileMode]::OpenOrCreate, [IO.FileAccess]::ReadWrite, [IO.FileShare]::None)
 try {
