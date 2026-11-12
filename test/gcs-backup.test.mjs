@@ -163,14 +163,31 @@ test('transient responses and an ambiguously committed upload retry within a fix
   assert.equal(failed.requests.length,3);
 });
 
-test('deadline and cancellation bound work even if an injected transport never settles',async t=>{
+test('delivery deadline bounds the run whether it expires before or during transport',async t=>{
   assert.equal(typeof gcs.createGcsBackupClient,'function');
   const f=await fixture(t); let calls=0;
   const started=Date.now();
   await assert.rejects(gcs.createGcsBackupClient({config:f.config,timeoutMs:40,request:()=>{calls++;return new Promise(()=>{});}}).deliver(f.snapshot),/deadline|timeout/i);
-  assert.ok(Date.now()-started<1500); assert.equal(calls,1);
-  await assert.rejects(gcs.createGcsBackupClient({config:f.config,request:()=>{calls++;},shouldAbort:()=>true}).deliver(f.snapshot),/interrupt/i);
+  assert.ok(Date.now()-started<1500); assert.ok(calls<=1);
+});
+
+test('deadline bounds a never-settling transport after it starts',async t=>{
+  const f=await fixture(t),realNow=performance.now.bind(performance);
+  let started,calls=0;
+  // Model zero validation time, then real elapsed time from request entry. Slow
+  // filesystem work cannot consume this case's 40ms transport deadline budget.
+  t.mock.method(performance,'now',()=>started===undefined?0:realNow()-started);
+  await assert.rejects(gcs.createGcsBackupClient({config:f.config,timeoutMs:40,request:()=>{
+    calls++;started=realNow();return new Promise(()=>{});
+  }}).deliver(f.snapshot),{code:'GCS_DEADLINE'});
   assert.equal(calls,1);
+  assert.ok(realNow()-started<1500);
+});
+
+test('cancellation before transport never requests credentials',async t=>{
+  const f=await fixture(t);let calls=0;
+  await assert.rejects(gcs.createGcsBackupClient({config:f.config,request:()=>{calls++;},shouldAbort:()=>true}).deliver(f.snapshot),/interrupt/i);
+  assert.equal(calls,0);
 });
 
 test('status events use unique immutable names, safe projected snapshots and readback without arbitrary fields',async t=>{
