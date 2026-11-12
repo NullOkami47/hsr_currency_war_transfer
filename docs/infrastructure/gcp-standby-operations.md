@@ -12,7 +12,7 @@
 - 預設拒絕 external IPv4。臨時 IPv4 同時需要獨立旗標及 private config 內明確、未過期、接受非零費用的核准；有效時間須涵蓋整次最長 runtime，且距現在不得超過 24 小時。
 - IPv4 只接受單一既有 direct ONE_TO_ONE_NAT；RUNNING readback 的位址不得出現在本專案 reserved addresses。工具不附加 IP、不建 NAT、不保留 static IP、不開 firewall。
 - 不 create/delete VM、disk、network 或 DNS；不改 Azure、Vercel Production、正式 publisher、帳號或 billing。Budget 是警示；shared Free Tier、credit 抵扣與延遲帳單仍需管理者查核，不能保證零費用。
-- 本次更新：主控回報 GCP 已停止，並續准必要的有界 staging starts；**HTTPS 與 Vercel staging 尚未就緒前不得 start**。Vercel session 過期，由主控等待使用者完成 async login。工具要求最近 24 小時、精確 staging health URL 與 Vercel project ID 的 Preview readiness 紀錄；缺少時，在任何 provider 呼叫前拒絕 start。readiness 是主控檢核結果，工具不登入 Vercel 或偽造可用性。
+- 後續修正：啟動 gate 改為 **PREPARED**：最近 24 小時主控已確認精確 Vercel Preview project/deployment 已部署，且 ephemeral IPv4 → hostname → Caddy/私有 token → Preview origin 更新方案已審核。**不要求 start 前已有 live HTTPS**；每次啟動可能換 IP，舊 HTTPS 收據不證明新 origin。此修正取代原本循環相依的 httpsReady/vercelReady gate，不填假的 true/false。主控仍須明確授權 staging；工具不登入 Vercel、不驗證帳號或偽造部署證據。
 
 ## 私有設定與命令
 
@@ -35,14 +35,19 @@
   },
   "costEvidence": { "verifiedAt": null, "freeTierAvailable": false, "budgetsVerified": false },
   "temporaryIpv4Approval": { "approved": false, "nonZeroCostAccepted": false, "expiresAt": null },
-  "healthUrl": "https://REPLACE_WITH_APPROVED_STAGING_HOST/health",
-  "approvedHealthUrl": "https://REPLACE_WITH_SAME_STAGING_HOST/health",
   "approvedVercelProjectId": "REPLACE_WITH_VERIFIED_PROJECT_ID",
+  "approvedPreviewDeploymentUrl": "https://REPLACE_WITH_APPROVED_DEPLOYMENT.vercel.app",
   "stagingReadiness": {
-    "verifiedAt": null, "httpsReady": false, "vercelReady": false,
+    "phase": "PREPARED", "verifiedAt": null,
+    "previewDeployed": false, "bootstrapConfigReviewed": false,
     "vercelEnvironment": "preview",
     "vercelProjectId": "REPLACE_WITH_SAME_VERIFIED_PROJECT_ID",
-    "healthUrl": "https://REPLACE_WITH_SAME_STAGING_HOST/health"
+    "previewDeploymentUrl": "https://REPLACE_WITH_SAME_APPROVED_DEPLOYMENT.vercel.app"
+  },
+  "bootstrap": {
+    "hostnameTemplate": "gcp-staging.{ipv4}.sslip.io",
+    "tokenFile": "D:/<private>/synthetic-token.txt",
+    "outputDirectory": "D:/<private>/bootstrap-UNIQUE-WINDOW"
   }
 }
 ```
@@ -58,8 +63,12 @@ if ($LASTEXITCODE -ne 0) { throw 'Preflight failed' }
 try {
   node scripts/infrastructure/gcp-standby.mjs start $cfg --authorise-staging --authorise-temporary-ipv4
   if ($LASTEXITCODE -ne 0) { throw 'Staging start failed' }
-  # 僅執行核准的有界 staging 作業，不重跑既有廣泛 synthetic 驗收。
-  # 只有已另行設定及核准的 synthetic HTTPS endpoint 才執行 verify。
+  node scripts/infrastructure/gcp-standby.mjs bootstrap-files $cfg --authorise-staging --authorise-temporary-ipv4
+  if ($LASTEXITCODE -ne 0) { throw 'Bootstrap file preparation failed' }
+  # 主控依下節操作：known-host SSH 傳私有檔 → 設定 Caddy/worker env。
+  # 再把新 healthUrl 同時寫入私有 config 的 healthUrl、approvedHealthUrl，
+  # 更新 exact Preview 專案的 origin 並部署生效；不能先跑 verify 或沿用舊 IP。
+  # 此處必須完成下節所有步驟；本範例沒有自動 SSH、更新 Preview 或部署。
   node scripts/infrastructure/gcp-standby.mjs verify $cfg --authorise-temporary-ipv4
   if ($LASTEXITCODE -ne 0) { throw 'Staging health failed' }
 } finally {
@@ -72,9 +81,49 @@ try {
 
 若 start 失敗或 RUNNING/磁碟/網路/STOP readback 不符，只對同一 immutable VM 做一次有界 stop/readback；未確認就失敗，不稱 cleanup 成功。若 start 前 scheduling/readback 失敗，沒有 start。主控須獨佔此 staging 控制時段；不與另一位管理者同時操作。
 
-`verify` 限定精確核准的 staging HTTPS `/health`，拒絕 credentials/query/redirect，要求 `mode=hsr-synthetic-worker`。它不證明 authenticated jobs、Vercel Function、production state、live publishing 或 origin strict TLS。沒有 hostname/TLS 時保留 PENDING，不自動配置。
+`start` 僅回傳 BOOTSTRAP_REQUIRED，httpsVerified/previewOriginVerified=false；PREPARED 是啟動資格，不是健康狀態。`verify` 在設定完成後才執行，限定精確核准的 HTTPS `/health`，且 hostname 必須對應本次 VM readback IP；拒絕 credentials/query/redirect，要求 mode=hsr-synthetic-worker。它不證明 authenticated jobs、Vercel Function、production state 或 live publishing。沒有 hostname/TLS 時保留 PENDING，不自動配置。
 
 完成後停止 synthetic/圖形服務與所有 profile owner，scoped stop 並讀回 TERMINATED、保留 disk。VM 閒置時必須停止。provider STOP 不能取代 finally cleanup，也不代表 disk 免費。不自動 destroy/decommission 或在失敗後重啟 production。
+
+## Ephemeral IPv4 bootstrap 的可重現順序
+
+1. **PREPARED**：主控確認 exact Preview project ID、已部署的 deployment URL、登入/權限、既有 staging firewall/80/443、Caddy 與 synthetic unit 已安裝，以及獨立 synthetic token 可用。這些 prerequisite 不代表 worker origin 已連通。VM 未啟動時不要求讀回新的 IPv4 或有效憑證；缺少既有 ingress/unit 時停止，不自動建立資源。
+2. **Start → discover IP**：在明確核准的時窗執行 start；固定 VM/disk/account/labels、STOP≤3600 與費用 gates 不變。已 RUNNING 的 VM 不可再次 start 或重設期限。後續 bootstrap-files 重新讀取相同 VM/磁碟與 reserved-address 狀態，僅接受目前 RUNNING 的 ephemeral IPv4。
+3. **Prepare private files**：bootstrap-files 讀取私有 tokenFile，僅接受獨立 synthetic 的 32–256 字元英數、底線、連字號 token，可有一個結尾換行；不生成或旋轉 production secret。token 必須是非 symlink、受限 regular file；POSIX mode 禁止 group/other 存取，Windows 由主控先確認 D 目錄 ACL。outputDirectory 必須尚不存在，parent 受限且不經 symlink。輸出 Caddyfile、caddy.env、synthetic.env 皆 0600、目錄 0700。stdout 僅回傳路徑、新 healthUrl 與未驗證狀態，**不回傳 token/env 內容**。
+4. **Configure Caddy + token**：以後述 strict known-host SSH 安全傳輸三個檔案至同一 VM 的受限新目錄。主控先核對 VM immutable ID、current IP、production publisher inactive/MainPID=0，以及本時窗有權修改的 staging Caddy。先停止 synthetic，保存原 Caddyfile、staging env/drop-in 與檔案權限至私有 recovery 目錄。不得對 Azure 或 production Caddy 套用。可將下列 shell 區塊存成受限的 setup script，以私有目錄作唯一參數，人工核准後執行；本次未執行。
+
+```sh
+#!/bin/sh
+set -eu
+umask 077
+# 執行前已核對同一 VM、時窗、備份與 production inactive；不要 set -x。
+bundle=$1
+test "$(id -u)" -eq 0
+test -f "$bundle/Caddyfile" && test -f "$bundle/caddy.env" && test -f "$bundle/synthetic.env"
+systemctl stop hsr-worker-synthetic.service
+test "$(systemctl show hsr-worker-synthetic.service --property=ActiveState --value)" = inactive
+test "$(systemctl show hsr-worker-synthetic.service --property=MainPID --value)" = 0
+# 驗證新檔後才安裝；只傳 hostname env，不傳 token 至 caddy argv 或 log。
+set -a
+. "$bundle/caddy.env"
+set +a
+caddy validate --config "$bundle/Caddyfile" --adapter caddyfile >/dev/null 2>&1
+install -m 0600 "$bundle/synthetic.env" /etc/hsr-worker-synthetic.env
+install -m 0600 "$bundle/caddy.env" /etc/hsr-worker-staging-caddy.env
+install -m 0644 "$bundle/Caddyfile" /etc/caddy/Caddyfile
+install -d -m 0755 /etc/systemd/system/caddy.service.d
+printf '[Service]\nEnvironmentFile=/etc/hsr-worker-staging-caddy.env\n' \
+  > /etc/systemd/system/caddy.service.d/hsr-staging.conf
+systemctl daemon-reload
+# 正常 Caddy service 讀取新的 hostname EnvironmentFile；不使用 --environ。
+systemctl restart caddy
+# 已安裝 synthetic unit 從 /etc/hsr-worker-synthetic.env 讀 token；不啟動 publisher。
+systemctl start hsr-worker-synthetic.service
+```
+
+   Caddyfile 只代理 `127.0.0.1:8788`，hostname 使用本次 IP 的 `gcp-staging.<ipv4>.sslip.io`，不改 DNS、不保留 static IP、不建立 firewall/NAT/LB。這段修改 VM 服務只供主控在核准時窗執行；檔案準備指令本身沒有 SSH/服務重啟/雲端 mutation。任一步失敗就走外層 finally stop，保留備份，不能回到 production 啟動路徑。
+5. **Update Preview origin**：把產生的新 healthUrl 複製到私有 config 的 healthUrl/approvedHealthUrl；主控在核准的 exact Preview project/environment 更新 CURRENCY_WAR_WORKER_URL 為新 HTTPS origin（依既有整合 `/jobs` 路徑契約），CURRENCY_WAR_WORKER_TOKEN 配對相同 synthetic token。使用受限 secret file/stdin 或官方 secret UI，不把 token 放 CLI argv、URL、`echo`、CI logs 或本工具 stdout。重新部署 Preview 讓環境變更生效，核對實際 deployment/project，更新私有 PREPARED deployment binding；**不改 Production**。不能用前一個 Preview deployment 的成功取代新 origin 證據。
+6. **Verify → bounded tests → finally stop**：先 verify 新 HTTPS，再從實際 Preview 驗證 health、unauthorised rejection、synthetic create/poll；禁止 live publishing、不重跑廣泛 synthetic 驗收。主控回報工作可需約 15.5 秒，9 秒總觀察窗不足；採 4 秒 poll cadence 並保留獨立的有界總期限（例如 120 秒，且小於本次 VM 剩餘 runtime），不能把 cadence 當 deadline 或無限重送 create。這項回報不是本工具自行完成的 live 證據。所有退出路徑停止本次服務/owner，外層 finally scoped stop VM；不延長目前已 RUNNING 的核准時窗。
 
 ## SSH known-host、IAP 與登入畫面
 

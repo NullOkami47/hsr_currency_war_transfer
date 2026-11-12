@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { mkdtemp, readFile, writeFile, rm, lstat } from "node:fs/promises";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
 import * as s from "../scripts/infrastructure/gcp-standby.mjs";
 const now = new Date("2026-11-12T08:00:00Z");
 const base = "https://www.googleapis.com/compute/v1/projects/hsr-currency-war-worker";
@@ -12,8 +15,10 @@ const config = {
   temporaryIpv4Approval: { approved: true, nonZeroCostAccepted: true, expiresAt: "2026-11-12T09:00:00Z" },
   approvedHealthUrl: "https://staging.example.invalid/health", healthUrl: "https://staging.example.invalid/health",
   approvedVercelProjectId: "prj_test",
-  stagingReadiness: { verifiedAt: now.toISOString(), httpsReady: true, vercelReady: true,
-    vercelEnvironment: "preview", vercelProjectId: "prj_test", healthUrl: "https://staging.example.invalid/health" },
+  approvedPreviewDeploymentUrl: "https://hsr-staging-reviewed.vercel.app",
+  stagingReadiness: { phase: "PREPARED", verifiedAt: now.toISOString(), previewDeployed: true, bootstrapConfigReviewed: true,
+    vercelEnvironment: "preview", vercelProjectId: "prj_test", previewDeploymentUrl: "https://hsr-staging-reviewed.vercel.app" },
+  bootstrap: { hostnameTemplate: "gcp-staging.{ipv4}.sslip.io" },
 };
 const vm = {
   id: "123456789", name: config.instance, selfLink: `${base}/zones/us-central1-a/instances/${config.instance}`,
@@ -150,11 +155,81 @@ test("a running VM is stopped even when labels and IPv4 approval have expired", 
   assert.equal(result.status, "TERMINATED"); assert.equal(calls.filter(a => a[2] === "stop").length, 1);
 });
 
-test("HTTPS and Vercel Preview readiness are required before even describing or starting the VM", async () => {
-  for (const stagingReadiness of [undefined, { ...config.stagingReadiness, httpsReady: false },
-    { ...config.stagingReadiness, vercelReady: false }, { ...config.stagingReadiness, vercelEnvironment: "production" },
-    { ...config.stagingReadiness, vercelProjectId: "another-project" }]) {
+test("missing PREPARED bootstrap or wrong Preview binding is rejected before any provider call", async () => {
+  for (const stagingReadiness of [undefined, { ...config.stagingReadiness, phase: "HTTPS_READY" },
+    { ...config.stagingReadiness, bootstrapConfigReviewed: false }, { ...config.stagingReadiness, previewDeployed: false },
+    { ...config.stagingReadiness, vercelEnvironment: "production" }, { ...config.stagingReadiness, vercelProjectId: "another-project" },
+    { ...config.stagingReadiness, previewDeploymentUrl: "https://another.vercel.app" },
+    { ...config.stagingReadiness, verifiedAt: "2026-11-10T08:00:00Z" }]) {
     const p = provider(); await assert.rejects(s.startStandby({ config: { ...config, stagingReadiness }, ...approved, run: p.run, authorised: true }));
     assert.equal(p.calls.length, 0);
   }
+});
+
+test("PREPARED can start without a live or previously known HTTPS origin", async () => {
+  const p = provider();
+  const result = await s.startStandby({ config: { ...config, healthUrl: undefined, approvedHealthUrl: undefined },
+    ...approved, run: p.run, authorised: true });
+  assert.equal(result.status, "RUNNING");
+  assert.equal(result.httpsVerified, false);
+  assert.equal(result.previewOriginVerified, false);
+  assert.equal(result.phase, "BOOTSTRAP_REQUIRED");
+});
+
+test("bootstrap files use the current running IP and private token without returning secrets", async () => {
+  assert.equal(typeof s.prepareBootstrapFiles, "function");
+  const parent = await mkdtemp(join(tmpdir(), "gcp-bootstrap-test-"));
+  try {
+    const tokenFile = join(parent, "token");
+    const outputDirectory = join(parent, "new-files");
+    const token = "SYNTHETIC_TEST_TOKEN_ONLY_12345678901234567890";
+    await writeFile(tokenFile, token + "\n", { mode: 0o600 });
+    const current = { ...vm, status: "RUNNING", networkInterfaces: [{ ...vm.networkInterfaces[0], accessConfigs: [{ type: "ONE_TO_ONE_NAT", natIP: "34.136.112.197" }] }] };
+    const settings = { ...config, bootstrap: { ...config.bootstrap, tokenFile, outputDirectory } };
+    const result = await s.prepareBootstrapFiles({ config: settings, vm: current, authorised: true, ...approved });
+    assert.equal(result.healthUrl, "https://gcp-staging.34.136.112.197.sslip.io/health");
+    assert.equal(result.httpsVerified, false); assert.equal(result.cloudMutations, false);
+    assert.ok(!JSON.stringify(result).includes(token));
+    assert.equal(await readFile(join(outputDirectory, "caddy.env"), "utf8"), "HSR_STAGING_HOST=gcp-staging.34.136.112.197.sslip.io\n");
+    const caddy = await readFile(join(outputDirectory, "Caddyfile"), "utf8");
+    assert.ok(caddy.includes("reverse_proxy 127.0.0.1:8788")); assert.ok(!caddy.includes(token));
+    const env = await readFile(join(outputDirectory, "synthetic.env"), "utf8");
+    assert.ok(env.includes(`HSR_SYNTHETIC_TOKEN=${token}\n`)); assert.ok(!env.includes("CURRENCY_WAR_"));
+    if (process.platform !== "win32") for (const name of ["Caddyfile", "caddy.env", "synthetic.env"]) assert.equal((await lstat(join(outputDirectory, name))).mode & 0o777, 0o600);
+    await assert.rejects(s.prepareBootstrapFiles({ config: settings, vm: current, authorised: true, ...approved }));
+    for (const changed of [{ ...current, id: "replacement" }, { ...current, status: "TERMINATED" },
+      { ...current, networkInterfaces: vm.networkInterfaces }]) await assert.rejects(s.prepareBootstrapFiles({ config: { ...settings, bootstrap: { ...settings.bootstrap, outputDirectory: join(parent, "unused") } }, vm: changed, authorised: true, ...approved }));
+  } finally { await rm(parent, { recursive: true, force: true }); }
+});
+
+test("health is verified after bootstrap and refuses a previous-window IP before fetching", async () => {
+  assert.equal(typeof s.verifyStandbyHealth, "function");
+  const current = { ...vm, status: "RUNNING", networkInterfaces: [{ ...vm.networkInterfaces[0], accessConfigs: [{ type: "ONE_TO_ONE_NAT", natIP: "34.136.112.197" }] }] };
+  let calls = 0;
+  const fetchFn = async (url, options) => { calls++; assert.equal(url.href, "https://gcp-staging.34.136.112.197.sslip.io/health"); assert.equal(options.redirect, "error");
+    return { ok: true, json: async () => ({ status: "ok", mode: "hsr-synthetic-worker" }) }; };
+  const healthUrl = "https://gcp-staging.34.136.112.197.sslip.io/health";
+  const ready = { ...config, healthUrl, approvedHealthUrl: healthUrl };
+  const result = await s.verifyStandbyHealth({ config: ready, vm: current, fetchFn });
+  assert.equal(result.httpsHealth, true); assert.equal(result.authenticatedJobsVerified, false); assert.equal(calls, 1);
+  const previous = "https://gcp-staging.34.136.112.198.sslip.io/health";
+  await assert.rejects(s.verifyStandbyHealth({ config: { ...ready, healthUrl: previous, approvedHealthUrl: previous }, vm: current, fetchFn }));
+  await assert.rejects(s.verifyStandbyHealth({ config: ready, vm: { ...current, status: "TERMINATED" }, fetchFn }));
+  assert.equal(calls, 1);
+});
+
+test("bootstrap refuses token injection and missing authorisation without writing artifacts", async () => {
+  const parent = await mkdtemp(join(tmpdir(), "gcp-bootstrap-refuse-"));
+  try {
+    const tokenFile = join(parent, "token"), outputDirectory = join(parent, "untouched");
+    const current = { ...vm, status: "RUNNING", networkInterfaces: [{ ...vm.networkInterfaces[0], accessConfigs: [{ type: "ONE_TO_ONE_NAT", natIP: "34.136.112.197" }] }] };
+    const settings = { ...config, bootstrap: { ...config.bootstrap, tokenFile, outputDirectory } };
+    await writeFile(tokenFile, "A".repeat(32), { mode: 0o600 });
+    await assert.rejects(s.prepareBootstrapFiles({ config: settings, vm: current, ...approved }));
+    for (const token of ["short", "A".repeat(32) + "\nCURRENCY_WAR_WORKER_TOKEN=forbidden", "A".repeat(32) + "'quoted"]) {
+      await writeFile(tokenFile, token, { mode: 0o600 });
+      await assert.rejects(s.prepareBootstrapFiles({ config: settings, vm: current, authorised: true, ...approved }));
+      await assert.rejects(lstat(outputDirectory), { code: "ENOENT" });
+    }
+  } finally { await rm(parent, { recursive: true, force: true }); }
 });
