@@ -3,7 +3,7 @@ import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 const TOTAL_MS = 45000;
 const REQUEST_MS = 5000;
 const POLLS = 8;
-const POLL_DELAY_MS = 1000;
+const POLL_DELAY_MS = 4000;
 
 class ProbeFailure extends Error {
   constructor(status, code = 502) {

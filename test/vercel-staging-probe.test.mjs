@@ -239,7 +239,7 @@ test("real worker wire format: health, auth negatives, synthetic creation and qu
   assert.equal(JSON.parse(f.calls[1].body).sourceId, payload.sourceId);
   assert.equal(JSON.parse(f.calls[2].body).sourceId, payload.sourceId);
   assert.ok(f.calls.every(call => call.redirect === "manual" && call.signal instanceof AbortSignal));
-  assert.deepEqual(f.delays, [1000]);
+  assert.deepEqual(f.delays, [4000]);
   assert.equal(result.request.listenerCount("aborted"), 0);
   assert.equal(result.response.listenerCount("close"), 0);
 });
@@ -311,16 +311,38 @@ test("nested synthetic results are checked without returning their actual conten
   assert.equal(result.body.checks.synthetic, true);
 });
 
+test("a synthetic job taking 15.507 seconds succeeds within eight polls and the total budget", async () => {
+  let elapsed = 0;
+  const initialReplies = successfulReplies().slice(0, 4);
+  const pollTimes = [];
+  const f = fixture({ now: () => elapsed, sleep: async ms => { elapsed += ms; },
+    fetchImpl: async () => {
+      if (initialReplies.length) return initialReplies.shift();
+      pollTimes.push(elapsed);
+      return json(200, elapsed >= 15507 ? created : queued);
+    } });
+  const result = await invoke(f.run);
+  assert.equal(result.code, 200);
+  assert.equal(result.body.ok, true);
+  assert.equal(result.body.checks.synthetic, true);
+  assert.deepEqual(pollTimes, [0, 4000, 8000, 12000, 16000]);
+  assert.equal(elapsed, 16000);
+  assert.ok(elapsed < 45000);
+  assert.equal(f.calls.filter(call => call.method === "POST").length, 3);
+});
+
 test("polling stops after eight reads with bounded delays and never fabricates success", async () => {
+  let elapsed = 0;
   const replies = successfulReplies().slice(0, 4);
   for (let i = 0; i < 8; i++) replies.push(json(200, queued));
-  const f = fixture({ replies });
+  const f = fixture({ replies, now: () => elapsed, sleep: async ms => { elapsed += ms; } });
   const result = await invoke(f.run);
   assert.equal(result.code, 504);
   assert.equal(result.body.status, "poll_exhausted");
   assert.equal(result.body.ok, false);
   assert.equal(f.calls.length, 12);
-  assert.deepEqual(f.delays, [1000, 1000, 1000, 1000, 1000, 1000, 1000]);
+  assert.deepEqual(f.delays, [4000, 4000, 4000, 4000, 4000, 4000, 4000]);
+  assert.equal(elapsed, 28000);
 });
 
 test("responses only expose booleans, fixed statuses and timestamps on success and failure", async () => {
@@ -410,7 +432,7 @@ test("interruption of upstream or polling delay never returns fake success", asy
   }
 });
 
-test("the built-in poll delay waits one second and clears its timer when interrupted", { timeout: 2000 }, async t => {
+test("the built-in poll delay waits four seconds and clears its timer when interrupted", { timeout: 2000 }, async t => {
   t.mock.timers.enable({ apis: ["setTimeout"] });
   for (const interrupt of [false, true]) {
     const request = Readable.from([]);
@@ -421,7 +443,7 @@ test("the built-in poll delay waits one second and clears its timer when interru
     const pending = invoke(run, { request });
     await flush();
     assert.equal(calls, 5);
-    t.mock.timers.tick(999);
+    t.mock.timers.tick(3999);
     await flush();
     assert.equal(calls, 5);
     if (interrupt) request.emit("aborted"); else t.mock.timers.tick(1);

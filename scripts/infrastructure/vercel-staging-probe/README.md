@@ -75,8 +75,10 @@ including redirects on health and either negative auth check. Secrets are
 never forwarded to a redirect destination. Requests time out after 5 seconds,
 including JSON response body reading. The complete handler has a 45-second
 budget including input reading, requests and delays. There are at most eight
-polls, with a one-second interruptible delay between polls. The 45-second
-deadline takes priority over the poll count.
+polls, with a four-second interruptible delay between polls (seven delays,
+28 seconds total). This samples synthetic jobs that take more than 15.5 seconds
+without increasing the poll count. Request time also consumes the 45-second
+budget; that deadline takes priority over the poll count.
 
 Timeouts, caller disconnections and interrupted work never produce success.
 There is no automatic retry of job creation. An already submitted synthetic
