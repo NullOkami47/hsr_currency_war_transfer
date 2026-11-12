@@ -154,3 +154,67 @@ Observed service properties: NoNewPrivileges=yes, ProtectSystem=strict, PrivateT
 This verifies the committed test/runtime tools on independent Linux and systemd. **GCP_STANDBY_PARTIAL**, **E2_MICRO_PENDING**, **IPV6_END_TO_END_PENDING**, real GCP origin/TLS/Vercel and HoYoLAB authentication still unverified. Azure remains production; no production backup/pause/schedule or cloud resource provisioning performed. Project form remains hidden in Chrome, pending visible user interaction; separate backup destination/maintenance approval is still pending.
 
 GitHub Actions43133413282 and existing CircleCI checks passed on exact66f0211. The following documentation-only evidence commit has no executable changes; check its own CI separately.
+
+## 2026-11-12 帳戶與網路前置作業更新（尚未建立 VM）
+
+本段取代較早「專案 ID、billing linkage、project budgets 未確認」的狀態。使用官方 Google Cloud CLI 593.0.0，以本次 OAuth 明確登入原指定 ChingG 帳戶；CLI 與受限設定目錄位於 D:/CodexWork/gcp-tools，credential/code 未放入 repo 或聊天。
+
+- 已建立並從 dashboard 與 Resource Manager CLI 讀回專案 `hsr-currency-war-worker`，編號 `282550645630`，ACTIVE、無組織。
+- `billing projects describe` 確認連結原有效付費帳戶，billingEnabled=true；帳戶幣別由 API 確認 HKD。舊 closed 帳戶未使用。
+- Credits 頁仍顯示 Free Credit HK$2,353.66，2027-02-10 到期；七筆 Developer 月信用額各 HK$78.46、100%。報表存在延遲；沒有實際 transaction 證明誰先扣款。優先序 UNKNOWN。
+- 已啟用 Compute API 與 Billing Budgets API。已存檔並用 budgets list 獨立讀回：`hsr-project-gross-warning` HK$30/month、EXCLUDE_ALL_CREDITS、actual 50/75/90/100% 與 forecast100%；`hsr-project-net-warning` HK$1/month、INCLUDE_ALL_CREDITS、actual1/50/100%。HK$30 是本次選定的保守門檻，不宣稱是已驗證匯率換算的 US$5。帳戶既有 HK$0.10 net 警示保留。default IAM recipients 未停用；未實測寄信，未成功列出收件人 role membership。Budget 是警示，不是付款硬上限。
+- 已建立 `hsr-worker-vpc`（custom）、`hsr-worker-us-central1`（10.42.0.0/24），只允許 IAP 35.235.240.0/20 對標籤 hsr-worker-standby 的 TCP22。沒有公開 worker/VNC/CDP/HTTPS ingress、NAT、負載平衡器或 static address。
+- `us-central1-a` e2-micro API 回傳 2 guest CPUs、1024 MB RAM；Ubuntu image `ubuntu-2404-noble-amd64-v20261105` READY/x86_64。這不證明建立時有實際容量或 Chrome 可運行。
+- 新專案 instance/disks list 均空；同有效 billing account 僅此專案與原 gcp-pay 專案，後者 Compute API 未啟用。當前零資源不能證明整月 shared Free Tier 未曾使用。
+
+### IPv4 出口門檻
+
+Google DoH 與 Cloudflare DoH 即時 AAAA 查詢：`sg-act-public-api.hoyolab.com`、`act.hoyolab.com` 只有 CNAME，沒有 AAAA；A 查詢均有位址。`github.com` 亦無 AAAA。npm、Node、Google 下載站具有 AAAA 不足以令整個 worker 相容。這是外部 DNS 證據，尚未冒稱在 GCP VM 上測過連線。
+
+原純 IPv6 direct-egress 方案不能直接連這些 IPv4-only 端點。候選改為同一 e2-micro、20GB pd-standard、臨時 external IPv4、無 VM service account、IAP SSH、Google maxRunDuration=1h / STOP；建立前需使用者核准 IPv4 及非零費用風險。停止會釋放 ephemeral IPv4，但保留 boot disk。既有 `gcp-standby.mjs` 明確拒絕 IPv4；不能繞過它或造假的 costEvidence。得到核准後須以明確的 IPv4 staging 操作與 readback 驗證，或先更新並測試控制工具。
+
+官方 IPv4 定價 US$0.005/hour，monthly first hour allowance 是 billing-account shared；持續開機720h時 IPv4部分約US$3.60/月（扣一小時後US$3.595），不含其他資源或出站。Credit 可能抵扣符合資格費用，不能保證指定抵扣順序、永久免費或零現金支出。Public NAT 另有 gateway、處理流量與 IP 費，沒有部署。
+
+已備妥 guarded provisioning 腳本於本次工作目錄 work/gcp-online/New-GcpStandby.ps1，明確要求 -AuthoriseTemporaryIPv4，且若專案已有 VM 就拒絕重複建立。尚未執行。**GCP 尚未上線，VM final state N/A；等待 IPv4／費用邊界確認。** Azure 與 Vercel production 未切換。
+
+來源：Google 官方 [IPv4 定價](https://cloud.google.com/vpc/network-pricing)、[Free Tier](https://docs.cloud.google.com/free/docs/free-cloud-features)、[VM 時限](https://docs.cloud.google.com/compute/docs/instances/limit-vm-runtime)、[budgets](https://docs.cloud.google.com/billing/docs/how-to/budgets)。實際 JSON 收據與 DNS 查詢位於本次工作目錄 work/gcp-online，非帳單延遲結算保證。
+## 2026-11-12 已核准的 GCP IPv4 實機測試與最終待命狀態
+
+使用者於本對話對「單台 e2-micro、臨時 IPv4、最長一小時且 Google 端自動 STOP」明確回覆 ok。此核准不包含常駐付費 IPv4、延長測試、正式 cutover、真實 HoYoLAB 發布或 Azure 除役。
+
+### 實際資源與安全邊界
+
+- 專案 `hsr-currency-war-worker`，`us-central1-a`，VM `hsr-worker-standby`；Ubuntu `ubuntu-2404-noble-amd64-v20261105` x86_64，e2-micro API 1024MB，OS MemTotal 953MiB。
+- 單顆 20GB `pd-standard`，autoDelete=false，保留 boot disk。專用 VPC 與 IAP TCP22規則；沒有公開 worker、VNC、CDP入口、Cloud NAT、負載平衡器或 static address。
+- 建立使用 `--no-service-account --no-scopes`，最終完整 VM 讀回沒有 serviceAccounts。OS Login、阻擋project SSH keys、Shielded Secure Boot/vTPM/integrity均設定。
+- `maxRunDuration.seconds=3600`、`instanceTerminationAction=STOP`、automaticRestart=false 均在 RUNNING與TERMINATED狀態重新讀回。沒有重設時限；本次手動提早停止，不宣稱已實測自動到時STOP。
+- 實際執行 **2026-11-12 14:57:14.551～15:52:04.463 +08**，約54分50秒。最終 **TERMINATED**；20GB磁碟 **READY**；無配置中external IPv4、無static address。
+- IAP最初因本機連線問題逾時；官方CLI為generic archive，在Windows用bundled Python呼叫，沒有原生gcloud ssh支援。以本機獨立IPv4解析launcher及Windows OpenSSH經IAP連線成功；未改官方SDK碼。SSH host ED25519由Google序列console取得，再StrictHostKeyChecking=yes核對。臨時OSLogin key TTL1h，私鑰留D槽受限目錄，未上傳VM。IAP程序已停止。
+
+### 精確來源與安裝
+
+測試原碼 **5940d2fd969347a227231ef1a9384c60cda2dfe5**，程式相對2886e9f無差異，5940d2f只有文件。由Git archive提供**公開原碼**，不含.env、browser profile、正式state或token。
+
+首次Windows archive帶CRLF造成既有 `caddy-file-metadata.sh` shell測試失敗。讀取Git blob確認原始LF；以 `git -c core.autocrlf=false archive` 重新封存同一SHA，部署後全套通過，未修改測試以掩蓋錯誤。LF tar SHA-256 `a8650e3fb6aeae23fc8689c925e5a136118cbff48840d1be23c3e3577a787f66`；VM讀回一致。
+
+Node **v24.22.3**／npm **11.19.1**，官方Node SHASUMS256核對成功；Google簽名apt來源安裝 Chrome **157.0.8103.78**。程式root-owned `/opt/hsr-transfer-worker-staging`，非root `hsr-worker`，獨立0700state/home，root0600 `/etc/hsr-worker-synthetic.env`，只存新生成synthetic token。正式publisher未啟動。
+
+### GCP實際驗證
+
+- `npm ci --ignore-scripts` 成功、audit0；非root `node --test`：**278/278 pass、0fail、0skip**，10.72秒。這是精確公開原碼在真實GCP主機驗證；不是獨立審查人員的遠端二次驗證。
+- `measure-browser-memory.mjs`：兩次Chrome persistent-context啟動/close/reopen成功、合成cookie保留、chromiumSandbox=true；未使用no-sandbox。PSS peak459,374,592bytes（約438.09MiB），RSS peak1,003,577,344bytes（共享頁重複計算），109samples／107完整PSS samples，sampled swap0。不是HoYoLAB登入頁記憶體。
+- `synthetic-process-restart-drill.mjs`於15:41:14.909+08通過：4OS程序啟動、3graceful stop、1running synthetic工作SIGKILL，工作恢復／quota不變／mapping、jobs、security跨restart保留、duplicate不改mapping、401/400安全拒絕。沒有real publishing。
+- `synthetic-systemd-drill.mjs`於15:41:19.878+08通過：真實transient unit，PID6260→6511、NRestarts1，Chrome合成工作完成、三檔保留、最後inactive/MainPID0。sandbox NoNewPrivileges=yes、ProtectSystem=strict、PrivateTmp=yes、TasksMax256。工作cgroup MemoryPeak238,678,016bytes（227.62MiB）；CPU3.50s。通用測試輸出仍寫gcpVerified=false，因工具不自我判定平台；本節平台證據來自實際GCE身份／SSH／控制平面readback，未改寫原始log。
+- 已安裝 `hsr-worker-synthetic.service` 的實際smoke於15:44:38.578+08通過：loopback127.0.0.1:8788，未授權POST401，授權Chrome合成工作成功。MemoryPeak370,782,208bytes（353.61MiB），MemoryCurrent234,676,224bytes，CPU4.52s；之後stop並核對inactive/MainPID0。非正式service測試與正式worker隔離。
+- 公開唯讀HTTPS：HoYoLAB活動精確URL `https://act.hoyolab.com/sr/event/currency-wars/index.html` HTTP200/TLSverify0；sg-act-public-api根路徑HTTP404/TLSverify0，HEAD405屬根端點回應，不能當API授權驗證；GitHub/npm根HTTP200。**未登入HoYoLAB、未發真實策略、未測兩次authenticated read-only API。**
+- 後續memory.events補充收集未取得完整收據：IAP連線在最終stop前關閉。不得宣稱OOM counter=0；原browser-sizing oneshot結束卸載後cgroup欄位not set也不是測量值。以上有效峰值來自執行中的systemd restart與installed-service收據。
+
+原始失敗與成功證據封存在 `D:/CodexWork/free-worker-migration-evidence/gcp/gcp-actual-e2micro-evidence-20261112.tar.gz`，SHA-256 `240890f2f3f91af4726fd0f0471f47b44525f46eae3598885661b79fc518cebc`；download已核對，解壓於同目錄actual-e2micro-20261112。最終控制平面readback見本次work/gcp-online/final-vm-summary.json。
+
+### 成本／正式切換
+
+先前HK$30 gross／HK$1 net專案預算及HK$0.10帳戶net預算仍保留。15:55+08重讀credits頁，Free Credit仍顯示2,353.66、七筆Developer各78.46、八筆均100%；**報表延遲未消除，不能據此宣稱本次免費、先扣哪筆或零現金帳單。** IPv4位址本次不到1h；每billing account首小時能否全額適用未獲結算證據。已停止VM且無external IPv4；保留20GB標準PD仍受shared free-tier餘額影響。
+
+Azure已另行完成自動Blob備份與VM外還原驗證；GCP本次不搬正式state/profile或recovery key。Azure VM最後讀回running，Vercel Production/DNS未切換。備份工具在獨立 `/opt/hsr-backup`，不是本次GCP公開原碼版本的生產部署證明。
+
+狀態：**GCP_STANDBY_BASELINE_VERIFIED**、**E2_MICRO_SYNTHETIC_PASS**、**IPV4_EGRESS_BASELINE_PASS**、**E2E_PENDING**、**PRODUCTION_CUTOVER_BLOCKED**、**AZURE_FALLBACK_PRESERVED**。下一階段仍需核准staging hostname/TLS、實際Vercel測試入口、新HoYoLAB登入/MFA、兩次授權唯讀及明確批准的live transfer；驗收後才可請求Production GO。不得把本次一小時核准當成常駐付費IPv4或正式切換授權。
