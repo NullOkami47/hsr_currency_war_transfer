@@ -1,6 +1,6 @@
 # HSR resilience live deployment and remaining gates
 
-Updated 2026-11-13 00:27 Asia/Hong_Kong. Extends Draft PR #5 without redesigning the architecture. Azure remains Production; no live strategy write, production cutover, Azure shutdown or cloud-resource deletion was performed.
+Updated 2026-11-13 01:23 Asia/Hong_Kong. Extends Draft PR #5 without redesigning the architecture. Azure remains Production; no live strategy write, production cutover, Azure shutdown or cloud-resource deletion was performed.
 
 ## Verified delivery by priority
 
@@ -39,7 +39,7 @@ Actual Cloud Billing net invoice/credit application has not been finalised or re
 
 ## Remaining blockers and operator actions
 
-- Completed user-controlled HoYoLAB login and two read-only API checks. Remaining: review strict-policy compatibility and session validity after a future bounded restart; no real strategy write without separate approval.
+- Completed user-controlled HoYoLAB login and strict-policy same-VM restart/resume with two authenticated read-only API checks. Fresh password/MFA flow under the final strict preset has not been re-exercised; future session expiry still requires manual login. No real strategy write without separate approval.
 - Obtain trusted Students remaining balance, then enable effective USD20/USD10/five-day warnings; current unavailable-data warnings remain active.
 - Seven-day live deletion has no aged real candidates today; retain safeguards and inspect first actual eligible prune.
 - Independently preserve portable recovery key offline and recovery code separately. Neither should be uploaded to a VM, Git or chat.
@@ -52,3 +52,19 @@ Draft PR #8 now targets main so the unchanged main-only pull_request CI can run;
 - GCE VM immutable ID `4111188809525812699`, `hsr-worker-standby`, us-central1-a: lastStart 2026-11-13 00:00:18 HKT; lastStop 00:26:46 HKT; final control-plane state TERMINATED at 00:26:52 HKT.
 - Ephemeral external IPv4 no longer assigned (accessConfigs contains no natIP). Persistent disk/profile retained; no resource deletion. Independent backup monitor remains separate from this stopped VM.
 - No live strategy writes, production cutover, Azure shutdown or production Vercel/DNS changes. No claim that the session survives the next start: that has not been tested. Actual net cloud cost for this window is not yet reconciled; no zero-cost claim.
+### 2026-11-13 strict-policy restart and authenticated resume verified
+
+This section supersedes the earlier pending restart/strict-resume gate. Evaluated/deployed executable source: `dd1a27a0396e0e1044fc981fcd42d562b01ead91` (startup fix `7d5dd203c2129d55aca27630c4c7a24e47f0c325`). No temporary broad compatibility layer is used by the probe; private resume configuration has officialLogin=true, resume=true and no additional authRequests.
+
+- GCE immutable VM `4111188809525812699`, retained disk `9008789074271067611`: new window started **01:07:38 HKT** after the previous confirmed stop. Provider STOP=3600s/no automatic restart was retained; no deadline extension. No GCP worker/synthetic publisher was started.
+- The first strict resume was correctly rejected by pre-existing Chrome singleton symlinks. Operator verified the new boot ID, absence of the old PID2013, no active Chrome/writer/login units and the exact known private profile. Three stale symlinks were moved, without deletion, into a new root-only same-VM quarantine directory. This is an explicit reversible operator repair; the tooling still rejects unknown locks and never clears them automatically.
+- The exact known profile was enrolled once after checking canonical 0700 ownership, actual metadata identity and the original 0600 result timestamp (2026-11-12 16:24:56.439 UTC). No arbitrary profile adoption, profile copy or credential export. Subsequent probe uses the persisted 0600 same-VM receipt and exclusive locks.
+- Initial guarded request reached HTTP200/retcode-100; diagnosis found the official event-login SDK's `POST /common/badge/v1/login/account` was blocked. The public official `event-login/v2/main.js` independently confirmed getInfoByAccount uses this exact endpoint against the SEA production badge base. Only POST/OPTIONS for this exact HTTPS origin/path were admitted, with adjacent APIs/GET and strategy writes denied. No payload, response data, account identifiers or cookie values were recorded.
+- **01:19:16 HKT actual GCP result:** `{"authenticatedReadOnlyChecks":2,"strategyWrites":false,"profileResumed":true,"profileExported":false,"productionStateVerified":false,"publisherStarted":false}`. This is a real headless same-profile restart/resume under strict guards, not a synthetic session or proof of publishing ability. No user re-login was needed. Node24.22.3, Chrome157.0.8103.78, non-root hsr-worker, sandbox enabled.
+- Deployment archive SHA256 `5851117eb6224b4fd9ea2c1eeed59be604ae8b6a9f94725c79d9572bebe52151` matched on the VM. Installed login script SHA256 `1648c97df43d1d21dcbf28392381837fddf2436f234442723beae4e1376f4936`; startup gate `42a2b827ab0158fc3d20946ab60953023cebec776eacdf05606e999c74abb370`.
+- At01:20:32 HKT probe unit inactive/MainPID0/Result=success/exit0; both worker services inactive/MainPID0. Profile0700 and receipt0600 owned by hsr-worker. Global session lock, profile owner and Chrome SingletonLock absent; graceful release verified.
+- Stop completed **01:21:28 HKT**. Final control-plane readback **01:22:34 HKT: TERMINATED, no assigned external IPv4**. Persistent disk/profile remain. Azure Production, Vercel Production/DNS, backup destinations and recovery keys were untouched. Actual delayed billing/credit application for this 13m49s window remains unreconciled; no zero-cost claim.
+
+Independent verification used fresh local clones (Simular Box unavailable), clean `npm ci --ignore-scripts`, Windows10.0.26300 x64/Node24.18.0/npm11.16.0/Chrome157.0.8103.79/Playwright1.62.1. Exact7d5dd20:44/44 pass,0skip,exit0 including real persistent Chrome startup/reopen behind a closed gate. Exactdd1a27a: initial43pass/1fail due an unrelated accounts.google.com background CONNECT being counted by the isolated browser-guard test (rejecting proxy prevented upstream access); targeted recheck1/1 and full recheck44/44,0skip,exit0. This transient test reliability issue is recorded rather than claiming a clean first pass. Independent review found no blocking issue in the final eight-line delta. These local results do not represent hosted CI or every possible restored page, MFA provider or expiry scenario.
+
+PR coordination: PR8 contains the current PR5 head `8e3b39c8914c22bc831ad55be58b8aaacb5c190d` as an ancestor (merge-base check exit0), so PR8 is the superset for review. Both PRs remain Draft/Open; do not independently merge both or rewrite PR5. No merge or closure is performed. Full password/MFA re-entry under the final preset remains a future interactive acceptance case; the verified result is strict authenticated session resume.

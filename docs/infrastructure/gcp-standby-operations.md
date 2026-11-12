@@ -1,6 +1,6 @@
 # GCP staging 啟動、唯讀登入與恢復程序
 
-本工具從 `8e3b39c8914c22bc831ad55be58b8aaacb5c190d` 延伸。這次交付僅修改工具、文件與針對性測試，沒有執行雲端變更、登入、state 搬移或 live publishing。既有 synthetic 驗收不重跑。先前文件的 VM 狀態是歷史收據；本次未重新讀取控制平面，不能聲稱已即時確認電源狀態。
+本工具從 `8e3b39c8914c22bc831ad55be58b8aaacb5c190d` 延伸。初版只交付工具與測試；後續經使用者核准，已完成互動登入與嚴格防護下的同VM session恢復。2026-11-13最新實機收據見 [resilience-live-deployment.md](resilience-live-deployment.md)，其中01:19:16兩次authenticated read-only成功、01:22:34讀回VM TERMINATED。沒有live publishing或Production切換；既有synthetic驗收不重跑。下列較早的未執行聲明保留作為當時程序邊界，現況以最新具時間收據為準。
 
 ## 核准範圍與固定目標
 
@@ -239,3 +239,23 @@ mode/direction 僅接受 synthetic-staging-dry-run/staging-restore，或 product
 獨立 D worktree；Box 在本次工具清單不可用，使用 Windows 本機 fallback，沒有傳私有資料至第三方。只執行受影響的兩個 Node test files、語法與 diff 檢查，不觸發 CI 或廣泛 synthetic/restart/systemd/restore 驗收。provider/metadata/browser session 邊界用受控資料；通過不代表 GCP/production 操作完成。獨立驗證需最終 exact commit 的 fresh checkout、clean dependencies，記錄 SHA、Node/npm/OS、命令、exit code/test counts，不能冒用開發 worktree 收據。
 
 精確 browser guard 檢查以 `HSR_READONLY_BROWSER_GUARD_TEST=1 node --test test/gcp-standby.test.mjs test/gcp-login-readonly.test.mjs` 啟用。使用 D 槽全新 profile、真實 sandbox Chrome、拒絕所有 CONNECT 的 loopback proxy，確認策略 fetch 與 WebSocket 未抵達 proxy；不連真實上游，不重跑既有合成驗收。首輪確實抓到使用 persistent 初始頁時 WebSocket 防護未覆蓋，修正成先裝 routes 再建頁後通過。HTTP redirect 的獨立回歸亦先失敗，再以單跳 fetch/3xx 拒絕修正。
+
+## 2026-11-13：嚴格登入規則與同一 VM 的 session 恢復
+
+`login.officialLogin=true` 啟用經實際登入觀察的規則：官方靜態資源僅限明確 origin、資源類型及副檔名；`account.hoyolab.com/login-platform/` 只接受單層靜態檔案 GET，不釘 build hash。認證 API 仍逐一固定 origin/path/method；未知 POST、第三方寫入、策略寫入、WebSocket 與跨轉址繞過均拒絕。這不是先前15分鐘放寬模式。未經驗證的 MFA、其他登入供應商或未來新增 API 可能需要另行觀察與審查，不能改成全網放行。
+
+Chrome 啟動前先建立 loopback HTTPS CONNECT gate，預設拒絕所有連線；HTTP/WebSocket guards 裝好、新頁建立且舊初始頁關閉後才准許明確官方目的地。恢復既有 profile 不可依賴事後關閉初始頁來防止啟動流量。profile remains on the same GCP disk; never export cookies, storage state, HAR, trace or credentials.
+
+新鮮 profile 首次建立時寫入0600 `.readonly-vm.json`，綁定 project、immutable VM ID、profile basename。`login.resume=true` 只允許 canonical、owner-private profile，且 receipt、Chrome singleton locks、profile owner 及全域 session lock 都須通過；不自動採用目錄、不清掉不明 lock、不自動重新登入。
+
+唯一舊 profile `gcp-readonly-profile-login-20261112` 是本工作在該固定 GCP VM 新建並由使用者登入，2026-11-13 00:24:56兩次實際唯讀已驗證、00:25:42關閉瀏覽器。這次核准包含恢復此已知 profile；可由 operator 一次性核對該固定目錄、0700/owner、先前0600結果及實際 metadata identity 後以 exclusive 寫入 receipt。這是特定已知 profile 的受控登錄，沒有加入「任意現有目錄補發 receipt」的功能。其他未知 profile 一律拒絕。
+
+在非root hsr-worker、固定私有目錄、無 CURRENCY_WAR_* production environment 下執行：
+
+```sh
+/opt/node-v24.22.3-linux-x64/bin/node scripts/infrastructure/gcp-login-readonly.mjs verify-session /private/resume-config.json --authorise-readonly-resume
+```
+
+私有 config 延用固定 account/project/zone/VM/disk/maxRunSeconds/ssh.hostKeyAlias；login 使用 profileDir、maxSeconds（例如180）、officialLogin=true、resume=true。verify-session 是 bounded headless probe，載入活動頁後執行兩次既有固定唯讀 `/game/user/lineup`，只輸出最小成功收據；失敗不進入人工登入等待、不複製profile、不啟動publisher。結果不代表可正式寫入策略。context close另有10秒期限；不確定清理時保留ownership供檢查，且provider STOP仍是外層上限。
+
+安全順序：核對 VM/disk/STOP → 限時啟動 → 核對部署hash／服務inactive → 同VM probe → 儲存最小收據 → browser/owner釋放 → 停止VM → 讀回TERMINATED且無externalIPv4。任何錯誤仍停止既有VM；不做全域清理或資源刪除。下次登入過期時才開前景viewer請使用者處理；不得用備份或Azureprofile繞過新登入。
