@@ -11,6 +11,21 @@ const body = JSON.stringify({ game: "hkrpg", page: "1", limit: "1", lineup_type:
 const policyConfig = { authRequests: [{ origin: "https://account.hoyoverse.com", path: "/observed-auth-only", methods: ["GET", "POST"] }], assetOrigins: ["https://webstatic.hoyoverse.com"] };
 const decide = (policy, url, method = "GET", resourceType = "fetch", postData) => policy({ url, method, resourceType, postData });
 
+test('observed official login dependencies load without admitting strategy writes', () => {
+  const policy = login.compileReadOnlyPolicy({authRequests:[
+    {origin:'https://passport-api-sg.hoyolab.com',path:'/account/ma-passport/token/verifyCookieToken',methods:['POST','OPTIONS']},
+    {origin:'https://sg-public-data-api.hoyoverse.com',path:'/device-fp/api/getFp',methods:['POST','OPTIONS']}
+  ],assetOrigins:['https://fastcdn.hoyoverse.com','https://act.hoyolab.com','https://act.hoyoverse.com','https://webstatic.hoyoverse.com']});
+  assert.equal(decide(policy,'https://passport-api-sg.hoyolab.com/account/ma-passport/token/verifyCookieToken','POST'),true);
+  assert.equal(decide(policy,api+'/game/config','GET'),true);
+  assert.equal(decide(policy,'https://sg-act-public-api.hoyolab.com/common/badge/v1/login/info','GET'),true);
+  assert.equal(decide(policy,'https://fastcdn.hoyoverse.com/mi18n/hkrpg_global/observed/en-us.json','GET','fetch'),true);
+  assert.equal(decide(policy,'https://act.hoyolab.com/gt-ui/assets/icons/example.svg','GET','fetch'),true);
+  assert.equal(decide(policy,api+'/game/config','POST'),false);
+  assert.equal(decide(policy,api+'/game/lineup/create_lineup_tourn','POST'),false);
+  assert.equal(decide(policy,'https://fastcdn.hoyoverse.com/api','GET','fetch'),false);
+});
+
 test("only the existing exact read API and fixed harmless payload are admitted", () => {
   const policy = login.compileReadOnlyPolicy(policyConfig);
   assert.equal(decide(policy, `${api}/game/user/lineup`, "POST", "fetch", body), true);

@@ -13,8 +13,14 @@ const exec = promisify(execFile);
 export const APP_URL = "https://act.hoyolab.com/sr/event/currency-wars/index.html?sign_type=2&auth_appid=rpqcurrencywar&authkey_ver=1&open_bbs=0&hyl_presentation_style=fullscreen&lang=en-us#/lineup/home";
 const READ_URL = `${REGIONS.global.baseUrl}/game/user/lineup`;
 const READ_BODY = Object.freeze({ game: "hkrpg", page: "1", limit: "1", lineup_type: "Tourn", order: "CreatedTime" });
-const AUTH_HOSTS = new Set(["account.hoyoverse.com", "account.hoyolab.com", "sg-public-api.hoyoverse.com"]);
-const STATIC_HOSTS = new Set(["webstatic.hoyoverse.com", "webstatic-sea.hoyoverse.com", "upload-os-bbs.hoyolab.com"]);
+const AUTH_HOSTS = new Set(["account.hoyoverse.com", "account.hoyolab.com", "sg-public-api.hoyoverse.com", "passport-api-sg.hoyolab.com", "sg-public-data-api.hoyoverse.com"]);
+const STATIC_HOSTS = new Set(["webstatic.hoyoverse.com", "webstatic-sea.hoyoverse.com", "upload-os-bbs.hoyolab.com", "fastcdn.hoyoverse.com", "act.hoyolab.com", "act.hoyoverse.com"]);
+const OBSERVED_READS = new Set([
+  `${REGIONS.global.baseUrl}/game/config`,
+  'https://sg-act-public-api.hoyolab.com/common/badge/v1/login/info',
+  'https://sdk-os-static.hoyoverse.com/combo/box/api/config/porte-fe-os/config',
+  'https://sg-public-data-api.hoyoverse.com/device-fp/api/getExtList',
+]);
 const strategyPath = path => /(?:\/game\/|\/event\/rpgcurrencywar(?:\/|$)|lineup|strategy)/i.test(path);
 
 function secureUrl(value) {
@@ -50,12 +56,16 @@ export function compileReadOnlyPolicy({ authRequests = [], assetOrigins = [] } =
         const payload = JSON.parse(postData);
         return payload && Object.keys(payload).length === 5 && Object.entries(READ_BODY).every(([key, expected]) => payload[key] === expected);
       }
+      if (method === 'GET' && OBSERVED_READS.has(url.origin + url.pathname)) return true;
       if (strategyPath(url.pathname)) return false;
       if (auth.some(rule => rule.origin === url.origin && rule.path === url.pathname && rule.methods.includes(method))) return true;
       if (method === "GET" && resourceType === "document" && url.origin === app.origin && url.pathname === app.pathname && url.search === app.search) return true;
-      return ["GET", "HEAD"].includes(method) && assets.has(url.origin)
-        && ["script", "stylesheet", "image", "font", "media"].includes(resourceType)
-        && /\.(?:js|css|png|jpe?g|webp|svg|gif|ico|woff2?|ttf|otf|mp4|webm)$/i.test(url.pathname);
+      if (!["GET", "HEAD"].includes(method) || !assets.has(url.origin)) return false;
+      const staticPath = /\.(?:js|css|png|jpe?g|webp|svg|gif|ico|woff2?|ttf|otf|mp4|webm)$/i.test(url.pathname);
+      if (["script", "stylesheet", "image", "font", "media"].includes(resourceType) && staticPath) return true;
+      return ["fetch", "xhr"].includes(resourceType) && (
+        (/^\/(?:admin\/)?mi18n\//.test(url.pathname) && /\.json$/i.test(url.pathname))
+        || (url.origin === 'https://act.hoyolab.com' && url.pathname.startsWith('/gt-ui/assets/icons/') && /\.svg$/i.test(url.pathname)));
     } catch { return false; }
   };
 }
