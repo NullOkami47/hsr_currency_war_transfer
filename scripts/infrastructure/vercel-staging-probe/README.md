@@ -15,7 +15,8 @@ handler also refuses to run unless Vercel sets `VERCEL_ENV=preview`.
 
 When creating that project later, select Other/no framework, Node.js 24,
 no build command and no output directory override. The nested `vercel.json`
-sets this Function's `maxDuration` to 60 seconds; the root app's Vercel config
+sets this Function's `maxDuration` to 60 seconds and enables request cancellation
+with `supportsCancellation: true`; the root app's Vercel config
 is unrelated. No cron, public custom rate limiter or CI/deploy workflow is
 added. Caller authentication is required for this isolated Preview endpoint.
 
@@ -48,6 +49,9 @@ secret-aware client; do not put real keys in repository files or shell history.
 Caller query parameters are never used for upstream targeting or payloads.
 Unauthenticated callers receive 401 without any upstream request. Authenticated
 non-POST calls receive 405. Nonempty bodies receive 400.
+Emptiness is checked against the raw request bytes; an empty JSON/form request
+is accepted even without a `Content-Length` header. Parsed `request.body`
+helpers are never used to decide whether the original input was empty.
 
 The fixed sequence is:
 

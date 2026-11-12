@@ -61,18 +61,28 @@ async function delay(ms, signal) {
   finally { clearTimeout(timer); }
 }
 
-async function requireEmptyBody(request) {
+async function requireEmptyBody(request, signal) {
   const headers = request.headers ?? {};
   if ((headers["content-length"] !== undefined && headers["content-length"] !== "0")
     || headers["transfer-encoding"] !== undefined) throw new ProbeFailure("invalid_body", 400);
-  // Vercel may parse a zero-byte JSON/form body as {}. Explicit framing of
-  // zero bytes takes priority over that helper; still check any raw chunks.
-  const body = headers["content-length"] === "0" ? undefined : request.body;
-  if (body !== undefined && body !== "" && !(Buffer.isBuffer(body) && body.length === 0)) {
-    throw new ProbeFailure("invalid_body", 400);
-  }
-  for await (const chunk of request) {
-    if (Buffer.byteLength(chunk) > 0) throw new ProbeFailure("invalid_body", 400);
+  // Vercel restores the raw stream after its helpers read it. Do not consult
+  // request.body: an empty JSON/form body is indistinguishable from {} there.
+  // Consume the restored data/end events rather than async iteration, which
+  // can see the original IncomingMessage's already-ended state on Vercel.
+  let dataTarget, endTarget, onData, onEnd, onError;
+  try {
+    await raceAbort(() => new Promise((resolve, reject) => {
+      onData = chunk => { if (Buffer.byteLength(chunk) > 0) reject(new ProbeFailure("invalid_body", 400)); };
+      onEnd = resolve;
+      onError = reject;
+      dataTarget = request.on("data", onData);
+      endTarget = request.on("end", onEnd);
+      request.on("error", onError);
+    }), signal);
+  } finally {
+    if (onData) dataTarget?.removeListener("data", onData);
+    if (onEnd) endTarget?.removeListener("end", onEnd);
+    if (onError) request.removeListener("error", onError);
   }
 }
 
@@ -84,7 +94,7 @@ export function createProbeHandler({ env = process.env, fetchImpl = globalThis.f
     const report = { ok: false, status: "upstream_error", startedAt: new Date().toISOString(),
       finishedAt: "", checks: { health: false, missingTokenRejected: false,
         wrongTokenRejected: false, created: false, synthetic: false }, upstream: {} };
-    let timer, interrupted, disconnected;
+    let timer, interrupted, disconnected, callerSignal;
     const budget = new AbortController();
     const deadline = now() + TOTAL_MS;
     function checkBudget() {
@@ -121,9 +131,12 @@ export function createProbeHandler({ env = process.env, fetchImpl = globalThis.f
       request.once("aborted", interrupted);
       request.once("error", interrupted);
       response.once("close", disconnected);
+      callerSignal = request.signal;
+      callerSignal?.addEventListener("abort", interrupted, { once: true });
+      if (callerSignal?.aborted) interrupted();
       if (request.aborted || response.destroyed) interrupted();
       timer = setTimeout(() => budget.abort(new ProbeFailure("timed_out", 504)), TOTAL_MS);
-      await raceAbort(() => requireEmptyBody(request), budget.signal);
+      await requireEmptyBody(request, budget.signal);
       checkBudget();
 
       async function upstream(name, path, { method = "GET", bearer, body, readJson = false } = {}) {
@@ -211,6 +224,7 @@ export function createProbeHandler({ env = process.env, fetchImpl = globalThis.f
       if (interrupted) request.removeListener("aborted", interrupted);
       if (interrupted) request.removeListener("error", interrupted);
       if (disconnected) response.removeListener("close", disconnected);
+      callerSignal?.removeEventListener("abort", interrupted);
     }
   };
 }

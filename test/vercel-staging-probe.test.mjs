@@ -80,7 +80,7 @@ test("POST is the only accepted method and unsupported methods make no upstream 
 test("only an empty body is accepted, including raw streams and Vercel parsed bodies", async () => {
   for (const options of [
     { body: ["{}"] }, { body: [" "] }, { body: ["null"] },
-    { parsedBody: {} }, { parsedBody: null }, { parsedBody: " " },
+    { body: ["{}"], parsedBody: {} }, { body: ["null"], parsedBody: null }, { body: [" "], parsedBody: " " },
     { headers: { "content-length": "2" } }, { headers: { "content-length": "invalid" } },
     { headers: { "transfer-encoding": "chunked" } },
   ]) {
@@ -94,16 +94,48 @@ test("only an empty body is accepted, including raw streams and Vercel parsed bo
 
 test("zero-byte bodies stay empty when Vercel parses JSON or form content types as objects", async () => {
   for (const contentType of ["application/json", "application/x-www-form-urlencoded"]) {
-    const f = fixture();
-    const result = await invoke(f.run, { parsedBody: {}, headers: {
-      "content-length": "0", "content-type": contentType,
-    } });
-    assert.equal(result.code, 200);
-    assert.equal(result.body.ok, true);
+    for (const framing of [{}, { "content-length": "0" }]) {
+      const f = fixture();
+      const result = await invoke(f.run, { parsedBody: {}, headers: {
+        ...framing, "content-type": contentType,
+      } });
+      assert.equal(result.code, 200);
+      assert.equal(result.body.ok, true);
+    }
   }
   const f = fixture();
   assert.equal((await invoke(f.run, { body: ["{}"], headers: { "content-length": "0" } })).code, 400);
   assert.equal(f.calls.length, 0);
+});
+
+test("raw bytes decide body emptiness without invoking Vercel's lossy body getter", async () => {
+  for (const body of [[], ["{}"], [" "]]) {
+    const request = Readable.from(body);
+    Object.defineProperty(request, "body", { get() { throw new Error("do not parse input"); } });
+    const f = fixture();
+    const result = await invoke(f.run, { request });
+    assert.equal(result.code, body.length ? 400 : 200);
+    assert.equal(result.body.ok, body.length === 0);
+    assert.equal(f.calls.length, body.length ? 0 : 5);
+  }
+});
+
+test("Vercel's restored body stream rejects bytes even after the original IncomingMessage ended", async () => {
+  for (const bytes of ["", "{}", " "]) {
+    const request = Readable.from([]);
+    for await (const _chunk of request) { /* Original stream consumed by runtime. */ }
+    const restored = new Readable({ read() {} });
+    restored.push(Buffer.from(bytes)); restored.push(null);
+    const originalOn = request.on.bind(request);
+    request.read = restored.read.bind(restored);
+    request.on = function (event, ...args) {
+      return event === "data" || event === "end" ? restored.on(event, ...args) : originalOn(event, ...args);
+    };
+    const f = fixture();
+    const result = await invoke(f.run, { request, headers: { "content-type": "application/json" } });
+    assert.equal(result.code, bytes.length ? 400 : 200);
+    assert.equal(f.calls.length, bytes.length ? 0 : 5);
+  }
 });
 
 test("Preview guard refuses production, development and missing platform environment", async () => {
@@ -439,6 +471,22 @@ test("a request error after body consumption interrupts health and cannot report
   assert.equal(f.calls[0].signal.aborted, true);
 });
 
+test("a platform request AbortSignal interrupts in-flight work before jobs can be created", async () => {
+  const request = Readable.from([]);
+  const controller = new AbortController();
+  request.signal = controller.signal;
+  const f = fixture({ fetchImpl: async () => {
+    controller.abort();
+    return json(200, { status: "ok", mode: "hsr-synthetic-worker" });
+  } });
+  const result = await invoke(f.run, { request });
+  assert.equal(result.code, 408);
+  assert.equal(result.body.status, "interrupted");
+  assert.equal(result.body.ok, false);
+  assert.equal(f.calls.length, 1);
+  assert.equal(f.calls[0].signal.aborted, true);
+});
+
 test("a late poll gets only the remaining total budget, not a fresh five seconds", { timeout: 2000 }, async t => {
   t.mock.timers.enable({ apis: ["setTimeout"] });
   let elapsed = 0;
@@ -492,6 +540,7 @@ test("isolated project declares the Node function with maximum duration no great
   assert.equal(config.framework, null);
   assert.ok(config.functions["api/probe.mjs"].maxDuration <= 60);
   assert.ok(config.functions["api/probe.mjs"].maxDuration >= 45);
+  assert.equal(config.functions["api/probe.mjs"].supportsCancellation, true);
   assert.equal(pkg.private, true);
   assert.equal(pkg.type, "module");
   assert.equal(Object.keys(pkg.dependencies ?? {}).length, 0);
