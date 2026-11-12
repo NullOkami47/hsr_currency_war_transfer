@@ -269,6 +269,30 @@ An unexpected post-publish difference is not treated as success. The connector
 retries public reads briefly to tolerate cache delay, then raises a verification
 error containing the failed payload paths.
 
+A successful create or edit can temporarily return `Lineup does not exist`
+(`retcode -515`) when read through the public detail endpoint. Verification
+therefore makes up to ten reads, waiting 1, 2, 4 and then at most 5 seconds
+between attempts (37 seconds of waiting in total, excluding request time).
+Gameplay and the full title must still match, and a share code must be present
+before the transfer is reported as complete.
+
+Immediately after a confirmed write, the transfer store checkpoints the global
+ID and submitted content hash with `verificationPending: true` and a null share
+code. A retry of the same source content resumes verification of that ID,
+including from a later worker process once the transfer lock is released.
+Abrupt process termination can leave the existing store lock in place; an
+administrator must confirm the old process has stopped before recovering that
+lock. Verification failures retain the checkpoint;
+they do not establish a completed transfer. A pending ID is never automatically
+replaced on a missing-detail response. If the source changes, the existing ID
+must first be readable before it can be edited in place. Successful verification
+saves the share code and clears the pending marker.
+
+Failures from older worker versions may have published a strategy without
+retaining its ID. Before retrying those jobs, check the publishing account's
+existing posts, verify the candidate against the source, and adopt that mapping
+with `mapping:adopt` rather than creating another post.
+
 The global create endpoint may return success without a lineup ID. In that
 case, the connector does not repeat the create call. It queries My Posts and
 recovers the newest exact title-and-description match, preventing a duplicate.
