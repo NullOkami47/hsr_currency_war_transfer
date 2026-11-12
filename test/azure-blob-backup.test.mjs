@@ -17,7 +17,7 @@ async function fixture(t) {
   await writeFile(paths.jobs, JSON.stringify({version:4,settings:{},jobs:{},quota:{events:[],blockedUntil:0}}));
   await writeFile(paths.security, JSON.stringify({version:1,requests:{},sessions:{}}));
   const backup = await createStateBackup({paths, publicKey:key, assertQuiescent:async()=>{}, now:()=>new Date('2026-11-12T01:00:00.000Z')});
-  const spool = join(root, 'spool'); await mkdir(spool);
+  const spool = join(root, 'spool'); await mkdir(spool, {mode:0o700});
   const stem = join(spool, 'hsr-state-2026-11-12T01-00-00-000Z');
   await writeFile(stem+'.enc.json',backup.encrypted,{mode:0o600}); await writeFile(stem+'.receipt.json',JSON.stringify(backup.receipt)+'\n',{mode:0o600});
   return {root, config:{...config,backupDirectory:spool}, snapshot:{...backup.receipt,file:stem+'.enc.json',receiptFile:stem+'.receipt.json'}};
