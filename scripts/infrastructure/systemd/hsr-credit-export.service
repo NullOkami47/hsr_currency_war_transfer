@@ -1,0 +1,20 @@
+[Unit]
+Description=Read-only Azure Students credit evidence export
+After=network-online.target
+Wants=network-online.target
+[Service]
+Type=oneshot
+User=root
+ExecStart=/usr/bin/node /opt/hsr-backup/azure-credit-export.mjs --subscription 73072b4c-61c1-49fb-ac97-1596bc06b577
+# Exit 1 means a correctly exported warning, not an exporter transport failure.
+SuccessExitStatus=1
+TimeoutStartSec=120s
+RuntimeDirectory=hsr-credit-export
+RuntimeDirectoryMode=0700
+RuntimeDirectoryPreserve=yes
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/run/hsr-credit-export
