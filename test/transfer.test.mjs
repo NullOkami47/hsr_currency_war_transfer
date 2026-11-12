@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
 
+import { CurrencyWarApiError } from "../src/api.mjs";
+import { JsonTransferStore } from "../src/store.mjs";
 import {
   applySourceAttribution,
   buildGlobalTitlePrefix,
@@ -170,7 +175,9 @@ test("creates once with a translated bond prefix and Chinese attribution", async
     title: "added",
     description: "added",
   });
-  assert.equal(calls.set.length, 1);
+  assert.equal(calls.set.length, 2);
+  assert.equal(calls.set[0].value.verificationPending, true);
+  assert.equal(calls.set.at(-1).value.verificationPending, undefined);
 });
 
 test("retries a transient initial read without repeating the publish write", async () => {
@@ -260,7 +267,7 @@ test("rebuilds the source-selected bond prefix with global zh-tw names", () => {
 test("returns the existing code without publishing when nothing changed", async () => {
   const first = dependencies();
   const created = await transferStrategy(SOURCE_ID, first.options);
-  const record = first.calls.set[0].value;
+  const record = first.calls.set.at(-1).value;
   const published = publishedFrom(first.calls.create[0], "same-code");
   const second = dependencies({ previous: record, published });
 
@@ -276,7 +283,7 @@ test("returns the existing code without publishing when nothing changed", async 
 test("edits the existing strategy when its source changed", async () => {
   const first = dependencies();
   await transferStrategy(SOURCE_ID, first.options);
-  const record = first.calls.set[0].value;
+  const record = first.calls.set.at(-1).value;
   const oldPublished = publishedFrom(first.calls.create[0], "old-code");
   const second = dependencies({
     previous: record,
@@ -298,7 +305,7 @@ test("edits the existing strategy when its source changed", async () => {
 test("waits for the public detail cache to reflect an edit", async () => {
   const first = dependencies();
   await transferStrategy(SOURCE_ID, first.options);
-  const record = first.calls.set[0].value;
+  const record = first.calls.set.at(-1).value;
   const oldPublished = publishedFrom(first.calls.create[0], "old-code");
   const second = dependencies({
     previous: record,
@@ -407,7 +414,9 @@ test("does not report completion without a global share code", async () => {
     () => transferStrategy(SOURCE_ID, transfer.options),
     /share code/i,
   );
-  assert.equal(transfer.calls.set.length, 0);
+  assert.equal(transfer.calls.set.length, 1);
+  assert.equal(transfer.calls.set[0].value.verificationPending, true);
+  assert.equal(transfer.calls.set[0].value.shareCode, null);
 });
 
 test("rejects an expired China strategy before publishing", async () => {
@@ -452,7 +461,9 @@ test("transfer retains spotlight fields and detects upstream spotlight loss", as
   broken.options.verification={attempts:1,retryDelayMs:0};
   await assert.rejects(transferStrategy(SOURCE_ID,broken.options),error=>
     error.differences?.some(d=>d.path.includes('first_spot_lights')));
-  assert.equal(broken.calls.set.length,0);
+  assert.equal(broken.calls.set.length,1);
+  assert.equal(broken.calls.set[0].value.verificationPending,true);
+  assert.equal(broken.calls.set[0].value.shareCode,null);
 });
 
 test("modern transfers reject fewer than two supported spotlight recommendations before writing", async () => {
@@ -477,6 +488,123 @@ test("verification does not hide extra unsupported spotlight IDs or normalise a 
     };
     deps.options.verification={attempts:1,retryDelayMs:0};
     await assert.rejects(transferStrategy(SOURCE_ID,deps.options),e=>e.differences?.some(d=>d.path.includes('spot_light')));
-    assert.equal(deps.calls.set.length,0);
+    assert.equal(deps.calls.set.length,1);
+    assert.equal(deps.calls.set[0].value.verificationPending,true);
+    assert.equal(deps.calls.set[0].value.shareCode,null);
   }
+});
+
+test("waits through delayed Global visibility without publishing again", async () => {
+  const deps = dependencies();
+  const fetchDetail = deps.options.fetchLineupDetailFn;
+  let visibilityReads = 0;
+  const waits = [];
+  deps.options.verification = { waitFn: async (delay) => waits.push(delay) };
+  deps.options.fetchLineupDetailFn = async (region, id) => {
+    if (region === "global") {
+      visibilityReads += 1;
+      if (visibilityReads <= 7) {
+        throw new CurrencyWarApiError("Lineup does not exist", { retcode: -515 });
+      }
+    }
+    return fetchDetail(region, id);
+  };
+
+  const result = await transferStrategy(SOURCE_ID, deps.options);
+
+  assert.equal(result.status, "created");
+  assert.equal(result.shareCode, "share-code");
+  assert.equal(visibilityReads, 8);
+  assert.deepEqual(waits, [1000, 2000, 4000, 5000, 5000, 5000, 5000]);
+  assert.equal(deps.calls.create.length, 1);
+  assert.equal(deps.calls.edit.length, 0);
+});
+
+test("persists the publication before verification and resumes it after restart", async (t) => {
+  const directory = await mkdtemp(join(tmpdir(), "transfer-recovery-"));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const statePath = join(directory, "transfers.json");
+  const first = dependencies();
+  first.options.store = new JsonTransferStore(statePath);
+  const fetchDetail = first.options.fetchLineupDetailFn;
+  first.options.fetchLineupDetailFn = async (region, id) => {
+    if (region === "global") {
+      const checkpoint = await new JsonTransferStore(statePath).get(SOURCE_ID);
+      assert.equal(checkpoint?.globalId, GLOBAL_ID);
+      assert.equal(checkpoint.verificationPending, true);
+      assert.equal(checkpoint.shareCode, null);
+      throw new CurrencyWarApiError("Lineup does not exist", { retcode: -515 });
+    }
+    return fetchDetail(region, id);
+  };
+
+  await assert.rejects(transferStrategy(SOURCE_ID, first.options),
+    (error) => error.retcode === -515);
+  assert.equal(first.calls.create.length, 1);
+
+  const restarted = dependencies({ published: publishedFrom(first.calls.create[0]) });
+  restarted.options.store = new JsonTransferStore(statePath);
+  const result = await transferStrategy(SOURCE_ID, restarted.options);
+
+  assert.equal(result.status, "unchanged");
+  assert.equal(result.globalId, GLOBAL_ID);
+  assert.equal(result.shareCode, "share-code");
+  assert.equal(restarted.calls.create.length, 0);
+  assert.equal(restarted.calls.edit.length, 0);
+  const verified = await new JsonTransferStore(statePath).get(SOURCE_ID);
+  assert.equal(verified.verificationPending, undefined);
+  assert.equal(verified.shareCode, "share-code");
+});
+
+test("an invisible pending publication is never replaced even after the source changes", async () => {
+  for (const error of [
+    new CurrencyWarApiError("Lineup does not exist", { retcode: -515 }),
+    new CurrencyWarApiError("Not found", { status: 404 }),
+  ]) {
+    const deps = dependencies({ previous: {
+      globalId: GLOBAL_ID,
+      sourceHash: "previous-source-hash",
+      shareCode: null,
+      verificationPending: true,
+    } });
+    const fetchDetail = deps.options.fetchLineupDetailFn;
+    deps.options.mappedReadRetry = { attempts: 1, retryDelayMs: 0 };
+    deps.options.fetchLineupDetailFn = async (region, id) => {
+      if (region === "global") throw error;
+      return fetchDetail(region, id);
+    };
+
+    await assert.rejects(transferStrategy(SOURCE_ID, deps.options));
+    assert.equal(deps.calls.create.length, 0);
+    assert.equal(deps.calls.edit.length, 0);
+    assert.equal(deps.calls.set.length, 0);
+  }
+});
+
+test("resumes verification of a stale pending edit without repeating the edit", async () => {
+  const first = dependencies();
+  await transferStrategy(SOURCE_ID, first.options);
+  const deps = dependencies({
+    previous: { ...first.calls.set.at(-1).value, verificationPending: true },
+    published: publishedFrom(first.calls.create[0]),
+  });
+  const fetchDetail = deps.options.fetchLineupDetailFn;
+  let reads = 0;
+  deps.options.verification = { attempts: 3, retryDelayMs: 0 };
+  deps.options.fetchLineupDetailFn = async (region, id) => {
+    const result = await fetchDetail(region, id);
+    if (region === "global" && ++reads < 3) {
+      result.lineup = structuredClone(result.lineup);
+      result.lineup.description = "stale edit";
+    }
+    return result;
+  };
+
+  const result = await transferStrategy(SOURCE_ID, deps.options);
+
+  assert.equal(result.status, "unchanged");
+  assert.equal(reads, 3);
+  assert.equal(deps.calls.create.length, 0);
+  assert.equal(deps.calls.edit.length, 0);
+  assert.equal(deps.calls.set.at(-1).value.verificationPending, undefined);
 });

@@ -202,8 +202,12 @@ async function fetchVerifiedPublication(
   expectedPayload,
   globalConfig,
   {
-    attempts = 5,
-    retryDelayMs = 500,
+    attempts = 10,
+    retryDelayMs = 1000,
+    backoffFactor = 2,
+    maxRetryDelayMs = 5000,
+    waitFn = (milliseconds) =>
+      new Promise((resolve) => setTimeout(resolve, milliseconds)),
   } = {},
 ) {
   let lastError;
@@ -231,7 +235,10 @@ async function fetchVerifiedPublication(
     }
 
     if (attempt < attempts) {
-      await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
+      await waitFn(Math.min(
+        retryDelayMs * (backoffFactor ** (attempt - 1)),
+        maxRetryDelayMs,
+      ));
     }
   }
 
@@ -319,13 +326,24 @@ async function transferResolved(
 
   if (previous?.globalId) {
     try {
-      existingLineup = await fetchPublished(
-        fetchLineupDetailFn,
-        previous.globalId,
-        mappedReadRetry,
-      );
+      existingLineup = previous.verificationPending && previous.sourceHash === sourceHash
+        ? await fetchVerifiedPublication(
+            fetchLineupDetailFn,
+            previous.globalId,
+            payload,
+            globalConfig,
+            verification,
+          )
+        : await fetchPublished(
+            fetchLineupDetailFn,
+            previous.globalId,
+            mappedReadRetry,
+          );
     } catch (error) {
-      if (!(error instanceof PublishedStrategyNotFoundError)) throw error;
+      // A successful write may not be publicly visible yet. Keep its ID even
+      // when a later attempt sees a 404; replacing it could create a duplicate.
+      if (previous.verificationPending
+        || !(error instanceof PublishedStrategyNotFoundError)) throw error;
       existingLineup = null;
     }
   }
@@ -343,6 +361,14 @@ async function transferResolved(
       );
       if (!shareCode) {
         throw new Error("Published global strategy did not return a share code");
+      }
+      if (previous.verificationPending) {
+        await store.set(sourceId, {
+          globalId: previous.globalId,
+          sourceHash,
+          shareCode,
+          updatedAt: now().toISOString(),
+        });
       }
       return {
         status: "unchanged",
@@ -362,6 +388,15 @@ async function transferResolved(
     ? await publisher.edit(previous.globalId, payload)
     : await publisher.create(payload);
   const globalId = publication.lineupId;
+  // Persist the successful write before any public read. If verification times
+  // out or the worker restarts, the next attempt must resume this publication.
+  await store.set(sourceId, {
+    globalId,
+    sourceHash,
+    shareCode: null,
+    verificationPending: true,
+    updatedAt: now().toISOString(),
+  });
   const published = await fetchVerifiedPublication(
     fetchLineupDetailFn,
     globalId,
