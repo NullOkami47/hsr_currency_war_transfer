@@ -27,7 +27,10 @@
     "gcp:start": "node scripts/infrastructure/gcp-standby.mjs start",
     "gcp:stop": "node scripts/infrastructure/gcp-standby.mjs stop",
     "gcp:verify": "node scripts/infrastructure/gcp-standby.mjs verify",
-    "gcp:memory": "node scripts/infrastructure/measure-browser-memory.mjs"
+    "gcp:memory": "node scripts/infrastructure/measure-browser-memory.mjs",
+    "gcp:synthetic": "node scripts/infrastructure/synthetic-worker-server.mjs",
+    "gcp:restart-drill": "node scripts/infrastructure/synthetic-process-restart-drill.mjs",
+    "gcp:systemd-drill": "node scripts/infrastructure/synthetic-systemd-drill.mjs"
   },
   "dependencies": {
     "playwright-core": "^1.62.1"

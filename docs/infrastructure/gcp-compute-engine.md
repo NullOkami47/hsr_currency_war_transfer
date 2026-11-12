@@ -61,3 +61,21 @@ Cloudflare DNS proxy 解決入口雙協定，不解決 VM 的 IPv4-only egress�
 目前尚無已建立且驗證的 GCP VM；final power state 是 **N/A（未建立）**，不是 TERMINATED。選型、安裝 runbook 和 guarded controls 不等於 standby ready。
 
 最新 Box 合成診斷的 proportional PSS peak 約436.35MiB（整棵 Node/Chrome tree），RSS 約1.11GiB（共享頁面重複計算）；只有19個抽樣點，不是 HoYoLAB 真實工作負載，也不是 GCP 1GiB 的可行性證據。仍維持先測 e2-micro，沒有因此選擇或購買 paid VM。
+
+## 可執行的合成服務與重啟演練
+
+`synthetic-worker-server.mjs` 現在提供可長駐的真實 worker HTTP handler + JsonWorkerJobStore/JsonTransferStore/JsonSecurityStore；transfer function 只產生 `SYNTHETIC-` code，先完成全新 profile 的真實 Chrome probe。它不匯入正式 publisher，也不讀 HoYoLAB credentials。拒絕所有 inherited `CURRENCY_WAR_*`、未標記的非空資料夾、browser profile、symlink；只綁127.0.0.1:8788，使用獨立 staging token，回傳明確 mode。
+
+目錄具有 synthetic UUID marker 與程序 ownership lock。第二個 live owner 被拒絕；只有明確不存在的 PID 所留下的 synthetic owner/transfer lock 可復原。不允許跨機共用 JSON state；不將此測試專用恢復邏輯套用正式 Azure publisher。若不完整 JSON/temp file/ownership 不明，保持拒絕，不刪除或採用資料。
+
+安裝範本：`scripts/infrastructure/hsr-worker-synthetic.service` 和 `synthetic-worker.env.example`。先核對 Node 路徑、staging account、SHA、0700目錄、0600 environment file、官方 Chrome/原生函式庫。服務具 control-group kill、有限 restart burst、strict filesystem、獨立tmp、non-root、NoNewPrivileges 和一小時 RuntimeMaxSec。不因此移除 Chrome sandbox；若 Ubuntu user namespace/AppArmor 阻止 sandbox，回報失敗並調查官方支援，不能以 no-sandbox 通過。
+
+```sh
+# 無正式 credentials 的獨立 Linux 程序演練，使用暫存 synthetic directory。
+npm run gcp:restart-drill
+# 在經核准的開發/測試 Linux 主機：唯一命名 transient systemd unit，最長180秒。
+# 需要 sudo；只操作 hsr-synthetic-drill-<random>，finally stop 並清理自身暫存資料。
+HSR_SYSTEMD_DRILL_ALLOW_SUDO=1 npm run gcp:systemd-drill
+```
+
+程序演練會驗證真實 Chrome job、兩次程序重建的 state persistence、duplicate mapping、以及在合成 running 邊界 SIGKILL 後回復佇列且 quota 不變。systemd 演練驗證實際 supervisor crash restart、state、accounting 和停止。兩者都不是 GCP 證據；GCP 要在相同 commit 實際執行，並補 origin TLS/Vercel/IPv6 與機型 sizing。

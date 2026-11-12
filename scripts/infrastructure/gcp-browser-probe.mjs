@@ -7,7 +7,10 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
-export async function probeBrowser() {
+export async function probeBrowser({
+  browserChannel = process.env.CURRENCY_WAR_BROWSER_CHANNEL || "chromium",
+  browserExecutablePath = process.env.CURRENCY_WAR_BROWSER_EXECUTABLE_PATH,
+} = {}) {
   if (process.platform !== "linux" || process.getuid() === 0) {
     throw new Error("The diagnostic requires a non-root Linux user");
   }
