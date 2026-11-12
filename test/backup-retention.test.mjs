@@ -286,10 +286,14 @@ test('ambiguous DELETE acknowledgement reports uncertainty and never retries', a
     s.operations.delete = async args => {
       await remove(args);
       if (response === 'throw') throw new Error('synthetic credential');
-      if (response === 'timeout') await new Promise(r => setTimeout(r, 250));
+      // Keep the acknowledgement pending until the real operation deadline.
+      // A 250ms sleep raced CI scheduling and could expire before DELETE began.
+      if (response === 'timeout') await new Promise(resolve => args.signal.addEventListener('abort', resolve, { once: true }));
       return response;
     };
-    const result = await executeBackupRetention({ ...s.options, apply: true, limits: { timeoutMs: 200 } });
+    // Leave validation headroom on a shared runner; the timeout branch still
+    // exercises actual cancellation, one DELETE and an unconfirmed result.
+    const result = await executeBackupRetention({ ...s.options, apply: true, limits: { timeoutMs: 5000 } });
     assert.equal(result.status, 'blocked'); assert.equal(result.unconfirmedDeletes.length, 1);
     assert.equal(s.calls.filter(([op]) => op === 'delete').length, 1);
     assert.equal(s.objects.size, 5); assert.ok(!JSON.stringify(result).includes('credential'));
