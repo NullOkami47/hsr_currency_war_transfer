@@ -11,6 +11,88 @@ const body = JSON.stringify({ game: "hkrpg", page: "1", limit: "1", lineup_type:
 const policyConfig = { authRequests: [{ origin: "https://account.hoyoverse.com", path: "/observed-auth-only", methods: ["GET", "POST"] }], assetOrigins: ["https://webstatic.hoyoverse.com"] };
 const decide = (policy, url, method = "GET", resourceType = "fetch", postData) => policy({ url, method, resourceType, postData });
 
+test('observed login preset supports version-independent official assets and exact authentication APIs', () => {
+  const policy = login.compileReadOnlyPolicy({ officialLogin: true });
+  for (const file of ['web.NEW123.js', 'password-login-web.NEXT456.css', 'chunk-common.future.js']) {
+    assert.equal(decide(policy, 'https://account.hoyolab.com/login-platform/' + file, 'GET', file.endsWith('.js') ? 'script' : 'stylesheet'), true);
+  }
+  assert.equal(decide(policy, 'https://account.hoyolab.com/login-platform/index.html', 'GET', 'document'), true);
+  assert.equal(decide(policy, 'https://passport-api-sg.hoyolab.com/account/ma-passport/api/webLoginByPassword', 'POST', 'xhr'), true);
+  assert.equal(decide(policy, 'https://sg-public-api-static.hoyolab.com/account/ma-passport/api/getSwitchStatus', 'GET', 'xhr'), true);
+  assert.equal(decide(policy, 'https://act.hoyolab.com/sr/event/currency-wars/main.future.js', 'GET', 'script'), true);
+  assert.equal(decide(policy, 'https://act-webstatic.hoyoverse.com/darkmatter/icon.png', 'GET', 'image'), true);
+  assert.equal(decide(policy, 'https://act.hoyolab.com/sr/event/currency-wars/index.html', 'POST', 'fetch'), false);
+  for (const url of ['https://account.hoyolab.com/login-platform/not-an-asset', 'https://account.hoyolab.com/login-platform/api.js', 'https://account.hoyolab.com/other/main.js', 'https://account.hoyolab.com.evil.invalid/login-platform/main.js']) {
+    assert.equal(decide(policy, url, 'POST', 'xhr'), false);
+  }
+  assert.equal(decide(policy, 'https://account.hoyolab.com/unknown', 'POST', 'xhr'), false);
+  for (const url of ['https://account.hoyolab.com/login-platform/not-an-asset', 'https://account.hoyolab.com/other/main.js', 'https://account.hoyolab.com.evil.invalid/login-platform/main.js']) {
+    assert.equal(decide(policy, url, 'GET', 'script'), false);
+  }
+  assert.equal(decide(policy, 'https://evil.invalid/steal', 'POST', 'xhr'), false);
+  assert.equal(decide(policy, api + '/game/lineup/create_lineup_tourn', 'POST', 'fetch', body), false);
+  assert.equal(decide(policy, 'https://account.hoyolab.com/login-platform/game/write.js', 'GET', 'script'), false);
+  assert.equal(decide(policy, 'https://account.hoyolab.com/login-platform/%2e%2e/main.js', 'GET', 'script'), false);
+  assert.throws(() => login.compileReadOnlyPolicy({ officialLogin: 'true' }));
+});
+
+test('existing profiles require a same-VM receipt, private ownership and exclusive ownership marker', async () => {
+  const parent = await realpath(await mkdtemp(join(tmpdir(), 'gcp-resume-test-')));
+  const profile = join(parent, 'gcp-readonly-profile-resume');
+  const identity = { project: 'hsr-currency-war-worker', instanceId: '123' };
+  try {
+    await mkdir(profile, { mode: 0o700 });
+    assert.equal(typeof login.claimExistingProfile, 'function');
+    await assert.rejects(login.claimExistingProfile(profile, identity));
+    const receipt = { ...identity, profileName: 'gcp-readonly-profile-resume' };
+    await writeFile(join(profile, '.readonly-vm.json'), JSON.stringify({ ...receipt, instanceId: '999' }), { mode: 0o600 });
+    await assert.rejects(login.claimExistingProfile(profile, identity));
+    await writeFile(join(profile, '.readonly-vm.json'), JSON.stringify(receipt));
+    const release = await login.claimExistingProfile(profile, identity);
+    await assert.rejects(login.claimExistingProfile(profile, identity));
+    await release();
+    const releaseAgain = await login.claimExistingProfile(profile, identity); await releaseAgain();
+    await writeFile(join(profile, 'SingletonLock'), 'busy');
+    await assert.rejects(login.claimExistingProfile(profile, identity));
+  } finally { await rm(parent, { recursive: true, force: true }); }
+});
+
+test('fresh same-VM profile records its receipt only at exclusive creation', async () => {
+  const parent = await realpath(await mkdtemp(join(tmpdir(), 'gcp-receipt-test-')));
+  const profile = join(parent, 'gcp-readonly-profile-receipt');
+  const identity = { project: 'hsr-currency-war-worker', instanceId: '123' };
+  try {
+    const release = await login.claimFreshProfile(profile, identity);
+    assert.deepEqual(JSON.parse(await readFile(join(profile, '.readonly-vm.json'), 'utf8')), { ...identity, profileName: 'gcp-readonly-profile-receipt' });
+    await release();
+    const resumed = await login.claimExistingProfile(profile, identity); await resumed();
+    await assert.rejects(login.claimFreshProfile(profile, identity));
+  } finally { await rm(parent, { recursive: true, force: true }); }
+});
+
+test('resume uses the same-VM receipt and headless strict guards, never creates or exports a profile', async () => {
+  const parent = await realpath(await mkdtemp(join(tmpdir(), 'gcp-resume-flow-')));
+  const profile = join(parent, 'gcp-readonly-profile-resume-flow');
+  const config = { account: 'operator@example.invalid', project: 'hsr-currency-war-worker', zone: 'us-central1-a', instance: 'hsr-worker-standby', maxRunSeconds: 3600,
+    approvedTarget: { account: 'operator@example.invalid', project: 'hsr-currency-war-worker', zone: 'us-central1-a', instance: 'hsr-worker-standby', instanceId: '123', diskId: '456' },
+    login: { profileDir: profile, maxSeconds: 10, resume: true, officialLogin: true } };
+  let options, checks = 0; const steps = [];
+  const page = { goto: async () => steps.push('navigate'), bringToFront: async () => {}, url: () => login.APP_URL, evaluate: async () => { checks++; return true; } };
+  const context = { route: async (_, fn) => { steps.push('guard'); }, routeWebSocket: async () => steps.push('ws'), pages: () => [], newPage: async () => page, close: async () => steps.push('close') };
+  try {
+    await mkdir(profile, { mode: 0o700 });
+    await writeFile(join(profile, '.readonly-vm.json'), JSON.stringify({ project: config.project, instanceId: '123', profileName: 'gcp-readonly-profile-resume-flow' }), { mode: 0o600 });
+    const result = await login.runReadOnlyLogin({ config, checkIdentity: async () => steps.push('identity'), checkIdle: async () => {}, confirmReady: async () => {},
+      launchPersistentContext: async (path, opts) => { assert.equal(path, profile); options = opts; return context; } });
+    assert.deepEqual(result, { authenticatedReadOnlyChecks: 2, strategyWrites: false });
+    assert.equal(options.headless, true); assert.equal(options.chromiumSandbox, true);
+    assert.ok(options.args.includes('--no-startup-window'));
+    assert.ok(steps.indexOf('guard') < steps.indexOf('navigate'));
+    assert.equal(checks, 2); assert.equal(steps.at(-1), 'close');
+    await assert.rejects(readFile(join(profile, '.readonly-owner')), { code: 'ENOENT' });
+  } finally { await rm(parent, { recursive: true, force: true }); }
+});
+
 test('observed official login dependencies load without admitting strategy writes', () => {
   const policy = login.compileReadOnlyPolicy({authRequests:[
     {origin:'https://passport-api-sg.hoyolab.com',path:'/account/ma-passport/token/verifyCookieToken',methods:['POST','OPTIONS']},
@@ -160,7 +242,7 @@ test("real Chrome blocks strategy fetches and WebSockets before any proxy connec
     context = await chromium.launchPersistentContext(join(parent, "profile"), { channel: "chrome", headless: true,
       chromiumSandbox: true, serviceWorkers: "block", acceptDownloads: false, timeout: 20000,
       proxy: { server: `http://127.0.0.1:${proxy.address().port}` }, args: ["--disable-background-networking", "--disable-extensions"] });
-    await login.installReadOnlyRoutes(context, login.compileReadOnlyPolicy(policyConfig));
+    await login.installReadOnlyRoutes(context, login.compileReadOnlyPolicy({ ...policyConfig, officialLogin: true }));
     const page = await context.newPage();
     await page.setContent("<title>Read-only request guard</title>");
     const before = connections.length;

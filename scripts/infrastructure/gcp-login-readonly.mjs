@@ -6,6 +6,8 @@ import { basename, dirname, isAbsolute, resolve } from "node:path";
 import { createInterface } from "node:readline/promises";
 import { promisify } from "node:util";
 import { pathToFileURL } from "node:url";
+import { setTimeout as delay } from 'node:timers/promises';
+import { createLoginStartupGate } from './gcp-login-startup-gate.mjs';
 import { REGIONS } from "../../src/api.mjs";
 import { validateStandbyConfig } from "./gcp-standby.mjs";
 
@@ -13,8 +15,17 @@ const exec = promisify(execFile);
 export const APP_URL = "https://act.hoyolab.com/sr/event/currency-wars/index.html?sign_type=2&auth_appid=rpqcurrencywar&authkey_ver=1&open_bbs=0&hyl_presentation_style=fullscreen&lang=en-us#/lineup/home";
 const READ_URL = `${REGIONS.global.baseUrl}/game/user/lineup`;
 const READ_BODY = Object.freeze({ game: "hkrpg", page: "1", limit: "1", lineup_type: "Tourn", order: "CreatedTime" });
-const AUTH_HOSTS = new Set(["account.hoyoverse.com", "account.hoyolab.com", "sg-public-api.hoyoverse.com", "passport-api-sg.hoyolab.com", "sg-public-data-api.hoyoverse.com"]);
-const STATIC_HOSTS = new Set(["webstatic.hoyoverse.com", "webstatic-sea.hoyoverse.com", "upload-os-bbs.hoyolab.com", "fastcdn.hoyoverse.com", "act.hoyolab.com", "act.hoyoverse.com"]);
+const AUTH_HOSTS = new Set(["account.hoyoverse.com", "account.hoyolab.com", "sg-public-api.hoyoverse.com", "passport-api-sg.hoyolab.com", "sg-public-data-api.hoyoverse.com", "sg-public-api-static.hoyolab.com"]);
+const STATIC_HOSTS = new Set(["webstatic.hoyoverse.com", "webstatic-sea.hoyoverse.com", "upload-os-bbs.hoyolab.com", "fastcdn.hoyoverse.com", "act.hoyolab.com", "act.hoyoverse.com", "act-webstatic.hoyoverse.com"]);
+// Observed during the authorised 2026-11-13 password login. No wildcard APIs,
+// third-party POSTs or temporary compatibility bypass. Asset hashes may change.
+const LOGIN_AUTH = [
+  { origin: 'https://account.hoyolab.com', path: '/login-platform/index.html', methods: ['GET'] },
+  { origin: 'https://passport-api-sg.hoyolab.com', path: '/account/ma-passport/token/verifyCookieToken', methods: ['POST', 'OPTIONS'] },
+  { origin: 'https://passport-api-sg.hoyolab.com', path: '/account/ma-passport/api/webLoginByPassword', methods: ['POST', 'OPTIONS'] },
+  { origin: 'https://sg-public-data-api.hoyoverse.com', path: '/device-fp/api/getFp', methods: ['POST', 'OPTIONS'] },
+  { origin: 'https://sg-public-api-static.hoyolab.com', path: '/account/ma-passport/api/getSwitchStatus', methods: ['GET', 'OPTIONS'] },
+];
 const OBSERVED_READS = new Set([
   `${REGIONS.global.baseUrl}/game/config`,
   'https://sg-act-public-api.hoyolab.com/common/badge/v1/login/info',
@@ -30,10 +41,11 @@ function secureUrl(value) {
   return url;
 }
 
-export function compileReadOnlyPolicy({ authRequests = [], assetOrigins = [] } = {}) {
+export function compileReadOnlyPolicy({ authRequests = [], assetOrigins = [], officialLogin = false } = {}) {
+  if (typeof officialLogin !== 'boolean') throw new Error('Explicit boolean official-login preset required');
   // Auth routes are supplied only after the main operator observes official login.
   // No guessed passport/MFA APIs, broad host patterns or strategy exceptions.
-  const auth = authRequests.map(rule => {
+  const auth = [...(officialLogin ? LOGIN_AUTH : []), ...authRequests].map(rule => {
     const origin = secureUrl(rule.origin);
     if (origin.origin !== rule.origin || !AUTH_HOSTS.has(origin.hostname) || typeof rule.path !== "string"
       || !rule.path.startsWith("/") || strategyPath(rule.path) || /[?#%\\]/.test(rule.path)
@@ -41,7 +53,7 @@ export function compileReadOnlyPolicy({ authRequests = [], assetOrigins = [] } =
       || !Array.isArray(rule.methods) || !rule.methods.length || rule.methods.some(m => !["GET", "POST", "OPTIONS"].includes(m))) throw new Error("Exact observed official authentication routes required");
     return { origin: origin.origin, path: rule.path, methods: [...rule.methods] };
   });
-  const assets = new Set(assetOrigins.map(value => {
+  const assets = new Set([...(officialLogin ? [...STATIC_HOSTS].map(host => `https://${host}`) : []), ...assetOrigins].map(value => {
     const url = secureUrl(value);
     if (url.origin !== value || !STATIC_HOSTS.has(url.hostname)) throw new Error("Explicit supported official static origin required");
     return url.origin;
@@ -59,6 +71,9 @@ export function compileReadOnlyPolicy({ authRequests = [], assetOrigins = [] } =
       if (method === 'GET' && OBSERVED_READS.has(url.origin + url.pathname)) return true;
       if (strategyPath(url.pathname)) return false;
       if (auth.some(rule => rule.origin === url.origin && rule.path === url.pathname && rule.methods.includes(method))) return true;
+      if (officialLogin && method === 'GET' && url.origin === 'https://account.hoyolab.com'
+        && /^\/login-platform\/[^/]+\.(?:js|css|png|jpe?g|webp|svg|ico|woff2?|ttf)$/.test(url.pathname)
+        && ['script', 'stylesheet', 'image', 'font'].includes(resourceType)) return true;
       if (method === "GET" && resourceType === "document" && url.origin === app.origin && url.pathname === app.pathname && url.search === app.search) return true;
       if (!["GET", "HEAD"].includes(method) || !assets.has(url.origin)) return false;
       const staticPath = /\.(?:js|css|png|jpe?g|webp|svg|gif|ico|woff2?|ttf|otf|mp4|webm)$/i.test(url.pathname);
@@ -119,15 +134,44 @@ async function validatePrivateParent(parent) {
   if (!stat.isDirectory() || (process.platform !== "win32" && ((stat.mode & 0o077) !== 0 || stat.uid !== process.getuid()))) throw new Error("Profile parent must be private and owned by this user");
 }
 
-export async function claimFreshProfile(path) {
+export async function claimFreshProfile(path, identity) {
   if (!isAbsolute(path) || !/^gcp-readonly-profile-[a-zA-Z0-9-]+$/.test(basename(path))) throw new Error("A fresh dedicated absolute profile path required");
+  if (identity && (identity.project !== 'hsr-currency-war-worker' || !/^[1-9][0-9]*$/.test(identity.instanceId ?? ''))) throw new Error('Explicit same-VM profile identity required');
   await validatePrivateParent(dirname(resolve(path)));
   await mkdir(path, { mode: 0o700 }); // Exclusive. Never adopt/copy an old profile.
   const ownerPath = resolve(path, ".readonly-owner");
   const owner = await open(ownerPath, "wx", 0o600);
   try { await owner.writeFile(`${process.pid}\n`); await owner.sync(); }
   finally { await owner.close(); }
+  if (identity) {
+    const receipt = await open(resolve(path, '.readonly-vm.json'), 'wx', 0o600);
+    try { await receipt.writeFile(JSON.stringify({ ...identity, profileName: basename(path) })); await receipt.sync(); }
+    finally { await receipt.close(); }
+  }
   return async () => { await unlink(ownerPath); }; // Profile stays private on this VM.
+}
+
+export async function claimExistingProfile(path, identity) {
+  if (!isAbsolute(path) || !/^gcp-readonly-profile-[a-zA-Z0-9-]+$/.test(basename(path))
+    || identity?.project !== 'hsr-currency-war-worker' || !/^[1-9][0-9]*$/.test(identity.instanceId ?? '')) throw new Error('Explicit same-VM profile identity required');
+  await validatePrivateParent(dirname(resolve(path)));
+  await validatePrivateParent(resolve(path));
+  // Never adopt an arbitrary profile or remove a stale Chrome/owner lock.
+  for (const name of ['SingletonLock', 'SingletonSocket', 'SingletonCookie']) {
+    try { await lstat(resolve(path, name)); throw new Error('Existing Chrome ownership requires inspection'); }
+    catch (error) { if (error.code !== 'ENOENT') throw error; }
+  }
+  const receiptPath = resolve(path, '.readonly-vm.json');
+  const stat = await lstat(receiptPath);
+  if (!stat.isFile() || stat.isSymbolicLink() || stat.size > 1024
+    || (process.platform !== 'win32' && ((stat.mode & 0o077) !== 0 || stat.uid !== process.getuid()))) throw new Error('Private same-VM profile receipt required');
+  const receipt = JSON.parse(await readFile(receiptPath, 'utf8'));
+  if (receipt.project !== identity.project || receipt.instanceId !== identity.instanceId || receipt.profileName !== basename(path)) throw new Error('Profile receipt does not match this VM and directory');
+  const ownerPath = resolve(path, '.readonly-owner');
+  const owner = await open(ownerPath, 'wx', 0o600);
+  try { await owner.writeFile(`${process.pid}\n`); await owner.sync(); }
+  finally { await owner.close(); }
+  return () => unlink(ownerPath);
 }
 
 export async function claimLoginSession(parent) {
@@ -204,13 +248,18 @@ export async function runReadOnlyLogin({ config, confirmReady, launchPersistentC
   validateStandbyConfig(config);
   const settings = config.login;
   if (!settings || !Number.isInteger(settings.maxSeconds) || settings.maxSeconds < 1 || settings.maxSeconds > config.maxRunSeconds) throw new Error("Bounded login duration required");
+  if (settings.resume !== undefined && typeof settings.resume !== 'boolean') throw new Error('Explicit boolean resume mode required');
   const policy = compileReadOnlyPolicy(settings);
   await checkIdentity(config); await checkIdle();
   const releaseSession = await claimLoginSession(dirname(settings.profileDir));
   let release;
-  try { release = await claimFreshProfile(settings.profileDir); }
+  try {
+    release = settings.resume
+      ? await claimExistingProfile(settings.profileDir, { project: config.project, instanceId: config.approvedTarget.instanceId })
+      : await claimFreshProfile(settings.profileDir, { project: config.project, instanceId: config.approvedTarget.instanceId });
+  }
   catch (error) { await releaseSession(); throw error; }
-  let context, timer, interrupted;
+  let context, timer, interrupted, startupGate;
   const controller = new AbortController();
   const cancel = () => controller.abort();
   const cancelled = new Promise((_, reject) => {
@@ -221,14 +270,19 @@ export async function runReadOnlyLogin({ config, confirmReady, launchPersistentC
   process.once("SIGINT", cancel); process.once("SIGTERM", cancel);
   timer = setTimeout(cancel, settings.maxSeconds * 1000);
   try {
+    startupGate = await createLoginStartupGate({ hosts: [...new Set([
+      new URL(APP_URL).hostname, new URL(READ_URL).hostname, ...AUTH_HOSTS, ...STATIC_HOSTS,
+      'sdk-os-static.hoyoverse.com',
+    ])] });
     if (!launchPersistentContext) {
       const { chromium } = await import("playwright-core");
       launchPersistentContext = chromium.launchPersistentContext.bind(chromium);
     }
     // Await launch before racing work so that a late browser can always be closed.
-    context = await launchPersistentContext(settings.profileDir, { channel: "chrome", headless: false, chromiumSandbox: true,
+    context = await launchPersistentContext(settings.profileDir, { channel: "chrome", headless: settings.resume === true, chromiumSandbox: true,
+      proxy: { server: startupGate.server },
       serviceWorkers: "block", acceptDownloads: false, timeout: Math.min(20000, settings.maxSeconds * 1000),
-      args: ["--disable-extensions", "--disable-background-networking", "--disable-component-update", "--no-first-run", "--no-default-browser-check"] });
+      args: ["--disable-extensions", "--disable-background-networking", "--disable-component-update", "--no-first-run", "--no-default-browser-check", "--no-startup-window"] });
     const work = async () => {
       controller.signal.throwIfAborted();
       await installReadOnlyRoutes(context, policy);
@@ -237,6 +291,7 @@ export async function runReadOnlyLogin({ config, confirmReady, launchPersistentC
       const initialPages = context.pages();
       const page = await context.newPage();
       for (const initial of initialPages) await initial.close();
+      startupGate.admit();
       await page.goto(APP_URL, { waitUntil: "domcontentloaded", timeout: 20000 });
       await page.bringToFront();
       await confirmReady({ signal: controller.signal });
@@ -249,23 +304,37 @@ export async function runReadOnlyLogin({ config, confirmReady, launchPersistentC
   } finally {
     clearTimeout(timer); process.removeListener("SIGINT", cancel); process.removeListener("SIGTERM", cancel);
     controller.signal.removeEventListener("abort", interrupted);
-    if (context) { await context.close(); await release(); await releaseSession(); }
+    await startupGate?.close();
+    if (context) {
+      let closeTimer;
+      try {
+        await Promise.race([context.close(), new Promise((_, reject) => { closeTimer = setTimeout(() => reject(new Error('Browser close unconfirmed; ownership retained')), 10000); })]);
+      } finally { clearTimeout(closeTimer); }
+      await release(); await releaseSession();
+    }
     // A failed/ambiguous browser launch retains the ownership marker for inspection.
   }
 }
 
 async function main() {
   const [action, configPath, authority, ...extra] = process.argv.slice(2);
-  if (!configPath || extra.length || !["ssh-plan", "login"].includes(action)) throw new Error("Usage: gcp-login-readonly.mjs ssh-plan|login private-config.json [--authorise-readonly-login]");
+  if (!configPath || extra.length || !["ssh-plan", "login", "verify-session"].includes(action)) throw new Error("Usage: gcp-login-readonly.mjs ssh-plan|login|verify-session private-config.json [--authorise-readonly-login|--authorise-readonly-resume]");
   const config = JSON.parse((await readFile(configPath, "utf8")).replace(/^\uFEFF/, ""));
   validateStandbyConfig(config);
   if (config.ssh?.hostKeyAlias !== `gcp-${config.approvedTarget.instanceId}`) throw new Error("Host key must be bound to the pinned instance ID");
   if (action === "ssh-plan") {
     console.log(JSON.stringify({ executable: "ssh", args: await buildReadonlySshArgs(config.ssh), execute: false })); return;
   }
-  if (authority !== "--authorise-readonly-login" || process.platform !== "linux" || process.getuid() === 0
+  const resume = action === 'verify-session';
+  if (authority !== (resume ? '--authorise-readonly-resume' : '--authorise-readonly-login')
+    || (config.login?.resume === true) !== resume || process.platform !== "linux" || process.getuid() === 0
     || dirname(config.login?.profileDir ?? "") !== "/var/lib/hsr-transfer-worker-staging/login"
     || Object.keys(process.env).some(key => key.startsWith("CURRENCY_WAR_"))) throw new Error("Explicit non-root VM-only read-only login in the fixed private login directory without production environment required");
+  if (resume) {
+    const result = await runReadOnlyLogin({ config, confirmReady: ({ signal }) => delay(4000, undefined, { signal }) });
+    console.log(JSON.stringify({ ...result, profileResumed: true, profileExported: false, productionStateVerified: false, publisherStarted: false }));
+    return;
+  }
   const terminal = createInterface({ input: process.stdin, output: process.stdout });
   try {
     const result = await runReadOnlyLogin({ config, confirmReady: async ({ signal }) => {
