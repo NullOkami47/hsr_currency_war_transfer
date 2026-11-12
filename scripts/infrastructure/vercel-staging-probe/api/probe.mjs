@@ -65,8 +65,9 @@ async function requireEmptyBody(request) {
   const headers = request.headers ?? {};
   if ((headers["content-length"] !== undefined && headers["content-length"] !== "0")
     || headers["transfer-encoding"] !== undefined) throw new ProbeFailure("invalid_body", 400);
-  // Vercel exposes parsed bodies as a helper; even {} or null is a body.
-  const body = request.body;
+  // Vercel may parse a zero-byte JSON/form body as {}. Explicit framing of
+  // zero bytes takes priority over that helper; still check any raw chunks.
+  const body = headers["content-length"] === "0" ? undefined : request.body;
   if (body !== undefined && body !== "" && !(Buffer.isBuffer(body) && body.length === 0)) {
     throw new ProbeFailure("invalid_body", 400);
   }
@@ -118,6 +119,7 @@ export function createProbeHandler({ env = process.env, fetchImpl = globalThis.f
       interrupted = () => budget.abort(new ProbeFailure("interrupted", 408));
       disconnected = () => { if (!response.writableEnded) interrupted(); };
       request.once("aborted", interrupted);
+      request.once("error", interrupted);
       response.once("close", disconnected);
       if (request.aborted || response.destroyed) interrupted();
       timer = setTimeout(() => budget.abort(new ProbeFailure("timed_out", 504)), TOTAL_MS);
@@ -207,6 +209,7 @@ export function createProbeHandler({ env = process.env, fetchImpl = globalThis.f
     } finally {
       clearTimeout(timer);
       if (interrupted) request.removeListener("aborted", interrupted);
+      if (interrupted) request.removeListener("error", interrupted);
       if (disconnected) response.removeListener("close", disconnected);
     }
   };

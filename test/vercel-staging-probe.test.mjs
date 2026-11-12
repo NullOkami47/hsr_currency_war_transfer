@@ -92,6 +92,20 @@ test("only an empty body is accepted, including raw streams and Vercel parsed bo
   }
 });
 
+test("zero-byte bodies stay empty when Vercel parses JSON or form content types as objects", async () => {
+  for (const contentType of ["application/json", "application/x-www-form-urlencoded"]) {
+    const f = fixture();
+    const result = await invoke(f.run, { parsedBody: {}, headers: {
+      "content-length": "0", "content-type": contentType,
+    } });
+    assert.equal(result.code, 200);
+    assert.equal(result.body.ok, true);
+  }
+  const f = fixture();
+  assert.equal((await invoke(f.run, { body: ["{}"], headers: { "content-length": "0" } })).code, 400);
+  assert.equal(f.calls.length, 0);
+});
+
 test("Preview guard refuses production, development and missing platform environment", async () => {
   for (const VERCEL_ENV of ["production", "development", "", undefined]) {
     const f = fixture({ env: { VERCEL_ENV } });
@@ -408,6 +422,21 @@ test("response disconnection aborts in-flight work and releases lifecycle listen
   assert.equal(signal.aborted, true);
   assert.equal(request.listenerCount("aborted"), 0);
   assert.equal(response.listenerCount("close"), 0);
+});
+
+test("a request error after body consumption interrupts health and cannot report success", async () => {
+  const request = Readable.from([]);
+  const replies = successfulReplies();
+  const f = fixture({ fetchImpl: async (_url, _options, count) => {
+    if (count === 1) request.emit("error", new Error("caller transport failed"));
+    return replies.shift();
+  } });
+  const result = await invoke(f.run, { request });
+  assert.equal(result.code, 408);
+  assert.equal(result.body.ok, false);
+  assert.equal(result.body.status, "interrupted");
+  assert.equal(f.calls.length, 1);
+  assert.equal(f.calls[0].signal.aborted, true);
 });
 
 test("a late poll gets only the remaining total budget, not a fresh five seconds", { timeout: 2000 }, async t => {
