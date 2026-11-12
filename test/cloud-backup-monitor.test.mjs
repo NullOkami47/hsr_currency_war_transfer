@@ -407,7 +407,7 @@ test('native transport refuses redirects, oversized bodies and stalled responses
 });
 
 test('minimal Docker file layout starts the real executable without repository dependencies', async t => {
-  const temp = await mkdtemp(join(process.platform === 'win32' ? 'D:/CodexWork' : tmpdir(), 'hsr-monitor-layout-'));
+  const temp = await mkdtemp(join(tmpdir(), 'hsr-monitor-layout-'));
   const app = join(temp, 'cloud-backup-monitor');
   await mkdir(app);
   for (const helper of ['backup-watchdog.mjs', 'backup-retention.mjs']) {

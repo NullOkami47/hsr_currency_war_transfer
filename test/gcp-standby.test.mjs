@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { mkdtemp, readFile, writeFile, rm, lstat } from "node:fs/promises";
+import { mkdtemp, readFile, writeFile, rm, lstat, realpath } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import * as s from "../scripts/infrastructure/gcp-standby.mjs";
@@ -178,7 +178,7 @@ test("PREPARED can start without a live or previously known HTTPS origin", async
 
 test("bootstrap files use the current running IP and private token without returning secrets", async () => {
   assert.equal(typeof s.prepareBootstrapFiles, "function");
-  const parent = await mkdtemp(join(tmpdir(), "gcp-bootstrap-test-"));
+  const parent = await realpath(await mkdtemp(join(tmpdir(), "gcp-bootstrap-test-")));
   try {
     const tokenFile = join(parent, "token");
     const outputDirectory = join(parent, "new-files");
@@ -219,7 +219,7 @@ test("health is verified after bootstrap and refuses a previous-window IP before
 });
 
 test("bootstrap refuses token injection and missing authorisation without writing artifacts", async () => {
-  const parent = await mkdtemp(join(tmpdir(), "gcp-bootstrap-refuse-"));
+  const parent = await realpath(await mkdtemp(join(tmpdir(), "gcp-bootstrap-refuse-")));
   try {
     const tokenFile = join(parent, "token"), outputDirectory = join(parent, "untouched");
     const current = { ...vm, status: "RUNNING", networkInterfaces: [{ ...vm.networkInterfaces[0], accessConfigs: [{ type: "ONE_TO_ONE_NAT", natIP: "34.136.112.197" }] }] };

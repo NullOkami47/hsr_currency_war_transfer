@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createHash } from "node:crypto";
-import { mkdir, mkdtemp, readFile, writeFile, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, writeFile, rm, realpath } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import * as login from "../scripts/infrastructure/gcp-login-readonly.mjs";
@@ -40,7 +40,7 @@ test("routing is default-deny, applies to every page, and closes WebSockets", as
   assert.equal(continued, 1); assert.equal(aborted, 1); assert.equal(closed, 1);
 });
 test("known-host pin is required before generating an IAP loopback SSH plan", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "gcp-knownhost-test-"));
+  const dir = await realpath(await mkdtemp(join(tmpdir(), "gcp-knownhost-test-")));
   try {
     const key = Buffer.concat([Buffer.from([0,0,0,11]), Buffer.from("ssh-ed25519"), Buffer.from([0,0,0,32]), Buffer.alloc(32, 7)]);
     const knownHostsPath = join(dir, "known_hosts");
@@ -55,7 +55,7 @@ test("known-host pin is required before generating an IAP loopback SSH plan", as
   } finally { await rm(dir, { recursive: true, force: true }); }
 });
 test("fresh profile has one owner and never adopts an existing browser directory", async () => {
-  const parent = await mkdtemp(join(tmpdir(), "gcp-profile-test-"));
+  const parent = await realpath(await mkdtemp(join(tmpdir(), "gcp-profile-test-")));
   try {
     const path = join(parent, "gcp-readonly-profile-one");
     const release = await login.claimFreshProfile(path);
@@ -84,7 +84,7 @@ test("read-only verification runs the existing request twice and returns only a 
 });
 
 test("login orchestration installs guards before navigation, preserves profile ownership until browser closes", async () => {
-  const parent = await mkdtemp(join(tmpdir(), "gcp-login-test-"));
+  const parent = await realpath(await mkdtemp(join(tmpdir(), "gcp-login-test-")));
   const steps = []; let launchOptions, ownerAtClose;
   const profile = join(parent, "gcp-readonly-profile-flow");
   const config = { account: "operator@example.invalid", project: "hsr-currency-war-worker", zone: "us-central1-a", instance: "hsr-worker-standby", maxRunSeconds: 3600,
@@ -135,7 +135,7 @@ test("idle check rejects restarting services, nonzero PIDs and manual writers", 
 test("real Chrome blocks strategy fetches and WebSockets before any proxy connection", { skip: process.env.HSR_READONLY_BROWSER_GUARD_TEST !== "1" }, async () => {
   const { chromium } = await import("playwright-core");
   const { createServer } = await import("node:http");
-  const parent = await mkdtemp(join(tmpdir(), "gcp-route-browser-test-"));
+  const parent = await realpath(await mkdtemp(join(tmpdir(), "gcp-route-browser-test-")));
   const connections = []; let context;
   // A rejecting loopback proxy makes accidental upstream traffic impossible.
   const proxy = createServer((request, response) => { connections.push(request.url); response.writeHead(502).end(); });
@@ -182,7 +182,7 @@ test("allowed auth cannot follow an upstream redirect into a strategy write", as
 });
 
 test("login timeout closes the owned browser and leaves its profile private", async () => {
-  const parent = await mkdtemp(join(tmpdir(), "gcp-login-timeout-test-"));
+  const parent = await realpath(await mkdtemp(join(tmpdir(), "gcp-login-timeout-test-")));
   const profile = join(parent, "gcp-readonly-profile-timeout"); let closed = 0;
   const config = { account: "operator@example.invalid", project: "hsr-currency-war-worker", zone: "us-central1-a", instance: "hsr-worker-standby", maxRunSeconds: 3600,
     approvedTarget: { account: "operator@example.invalid", project: "hsr-currency-war-worker", zone: "us-central1-a", instance: "hsr-worker-standby", instanceId: "123", diskId: "456" },
@@ -197,7 +197,7 @@ test("login timeout closes the owned browser and leaves its profile private", as
 });
 
 test("OpenSSH option parsing cannot switch to an unverified known-hosts file", async () => {
-  const parent = await mkdtemp(join(tmpdir(), "gcp-ssh-path-test-"));
+  const parent = await realpath(await mkdtemp(join(tmpdir(), "gcp-ssh-path-test-")));
   try {
     const key = Buffer.concat([Buffer.from([0,0,0,11]), Buffer.from("ssh-ed25519"), Buffer.from([0,0,0,32]), Buffer.alloc(32, 7)]);
     for (const name of ["known hosts", "known%h", "known${HOSTNAME}"]) {
@@ -210,7 +210,7 @@ test("OpenSSH option parsing cannot switch to an unverified known-hosts file", a
 
 test("one shared login lock excludes a second owner even with another fresh profile", async () => {
   assert.equal(typeof login.claimLoginSession, "function");
-  const parent = await mkdtemp(join(tmpdir(), "gcp-session-lock-test-"));
+  const parent = await realpath(await mkdtemp(join(tmpdir(), "gcp-session-lock-test-")));
   try {
     const release = await login.claimLoginSession(parent);
     await assert.rejects(login.claimLoginSession(parent));
