@@ -42,3 +42,4 @@ Actual Cloud Billing net invoice/credit application has not been finalised or re
 - Independently preserve portable recovery key offline and recovery code separately. Neither should be uploaded to a VM, Git or chat.
 - Reconcile actual delayed cloud costs; retain GCP stopped outside a separately bounded necessary session.
 - Keep PRs draft; full production cutover, Azure shutdown and infrastructure/resource deletion require explicit approval.
+Draft PR #8 now targets main so the unchanged main-only pull_request CI can run; it contains PR #5 ancestry and must remain draft pending reconciliation. Remote commit c23db74 has CircleCI pass statuses, but no matching GitHub Actions run was present before the base adjustment; never treat unrelated checks as evidence.
