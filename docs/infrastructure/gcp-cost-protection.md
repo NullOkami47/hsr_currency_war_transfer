@@ -170,3 +170,14 @@ Node **v24.22.3**／npm **11.19.1**，官方Node SHASUMS256核對成功；Google
 Azure已另行完成自動Blob備份與VM外還原驗證；GCP本次不搬正式state/profile或recovery key。Azure VM最後讀回running，Vercel Production/DNS未切換。備份工具在獨立 `/opt/hsr-backup`，不是本次GCP公開原碼版本的生產部署證明。
 
 狀態：**GCP_STANDBY_BASELINE_VERIFIED**、**E2_MICRO_SYNTHETIC_PASS**、**IPV4_EGRESS_BASELINE_PASS**、**E2E_PENDING**、**PRODUCTION_CUTOVER_BLOCKED**、**AZURE_FALLBACK_PRESERVED**。下一階段仍需核准staging hostname/TLS、實際Vercel測試入口、新HoYoLAB登入/MFA、兩次授權唯讀及明確批准的live transfer；驗收後才可請求Production GO。不得把本次一小時核准當成常駐付費IPv4或正式切換授權。
+## 2026-11-13 17:16 HKT：正式切換準備的費用重查
+
+這是新的唯讀查核，取代上方舊的未知project/budget觀察；沒有啟動VM、保留staticIP、調整付款/budget或建立BigQuery export。
+
+- Azure CostManagement ActualCost查詢2026-11-01至12：US$10.143371463760161；11月6–12七個完整日平均US$0.47840079383535455/day，30日同負載投影US$14.3520238151。這是整個Azure for Students訂閱成本，不是專屬worker成本、remaining credit或未來付款保證。
+- GCP實際net invoice／credit application仍未取得可可靠對帳的當前資料。不能把budget、資源仍在FreeTier規格、舊Credits頁100%或VM已停止解讀成零費用；促銷抵扣順序仍UNKNOWN。
+- 已重讀現有projectgrossHK$30/netHK$1、accountnetHK$0.10 budgets，未修改。Budget只通知不封頂；常駐IPv4月費可能接近原gross門檻，不能為避免警告自動調高門檻。
+- 官方GoogleNetworkpricing當日查核：standardVMin-useIPv4US$0.005/h（720hUS$3.60，未扣sharedfirsthour）；staticIP綁stoppedVM仍計in-use，未綁resource之reservedIP為US$0.01/h。不要承諾停VM即可消除staticIP費。本次computeaddresseslist[]，沒有保留staticIP。
+- e2micro合格區域時數、30GB-monthstandardPD、特定destination1GBoutbound是billingaccount共享。保留20GBdisk、GCSretention/softdelete、Scheduler/CloudRun/metrics/logs/registry/build與流量需分別看實際SKU。常駐成本及正式hostname/IP/backupIAM仍需將來GO與驗收。
+
+證據在主控D槽work/resilience/azure-actual-cost-readback-20261113.json與azure-cost-summary-20261113.json；官方來源：[GoogleIPv4費率](https://cloud.google.com/vpc/network-pricing)、[FreeTier](https://docs.cloud.google.com/free/docs/free-cloud-features)、[帳務延遲](https://docs.cloud.google.com/billing/docs/how-to/view-history)。沒有privatekey、token、state或未遮蔽帳務原始明細進Git。
