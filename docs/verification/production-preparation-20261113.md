@@ -1,6 +1,29 @@
 # 2026-11-13 Production-preparation verification receipt
 
-Evaluated executable commit: `d0296091e8c72376e385a9d7b689e07a2ea460d3`.
+Evaluated executable commit: `7bb8fe7c2b069c81ab0899896c9ba6862168dfe7`.
+Source branch: `codex/hsr-resilience`, extending existing Draft PR #8 (`NullOkami47/hsr_currency_war_transfer`). No runtime source or test code changed after `7bb8fe7c2b069c81ab0899896c9ba6862168dfe7`; only this verification receipt was added afterwards.
+
+## Independent checkout evidence (`7bb8fe7c2b069c81ab0899896c9ba6862168dfe7`)
+
+Simular Box was not used; no private repository or credentials were sent to a third-party host. Fresh detached `--no-hardlinks` clones on `D:`:
+
+- Windows: `D:\CodexWork\hsr-production-prep-verify-7bb8fe7`, detached exact SHA `7bb8fe7c2b069c81ab0899896c9ba6862168dfe7`, Node `v24.18.0`, npm `11.16.0`, `npm ci --ignore-scripts --no-audit --no-fund --prefer-offline` (exit `0`).
+  - Full suite `npm test`: `593` tests, `575` pass, `18` POSIX-only skip, `0` fail, exit `0`.
+  - Targeted verification suite (`node --test --test-reporter=tap test/browser-config.test.mjs test/publisher.test.mjs test/gcp-production-profile-preflight.test.mjs test/gcp-native-backup.test.mjs test/backup-failure-notify.test.mjs test/cloud-backup-monitor.test.mjs test/backup-retention.test.mjs test/gcp-production-prep.test.mjs test/cutover-state-audit.test.mjs`): `113` tests, `107` pass, `6` POSIX-only skip, `0` fail, exit `0`.
+  - CLI `node scripts/infrastructure/gcp-production-prep.mjs generate scripts/infrastructure/gcp-production/preparation.example.json D:\CodexWork\hsr-production-prep-verify-7bb8fe7\var\prep-check`: exit `0`, `fileCount: 13`, `phase: "OFFLINE_PREPARED_ACTIVATION_BLOCKED"`, `decision: "NO_GO"`, `activationReady: false`, `activated: false`, `cloudCommandsExecuted: false`, `backupEnabled: false` (temporary `var\` cleaned afterwards; working tree clean).
+- Linux (WSL2): `/mnt/d/CodexWork/hsr-production-prep-linux-verify-7bb8fe7`, detached exact SHA `7bb8fe7c2b069c81ab0899896c9ba6862168dfe7`, `Ubuntu 24.04.5 LTS`, Node `v22.23.2`, npm `10.9.8`, uid `1000`, `npm ci --ignore-scripts --no-audit --no-fund --prefer-offline` (exit `0`).
+  - Targeted verification suite (`node --test --test-reporter=tap test/browser-config.test.mjs test/publisher.test.mjs test/gcp-production-profile-preflight.test.mjs test/gcp-native-backup.test.mjs test/backup-failure-notify.test.mjs test/cloud-backup-monitor.test.mjs test/backup-retention.test.mjs test/gcp-production-prep.test.mjs test/cutover-state-audit.test.mjs`): `113` tests, `113` pass, `0` skip, `0` fail, exit `0` (`5.59s`), exercising real POSIX file/directory permission, ownership, lock, symlink/hardlink, drift, and FIFO tests in `/tmp`.
+- Local repo security & syntax checks on `D:\CodexWork\hsr-resilience`: `npm audit --audit-level=high` (`0` vulnerabilities, exit `0`), `git diff --check` (exit `0`), and `node --check` on all new/modified `.mjs` files (exit `0`).
+- Private runbook repo (`D:\CodexWork\hsr-vercel-gcp-cutover-docs-20261113`, branch `docs/azure-to-gcp-cutover-20261113`, commit `00b50ce3fca69910858b39256745a788bd2c505f`): `npm test` (`220` tests, `219` pass, `1` POSIX-only skip, `0` fail, exit `0`) and `git diff --check` (exit `0`).
+
+## Scope of implemented offline modules & remaining NO_GO blockers
+
+- Implemented and unit-tested offline: explicit `chromiumSandbox: true` in `src/publisher.mjs` and `scripts/worker-server.mjs`; `scripts/infrastructure/gcp-production-profile-preflight.mjs`; `scripts/infrastructure/gcp-native-backup.mjs`; `scripts/infrastructure/gcp-backup-failure-notify.mjs`; active-source scoping (`HSR_ACTIVE_BACKUP_SOURCE=azure|gcp`) and `gcp-production/` prefix isolation in `scripts/infrastructure/cloud-backup-monitor/server.mjs` and `scripts/infrastructure/backup-retention.mjs`; and 13-file offline bundle wiring in `scripts/infrastructure/gcp-production-prep.mjs` and `scripts/infrastructure/gcp-production/*.template`.
+- Kept blocked (`NO_GO`, `activationReady: false`, `ConditionPathExists=/etc/hsr-gcp-production/EXPLICIT_GO`, no `[Install]`, `RuntimeMaxSec=3600`): live GCP VM identity/SA/IAM attachment, static IPv4/DNS/TLS/loopback acceptance, Linux Chrome sandbox & `e2-micro` runtime acceptance, GCP-to-Azure secondary backup, external off-Azure GCM cipher restore & owner alert delivery verification, and protected retention pins.
+
+---
+
+## Earlier preparation-only baseline: `d0296091e8c72376e385a9d7b689e07a2ea460d3`
 Source branch: codex/hsr-resilience, extending existing Draft PR8. No runtime source changed after this evaluated commit; later receipt-only commits must be distinguished.
 
 ## Independent checkout evidence
