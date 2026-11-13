@@ -167,15 +167,31 @@ export function parsePreparationArguments(args) {
 
 async function main() {
   const args = parsePreparationArguments(process.argv.slice(2));
-  const handle = await open(resolve(args.configPath), constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
+  const path = resolve(args.configPath), before = await lstat(path);
+  const unsafe = () => fail('PREP_CONFIG', 'A bounded regular non-secret configuration file is required.');
+  if (!before.isFile() || before.isSymbolicLink() || before.size > 16384) unsafe();
+  // Precheck plus nonblocking open prevents FIFOs/devices from hanging before
+  // the handle can be verified. Read at most the limit + one growth byte.
+  const handle = await open(path, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0)
+    | (process.platform === 'win32' ? 0 : constants.O_NONBLOCK));
   let config;
+  const buffer = Buffer.alloc(16385);
   try {
     const stat = await handle.stat();
-    if (!stat.isFile() || stat.size > 16384 || (await lstat(resolve(args.configPath))).isSymbolicLink()) {
-      fail('PREP_CONFIG', 'A bounded regular non-secret configuration file is required.');
+    const same = (a, b) => a.dev === b.dev && a.ino === b.ino && a.size === b.size
+      && a.mtimeMs === b.mtimeMs && a.ctimeMs === b.ctimeMs;
+    if (!stat.isFile() || !same(before, stat)) unsafe();
+    let offset = 0;
+    while (offset < buffer.length) {
+      const { bytesRead } = await handle.read(buffer, offset, buffer.length - offset, null);
+      if (!bytesRead) break;
+      offset += bytesRead;
     }
-    config = JSON.parse(await handle.readFile('utf8'));
-  } finally { await handle.close(); }
+    const after = await lstat(path);
+    if (offset > 16384 || offset !== before.size || after.isSymbolicLink()
+      || !same(before, after) || !same(before, await handle.stat())) unsafe();
+    config = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(buffer.subarray(0, offset)));
+  } finally { buffer.fill(0); await handle.close(); }
   if (args.command === 'generate') console.log(json(await writePreparationBundle({ config, outputDirectory: args.outputDirectory })));
   else {
     const { plan } = await buildPreparationBundle(config);

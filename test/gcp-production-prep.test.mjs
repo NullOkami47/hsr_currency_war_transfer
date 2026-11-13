@@ -5,6 +5,7 @@ import { resolve, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
+import { tmpdir } from 'node:os';
 import { BrowserSessionPublisher } from '../src/publisher.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
@@ -16,7 +17,8 @@ const config = () => ({
   profileDirectory: '/var/lib/hsr-transfer-worker-staging/login/gcp-readonly-profile-login-20261112',
   futureStaticIpv4: null, staticIpv4ApprovalReference: null,
 });
-// All new tests' temporary data stays on the same D-drive checkout, never os.tmpdir().
+// Generator outputs stay on this D-drive checkout. The POSIX-only FIFO test
+// needs a native filesystem (the local WSL ext4 VHDX is also on D:).
 async function temporary(t) {
   const parent = join(root, 'var');
   await mkdir(parent, { recursive: true });
@@ -264,4 +266,18 @@ test('CLI validates and generates offline, and secret-bearing config fails witho
   assert.doesNotMatch(rejected.stderr + rejected.stdout, /SECRET_CANARY_NEVER_PRINT/);
   assert.equal(invoke(['activate', examplePath]).status, 1);
   assert.deepEqual((await readdir(directory)).sort(), ['bundle', 'secret-config.json']);
+});
+
+test('CLI refuses a POSIX FIFO without waiting for a writer', { skip: process.platform === 'win32' }, async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'hsr-prep-fifo-'));
+  try {
+    const fifo = join(directory, 'config.fifo');
+    const made = spawnSync('mkfifo', ['-m', '600', fifo], { encoding: 'utf8' });
+    assert.equal(made.status, 0, made.stderr);
+    const result = spawnSync(process.execPath, [script, 'validate', fifo], { encoding: 'utf8', timeout: 2000 });
+    assert.equal(result.error, undefined, 'Unsafe input must reject before the external timeout');
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, /PREP_CONFIG/);
+    assert.doesNotMatch(result.stderr, /config\.fifo/);
+  } finally { await rm(directory, { recursive: true, force: true }); }
 });
