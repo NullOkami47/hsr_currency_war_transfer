@@ -131,7 +131,7 @@ GCP daily timer 在 VM 上，不依賴 Windows PC；**VM 停止時 timer 也不�
 
 ## 離線測試與證據範圍
 
-先新增 `test/gcp-production-prep.test.mjs`，在 implementation／templates 尚不存在時執行，觀察 13 項預期失敗；再實作並重跑通過。後續額外先寫 publisher sandbox 缺口測試、觀察 blocker 缺少的 assertion 失敗，再補明確阻擋；最終共 14 項。涵蓋 invalid hostname、state/profile 秘密路徑與 traversal、secret 欄位、autorun／STOP-removal flags、固定身分、空秘密、safe OnFailure、retention/current-owner gaps、deterministic manifest hash/bytes、D 槽本 clone 專屬寫入、覆寫／junction 拒絕及 CLI 不洩漏秘密。
+先新增 `test/gcp-production-prep.test.mjs`，在 implementation／templates 尚不存在時執行，觀察 13 項預期失敗；再實作並重跑通過。後續額外先寫 publisher sandbox 缺口測試、觀察 blocker 缺少的 assertion 失敗，再補明確阻擋；原始候選共 14 項；主線獨立審查後另補 POSIX FIFO regression，最終 15 項。涵蓋 invalid hostname、state/profile 秘密路徑與 traversal、secret 欄位、autorun／STOP-removal flags、固定身分、空秘密、safe OnFailure、retention/current-owner gaps、deterministic manifest hash/bytes、D 槽本 clone 專屬寫入、覆寫／junction 拒絕及 CLI 不洩漏秘密。
 
 ```powershell
 node --test test/gcp-production-prep.test.mjs
@@ -139,6 +139,8 @@ node --check scripts/infrastructure/gcp-production-prep.mjs
 git diff --check
 ```
 
-所有新增測試 fixture 在本 clone `var/`，不是 C 槽 temp。完整／相關測試另由執行收據列出 exact commit、Node/npm、commands、exit codes 與 pass/skip 數。無 Box／cloud verification；fresh local exact-commit checkout 可驗證可重現性，但不冒稱獨立代理 review 或 Linux／實機雲端驗收。
+產生器輸出 fixture 在本 clone `var/`，不是 C 槽 temp。POSIX FIFO regression 使用 native `/tmp`（本機 WSL 的 ext4 VHDX 位於 D 槽），測後清除；Windows明示skip此項。完整／相關測試另由執行收據列出 exact commit、Node/npm、commands、exit codes 與 pass/skip 數。無 Box／cloud verification；fresh local exact-commit checkout 可驗證可重現性，但不冒稱獨立代理 review 或 Linux／實機雲端驗收。
 
 本次可聲稱的是「產生器 schema／離線輸出與安全 gate 有測試」，不是 Caddy native validator、systemd-analyze、實際 profile owner guard、GCP-native 備份、live cipher restore、通知、Production deployment 或 cutover 完成。
+
+主線輸入reader複審：Linux FIFO在open前可能阻塞的問題已由regular-file precheck、NOFOLLOW/NONBLOCK、16KiB+1有界讀取及前後inode/size/time核對修正。先在WSL重現2秒外部timeout，再以同一regression驗證有界拒絕；純錯誤輸出不含提供路徑或JSON內容。
