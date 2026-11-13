@@ -57,7 +57,8 @@ test('example is secret-free and validated; plan remains blocked and preserves e
     assert.equal(plan[key], false, key);
   }
   assert.equal(plan.currentStateOwner, 'azure');
-  assert.equal(plan.blockers.length, 10);
+  assert.equal(plan.blockers.length, 9);
+  assert.ok(!plan.blockers.includes('GCP_TO_AZURE_SECONDARY_NOT_IMPLEMENTED'));
   assert.ok(!plan.blockers.includes('GCP_NATIVE_BACKUP_ADAPTER_NOT_IMPLEMENTED'));
   assert.ok(!plan.blockers.includes('OWNER_SCOPED_MONITOR_NOT_IMPLEMENTED'));
   assert.ok(!plan.blockers.includes('PROFILE_OWNER_PREFLIGHT_NOT_IMPLEMENTED'));
@@ -185,6 +186,8 @@ test('backup and monitor contracts pin existing baseline and expose owner/authen
   assert.equal(backup.authentication.futureVmServiceAccount.approved, false);
   assert.deepEqual(backup.authentication.futureVmServiceAccount.permissions, ['storage.objects.create', 'storage.objects.get']);
   assert.equal(backup.preserveAzureBlobBackups, true);
+  assert.equal(backup.azureSecondary.decision, 'RETIRED_BY_OPTION_1B');
+  assert.equal(backup.azureSecondary.requiredBeforeClaimingComplete, false);
   assert.equal(backup.retention.apply, false);
   assert.equal(backup.retention.baseline.sha256, 'ba6f02b0cc6c289352bdb215b47b09aa2cc0698af286a2a5674fdab868a4c803');
   assert.equal(backup.retention.baseline.recipient, '1b7198fa8f2009311bff67b8df7376f08809d07dc4ffb456076baf67467a56d8');

@@ -63,10 +63,10 @@
     "existingAzurePrefixesUntouched": ["hsr-state/", "monitor/events/"]
   },
   "azureSecondary": {
-    "decision": "NO_GO",
+    "decision": "RETIRED_BY_OPTION_1B",
     "implemented": false,
-    "requiredBeforeClaimingComplete": true,
-    "futureRequirement": "separately approved and tested keyless GCP-to-Azure federation or approved scoped credentials; never depend on an Azure VM after deallocation",
+    "requiredBeforeClaimingComplete": false,
+    "futureRequirement": "retired under Option 1B permanent move to GCP; GCS immutable primary plus periodic offline local pull and AES-GCM restore verification",
     "overwriteExisting": false,
     "deleteExisting": false
   },
@@ -89,5 +89,5 @@
     },
     "gcpPrefixBlocker": "no pruning until a separately protected external GCM restore baseline exists for the new prefix; do not auto-adopt the latest receipt or rewrite the existing held baseline"
   },
-  "acceptance": ["GCP native token without Azure metadata/STS or secrets", "one consistent encrypted three-file snapshot", "immutable upload and both-object readback", "interruption leaves admission fail-closed", "external authenticated decrypt/restore off VM", "live failure and missed-schedule alerts with Azure and Windows PC unavailable", "separately test GCP-to-Azure secondary; otherwise NO_GO"]
+  "acceptance": ["GCP native token without Azure metadata/STS or secrets", "one consistent encrypted three-file snapshot", "immutable upload and both-object readback", "interruption leaves admission fail-closed", "external authenticated decrypt/restore off VM", "live failure and missed-schedule alerts with Azure and Windows PC unavailable"]
 }

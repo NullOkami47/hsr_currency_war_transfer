@@ -443,7 +443,7 @@ test('minimal Docker file layout starts the real executable without repository d
   assert.equal(output, '');
 });
 
-function gcpFixture({ at = NOW, result = 'success', azureStatus = 'success', eventSource = 'gcp' } = {}) {
+function gcpFixture({ at = NOW, result = 'success', azureStatus = 'skipped', gcsStatus = result, eventSource = 'gcp' } = {}) {
   const f = fixture({ at });
   const gcpStem = 'gcp-production/' + stem(at);
   const archiveName = gcpStem + '.enc.json';
@@ -462,7 +462,7 @@ function gcpFixture({ at = NOW, result = 'success', azureStatus = 'success', eve
     mode: 'scheduled',
     perDest: {
       azure: { status: azureStatus, transportVerified: azureStatus === 'success', restoreVerified: false },
-      gcs: { status: result, transportVerified: result === 'success', restoreVerified: false },
+      gcs: { status: gcsStatus, transportVerified: gcsStatus === 'success', restoreVerified: false },
     },
     snapshot: {
       runStatus: result,
@@ -497,18 +497,10 @@ test('HSR_ACTIVE_BACKUP_SOURCE=gcp rejects fresh Azure-only objects and status e
   assert.ok(body.alerts.some((a) => a.code === 'status_event_missing'));
 });
 
-test('HSR_ACTIVE_BACKUP_SOURCE=gcp handles skipped azure, healthy pair, overdue, failure, and invalid source', async (t) => {
+test('HSR_ACTIVE_BACKUP_SOURCE=gcp handles Option 1B skipped azure, skipped gcs, missing/expired credit, healthy pair, overdue, failure, and invalid source', async (t) => {
   {
-    const { f } = gcpFixture({ azureStatus: 'skipped' });
-    const base = await serve(t, f);
-    const res = await fetch(`${base}/check`, { method: 'POST' });
-    assert.equal(res.status, 200);
-    const body = await res.json();
-    assert.equal(body.state, 'alert');
-    assert.ok(body.alerts.some((a) => a.code === 'destination_unverified' && a.destination === 'azure'));
-  }
-  {
-    const { f } = gcpFixture({ azureStatus: 'success', result: 'success' });
+    const { f } = gcpFixture({ azureStatus: 'skipped', result: 'success' });
+    f.objects.delete('monitor/credit/status.json');
     const base = await serve(t, f);
     const res = await fetch(`${base}/check`, { method: 'POST' });
     assert.equal(res.status, 200);
@@ -516,6 +508,25 @@ test('HSR_ACTIVE_BACKUP_SOURCE=gcp handles skipped azure, healthy pair, overdue,
     assert.equal(body.state, 'healthy');
     assert.deepEqual(body.alerts, []);
     assert.equal(body.retention.status, 'ready');
+  }
+  {
+    const { f } = gcpFixture({ azureStatus: 'skipped', result: 'success' });
+    f.put('monitor/credit/status.json', Buffer.from(JSON.stringify({ updatedAt: '2026-10-01T00:00:00.000Z', estimatedRemainingUsd: 0 })));
+    const base = await serve(t, f);
+    const res = await fetch(`${base}/check`, { method: 'POST' });
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(body.state, 'healthy');
+    assert.deepEqual(body.alerts, []);
+  }
+  {
+    const { f } = gcpFixture({ azureStatus: 'skipped', gcsStatus: 'skipped' });
+    const base = await serve(t, f);
+    const res = await fetch(`${base}/check`, { method: 'POST' });
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(body.state, 'alert');
+    assert.ok(body.alerts.some((a) => a.code === 'destination_unverified' && a.destination === 'gcs'));
   }
   {
     const { f } = gcpFixture({ at: '2026-11-11T04:00:00.000Z' });

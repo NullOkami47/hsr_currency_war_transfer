@@ -49,7 +49,7 @@ state 路徑固定 `/var/lib/hsr-transfer-worker-production`，不能指向 Azur
 | `hsr-gcp-state-backup.service.template` | 每次有界 oneshot 備份契約，`OnFailure=hsr-gcp-backup-notify.service`；`ExecStart` 已接上 `flock` + `HSR_BACKUP_FLOCK_HELD=1` + `/opt/node-v24.22.3-linux-x64/bin/node` 執行 `gcp-native-backup.mjs /etc/hsr-gcp-production/backup.json`，不呼叫 Azure MI 上傳器；仍受 `EXPLICIT_GO` 阻擋且無 `[Install]`。 |
 | `hsr-gcp-state-backup.timer.template` | 每日 UTC 19:00＝HKT 03:00，`Persistent=true`；尚未安裝或 enable。 |
 | `hsr-gcp-backup-notify.service.template` | 45 秒上限、不遞迴 OnFailure、不重啟 worker／恢復 admission；`ExecStart` 已接上 `/opt/node-v24.22.3-linux-x64/bin/node` 執行 `gcp-backup-failure-notify.mjs /etc/hsr-gcp-production/backup.json`，僅寫入 allowlisted field 至 GCP event prefix；仍受 `EXPLICIT_GO` 阻擋且無 `[Install]`。 |
-| `backup-contract.json` | 三檔、encryption/coordinator reuse、native token／IAM 提案、secondary 阻擋與 retention pin；`implemented=true`、`gcs.adapterNotImplemented=false`，但 `decision="NO_GO"`、`activationReady=false` 且 `azureSecondary.implemented=false`。 |
+| `backup-contract.json` | 三檔、encryption/coordinator reuse、native token／IAM 提案、Option 1B 退休 secondary 與 retention pin；`implemented=true`、`gcs.adapterNotImplemented=false`、`azureSecondary.decision="RETIRED_BY_OPTION_1B"`，但 `decision="NO_GO"`、`activationReady=false`。 |
 | `monitor-readiness.json` | current owner 來源、通知 owner 來源、`ownerScopedReadiness=true`（已實作 `HSR_ACTIVE_BACKUP_SOURCE=azure|gcp` 與 `gcp-production/` prefix 隔離），但仍待雲端實機部署、alert 收件與 external restore pin 驗收，`decision="NO_GO"`。 |
 
 所有 unit／timer 都沒有 `[Install]` 或 enable hook，且有未產生的 `/etc/hsr-gcp-production/EXPLICIT_GO` condition。這不是可安全安裝的成品；`false` 與空 token 是誤操作保險，不應為得到綠燈而刪除。沒有產生 install script、GO marker 或可自動執行的 cloud commands。
@@ -98,7 +98,7 @@ state 路徑固定 `/var/lib/hsr-transfer-worker-production`，不能指向 Azur
 
 既有 Azure Blob、GCS Azure namespace、held canonical pair、七日 minimum retention／soft delete、原有排程及通知**全部保留，不覆寫、不刪除、不換 pin**。它們保護既有 Azure 來源，不代表切換後的 GCP 新 state 已有相同備份。
 
-**GCP→Azure Blob secondary 尚未實作，NO_GO。**需要未來另行測試、核准的 keyless federation 或獲准的 scoped credential；不能假裝 Azure MI 在 GCP 工作，不能依賴日後 deallocated Azure VM 轉送，也不能默默放入 storage account key。`backup-contract.json` 明確保留這個 gate，不將未完成 secondary 報成「雙目的地已完成」。
+**Option 1B 已選定：單向永久移轉至 GCP，退休 Azure Blob secondary。** 不實作或依賴 GCP→Azure secondary（亦不依賴未來的 federated identity、storage account key 或已 deallocate 的 Azure VM）；GCP 正式備份採用單一 immutable GCS primary（`gs://hsr-worker-backups-282550645630/gcp-production/hsr-state/`，`ifGenerationMatch=0` + readback + canonical hold）搭配定期離線拉取至本機 `D:` 並執行 RSA-OAEP/AES-GCM 解密還原驗證。因此 `azureSecondary.decision="RETIRED_BY_OPTION_1B"`、`requiredBeforeClaimingComplete=false`，且已從 blockers 移除 `GCP_TO_AZURE_SECONDARY_NOT_IMPLEMENTED`。
 
 ## 獨立監控、source owner 與 retention pin
 
@@ -106,9 +106,9 @@ state 路徑固定 `/var/lib/hsr-transfer-worker-production`，不能指向 Azur
 
 GCP daily timer 在 VM 上，不依賴 Windows PC；**VM 停止時 timer 也不會執行**，因此必須保有獨立於 PC、Azure VM、GCP worker VM 的 Cloud Scheduler → authenticated Cloud Run hourly check。預期 gate 為 GCP-specific backup／status 26 小時 missed/overdue，以及 monitor heartbeat 缺失 2 小時；沿用既有通知並驗真實收件，HTTP 200／heartbeat 成功不等於 backup healthy。
 
-既有 monitor（`cloud-backup-monitor/server.mjs`）與 `backup-retention.mjs` 現已支援 `HSR_ACTIVE_BACKUP_SOURCE=azure|gcp` 及獨立 namespace `gcp-production/hsr-state/`、`gcp-production/monitor/events/` 與 `HSR_GCP_RETENTION_BASELINE_JSON`／`HSR_GCP_RETENTION_APPLY`，並透過離線測試驗證「`HSR_ACTIVE_BACKUP_SOURCE=gcp` 時，fresh Azure backup／event 仍會觸發 `snapshot_missing`／`status_event_missing` 告警」、「`azure:skipped` 會觸發 `destination_unverified`」及「invalid source emit `active_source_invalid`」。
+既有 monitor（`cloud-backup-monitor/server.mjs`）與 `backup-retention.mjs` 現已支援 `HSR_ACTIVE_BACKUP_SOURCE=azure|gcp` 及獨立 namespace `gcp-production/hsr-state/`、`gcp-production/monitor/events/` 與 `HSR_GCP_RETENTION_BASELINE_JSON`／`HSR_GCP_RETENTION_APPLY`，並透過離線測試驗證「`HSR_ACTIVE_BACKUP_SOURCE=gcp` 時，fresh Azure backup／event 仍會觸發 `snapshot_missing`／`status_event_missing` 告警」、「Option 1B 下 `azure:skipped` 與省略/過期 `monitor/credit/` 不再誤報 `destination_unverified` 或 Azure credit 告警（同時維持 `gcs:skipped` 告警）」及「invalid source emit `active_source_invalid`」。
 
-但雲端 Cloud Run service／scheduler 尚未切換、SA/IAM 尚未核准附掛、GCP→Azure secondary 未實作且 `HSR_GCP_RETENTION_APPLY` 仍須等外部 authenticated GCM restore pin 後才能啟用，因此仍維持 `decision="NO_GO"`。保留 Azure 原 monitor、historical evidence 與 pin；不得將另一個來源的 archive 當成 GCP 備份。
+但雲端 Cloud Run service／scheduler 尚未切換、SA/IAM 尚未核准附掛且 `HSR_GCP_RETENTION_APPLY` 仍須等外部 authenticated GCM restore pin 後才能啟用，因此仍維持 `decision="NO_GO"`。保留 Azure 原 monitor、historical evidence 與 pin；不得將另一個來源的 archive 當成 GCP 備份。
 
 釘選既有 Azure-prefix baseline 身分：
 
@@ -131,7 +131,7 @@ GCP daily timer 在 VM 上，不依賴 Windows PC；**VM 停止時 timer 也不�
 4. GCP-native immutable uploader、coordinator wrapper、bounded OnFailure exporter 與專用 SA metadata／最小權限驗收；未知 recovery fail-closed。
 5. 不依賴 Azure 的 source-scoped daily GCP ciphertext＋receipt／readback，外部 authenticated GCM decrypt／三檔 restore；private key 留在既有核准保管處。
 6. **Azure VM 與本機 PC 不可用時**，GCP failure、missed run、VM stopped、notifier failed、monitor heartbeat absent 都能送到實際 owner；Azure fresh 不能掩蓋 GCP failure。
-7. 新 GCP→Azure secondary 的已核准／已測試授權與實際 delivery；未實作保持 NO_GO，不自動改用長期 credential。
+7. *(已依 Option 1B 退休)* GCP→Azure secondary 不適用（永久單向移轉至 GCP：immutable GCS primary + 定期離線拉取至 `D:` 並執行 AES-GCM 還原驗證）。
 
 ## 離線測試與證據範圍
 

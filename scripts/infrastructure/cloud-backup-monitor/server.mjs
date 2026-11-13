@@ -322,7 +322,7 @@ function evaluateCloudObservations({ now, latestPair, statusEvent, baseline, sou
         || !['success', 'failure', 'skipped'].includes(state.status)
         || state.transportVerified !== (state.status === 'success') || state.restoreVerified !== false) add('status_event_invalid', destination);
     else if (state.status === 'failure') add('backup_failed', destination);
-    else if (state.status === 'skipped') add('destination_unverified', destination);
+    else if (state.status === 'skipped' && !(source === 'gcp' && destination === 'azure')) add('destination_unverified', destination);
   }
   const snapshot = event.snapshot;
   if (!object(snapshot) || snapshot.runStatus !== event.result || snapshot.workerHealth !== 'confirmed'
@@ -370,7 +370,7 @@ export function createMonitorServer({ env = process.env, request = boundedReques
         pinnedArchives: pinnedBaseline?.archiveName ? [pinnedBaseline.archiveName] : [],
       });
       const observations = await collect(storage, started, deadline, scope);
-      const credit = await creditAlerts(storage, started, deadline);
+      const credit = scope.source === 'gcp' ? [] : await creditAlerts(storage, started, deadline);
       const evaluated = evaluateCloudObservations({ now: started, latestPair: observations.latestPair,
         statusEvent: observations.statusEvent, baseline: pinnedBaseline, source: scope.source });
       const retention = await executeBackupRetention({ storage, now, pinnedBaseline, apply, prefix: scope.archivePrefix });
