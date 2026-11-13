@@ -1,0 +1,52 @@
+{
+  "version": 1,
+  "decision": "NO_GO",
+  "ownerScopedReadiness": false,
+  "currentOwner": {
+    "source": "azure",
+    "evidenceSource": "docs/infrastructure/resilience-live-deployment.md at ca657a47809e1b78aa278a13d71600ce5fd8614a",
+    "liveVerified": false,
+    "transitionApproved": false
+  },
+  "schedule": {
+    "backupCalendar": "*-*-* 19:00:00 UTC",
+    "externalCheck": "existing authenticated Cloud Scheduler hourly POST /check to independent Cloud Run monitor",
+    "independentOfPc": true,
+    "independentOfWorkerVm": true,
+    "missedBackupHours": 26,
+    "heartbeatAbsenceHours": 2,
+    "liveVerified": false
+  },
+  "notificationOwner": {
+    "source": "existing Cloud Monitoring owner notification channel; protected main runbook",
+    "address": null,
+    "liveDeliveryVerifiedForGcpSource": false
+  },
+  "reuse": ["backup-watchdog.mjs evaluateBackupWatchdog", "backup-retention.mjs conditional generation/ETag executor", "cloud-backup-monitor/server.mjs authenticated independent monitor and heartbeat"],
+  "existingMonitorLimitations": [
+    "collect reads shared hsr-state/ and monitor/events/ latest objects, not a GCP owner identity",
+    "evaluateCloudObservations expects perDest azure and gcs; skipped Azure is unverified, not success",
+    "a fresh Azure snapshot or event can mask an absent GCP run unless source-scoped evidence is implemented",
+    "current storage/name/retention allowlists do not accept gcp-production/ prefixes",
+    "global heartbeat only proves monitor execution, not GCP backup health; unknown journal/spool remains unknown"
+  ],
+  "futureTransition": {
+    "activeSource": "azure until separately authorised owner handoff",
+    "proposedGcpArchivePrefix": "gcp-production/hsr-state/",
+    "proposedGcpStatusPrefix": "gcp-production/monitor/events/",
+    "independentScheduleAndSourceLabelRequired": true,
+    "protectedOwnerRecordRequired": true,
+    "azureEventsMaySatisfyGcpFreshness": false,
+    "preserveAzureMonitorAndPins": true,
+    "retentionDefault": "disabled for new prefix until external protected restore pin and conditional adapters are verified"
+  },
+  "failureNotification": {
+    "localOnFailure": "hsr-gcp-backup-notify.service.template is deliberately false until native exporter implemented",
+    "sensitiveInputAllowed": false,
+    "recursionAllowed": false,
+    "publisherRestartAllowed": false,
+    "deadlineSeconds": 45,
+    "externalMissedCheckStillRequired": true
+  },
+  "requiredAcceptance": ["current owner readback", "GCP source-only freshness, failures and missing run", "failure notifier denied/offline", "stopped GCP VM still triggers missed backup", "Azure remains fresh while GCP is absent: GCP must alert", "monitor heartbeat absent for two hours", "real owner notification receipt", "run with PC and Azure VM unavailable"]
+}

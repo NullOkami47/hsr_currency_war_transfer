@@ -1,0 +1,91 @@
+{
+  "version": 1,
+  "decision": "NO_GO",
+  "implemented": false,
+  "activationReady": false,
+  "runtime": {
+    "nodeBinary": "/opt/node-v24.22.3-linux-x64/bin/node",
+    "usesAptNode": false,
+    "source": "main user-provided live review 2026-11-13; apt node is 18.19.1, not the reviewed Node 24",
+    "requiredFor": ["production worker", "future native backup adapter and coordinator", "future profile-owner preflight", "future native failure exporter"],
+    "futureAcceptance": "read back exact executable and --version; reject runtime drift, never fall back to PATH or apt node"
+  },
+  "snapshotConfig": {
+    "service": "hsr-worker-production.service",
+    "endpoint": "http://127.0.0.1:8787/",
+    "environmentFile": "/etc/hsr-gcp-production/worker.env",
+    "paths": {
+      "transfers": "@@STATE_DIRECTORY@@/transfers.json",
+      "jobs": "@@STATE_DIRECTORY@@/jobs.json",
+      "security": "@@STATE_DIRECTORY@@/jobs.json.security.json"
+    },
+    "publicKeyPath": "/etc/hsr-gcp-production/recipient-public.pem",
+    "backupDirectory": "/var/lib/hsr-worker-backups-gcp-production"
+  },
+  "coordinator": {
+    "reuse": "coordinated-worker-backup.mjs coordinatedBackup",
+    "encryptionReuse": "worker-state-backup.mjs createStateBackup",
+    "transportValidationReuse": "azure-blob-backup.mjs validateEncryptedBackup",
+    "ancestorFlock": "/run/hsr-worker-backup.flock",
+    "journal": "/var/lib/hsr-worker-backup-control",
+    "order": ["exclusive flock", "private recovery journal", "close admission", "drain/reconcile all jobs", "stop and verify exclusive writer", "snapshot exactly three files", "confirmed recovery and original admission", "immutable encrypted upload/readback", "safe status event"],
+    "neverRestartOnUnknownRecovery": true,
+    "exclude": ["browser profile", "cookies", "environment files", "private keys", "plaintext spool"]
+  },
+  "authentication": {
+    "existingGcsClient": "gcs-backup.mjs createGcsBackupClient uses Azure managedIdentityToken then GCP STS",
+    "azureManagedIdentityUsableOnGcp": false,
+    "futureVmServiceAccount": {
+      "approved": false,
+      "attached": false,
+      "email": null,
+      "credentials": "GCE metadata short-lived access token; no key file, refresh token or long-lived secret",
+      "tokenProviderReuseCandidate": "cloud-backup-monitor/server.mjs createMetadataTokenProvider; requires dedicated VM identity/scope tests",
+      "bucket": "hsr-worker-backups-282550645630",
+      "permissions": ["storage.objects.create", "storage.objects.get"],
+      "roleCandidates": ["roles/storage.objectCreator", "roles/storage.objectViewer"],
+      "roleCaveat": "objectViewer also grants list; prefer tested custom create/get role with prefix IAM conditions if supported; never grant delete/update/admin",
+      "scope": "future approved GCP-production object prefixes only; no project-wide role",
+      "securityCaveat": "VM-attached identity is reachable by VM workloads including Chrome unless a reviewed metadata-isolation boundary is enforced; neither sandbox nor User=hsr-worker is sufficient by itself"
+    }
+  },
+  "gcs": {
+    "bucket": "hsr-worker-backups-282550645630",
+    "proposedArchivePrefix": "gcp-production/hsr-state/",
+    "proposedStatusPrefix": "gcp-production/monitor/events/",
+    "prefixesApproved": false,
+    "immutablePrecondition": "ifGenerationMatch=0",
+    "readback": "bounded exact-name ciphertext plus receipt byte/hash checks; 412 only succeeds on exact match",
+    "restoreVerified": false,
+    "adapterNotImplemented": true,
+    "existingAzurePrefixesUntouched": ["hsr-state/", "monitor/events/"]
+  },
+  "azureSecondary": {
+    "decision": "NO_GO",
+    "implemented": false,
+    "requiredBeforeClaimingComplete": true,
+    "futureRequirement": "separately approved and tested keyless GCP-to-Azure federation or approved scoped credentials; never depend on an Azure VM after deallocation",
+    "overwriteExisting": false,
+    "deleteExisting": false
+  },
+  "preserveAzureBlobBackups": true,
+  "retention": {
+    "apply": false,
+    "minimumDays": 7,
+    "softDeleteDays": 7,
+    "removeHolds": false,
+    "uploaderMayDelete": false,
+    "existingAzurePrefixBaselineOnly": true,
+    "baseline": {
+      "archiveName": "hsr-state/hsr-state-2026-11-12T05-53-58-279Z.enc.json",
+      "sha256": "ba6f02b0cc6c289352bdb215b47b09aa2cc0698af286a2a5674fdab868a4c803",
+      "recipient": "1b7198fa8f2009311bff67b8df7376f08809d07dc4ffb456076baf67467a56d8",
+      "bytes": null,
+      "restoreVerifiedAt": null,
+      "temporaryHoldMustRemain": true,
+      "source": "existing protected HSR_RETENTION_BASELINE_JSON plus external authenticated GCM restore receipt; never derive from uploader events"
+    },
+    "gcpPrefixBlocker": "no pruning until a separately protected external GCM restore baseline exists for the new prefix; do not auto-adopt the latest receipt or rewrite the existing held baseline"
+  },
+  "acceptance": ["GCP native token without Azure metadata/STS or secrets", "one consistent encrypted three-file snapshot", "immutable upload and both-object readback", "interruption leaves admission fail-closed", "external authenticated decrypt/restore off VM", "live failure and missed-schedule alerts with Azure and Windows PC unavailable", "separately test GCP-to-Azure secondary; otherwise NO_GO"]
+}

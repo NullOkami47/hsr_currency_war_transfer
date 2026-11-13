@@ -1,0 +1,23 @@
+[Unit]
+Description=OFFLINE BLOCKED bounded GCP backup failure metadata notification proposal
+Wants=network-online.target
+After=network-online.target
+ConditionPathExists=/etc/hsr-gcp-production/EXPLICIT_GO
+# No OnFailure on this notifier: avoid recursion; no worker restart or admission reset.
+
+[Service]
+Type=oneshot
+User=root
+# BLOCKER: GCP-native safe status exporter must be implemented, not the Azure-MI notifier CLI.
+# It must export only allowlisted phase/health/result fields to the GCP-specific event prefix.
+# Future reviewed native exporter must use /opt/node-v24.22.3-linux-x64/bin/node.
+ExecStart=/usr/bin/false
+Restart=no
+TimeoutStartSec=45s
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+StandardOutput=journal
+StandardError=journal
