@@ -1,4 +1,25 @@
-# 2026-11-13 Production-preparation verification receipt
+# 2026-11-13 Production-preparation verification receipt (Option 1B)
+
+Evaluated executable commit: `9e02fee699f8660efd37a7e72547d79e5c8ed9bf`.
+Source branch: `codex/hsr-resilience`, extending Draft PR #8 (`NullOkami47/hsr_currency_war_transfer`). Option 1B permanent GCP cutover contract and monitor updates; no runtime source or test code changed after `9e02fee699f8660efd37a7e72547d79e5c8ed9bf` (only this verification receipt was added afterwards).
+
+## Independent checkout evidence (`9e02fee699f8660efd37a7e72547d79e5c8ed9bf`)
+
+Fresh detached `--no-hardlinks` clones on `D:`:
+
+- Windows: `D:\CodexWork\hsr-option1b-win-9e02fee`, detached exact SHA `9e02fee699f8660efd37a7e72547d79e5c8ed9bf`, Node `v24.18.0`, npm `11.16.0`, `npm ci --ignore-scripts --no-audit --no-fund --prefer-offline` (exit `0`).
+  - Targeted 9-file TAP suite: `113` tests, `107` pass, `6` POSIX-only skip, `0` fail, exit `0` (`6.02s`).
+  - Full suite `npm test`: `593` tests, `575` pass, `18` POSIX-only skip, `0` fail, exit `0` (`11.97s`).
+  - CLI `node scripts/infrastructure/gcp-production-prep.mjs generate scripts/infrastructure/gcp-production/preparation.example.json D:\CodexWork\hsr-option1b-win-9e02fee\var\prep-check`: exit `0`, `fileCount: 13`, `phase: "OFFLINE_PREPARED_ACTIVATION_BLOCKED"`, `decision: "NO_GO"`, `activationReady: false`.
+- Linux (WSL2): `/mnt/d/CodexWork/hsr-option1b-linux-9e02fee`, detached exact SHA `9e02fee699f8660efd37a7e72547d79e5c8ed9bf`, `Ubuntu 24.04`, Node `v22.23.2`, npm `10.9.8`, `npm ci --ignore-scripts --no-audit --no-fund --prefer-offline` (exit `0`).
+  - Targeted 9-file TAP suite: `113` tests, `113` pass, `0` skip, `0` fail, exit `0` (`8.34s`).
+  - CLI `gcp-production-prep.mjs generate`: exit `0`, `fileCount: 13`, `phase: "OFFLINE_PREPARED_ACTIVATION_BLOCKED"`, `decision: "NO_GO"`, `activationReady: false`.
+- Local repo checks: `npm audit --audit-level=high` (`0` vulnerabilities, exit `0`), `git diff --check` (exit `0`), `node --check` (exit `0`).
+- Private runbook repo (`D:\CodexWork\hsr-vercel-gcp-cutover-docs-20261113`, branch `docs/azure-to-gcp-cutover-20261113`, commit `824d731109c7efdf317802b5e2dbefcd2426cb9d`): `npm test` (`220` tests, `219` pass, `1` POSIX-only skip, `0` fail, exit `0`) and `git diff --check` (exit `0`).
+
+---
+
+## Earlier pre-Option-1B receipt (`7bb8fe7c2b069c81ab0899896c9ba6862168dfe7`)
 
 Evaluated executable commit: `7bb8fe7c2b069c81ab0899896c9ba6862168dfe7`.
 Source branch: `codex/hsr-resilience`, extending existing Draft PR #8 (`NullOkami47/hsr_currency_war_transfer`). No runtime source or test code changed after `7bb8fe7c2b069c81ab0899896c9ba6862168dfe7`; only this verification receipt was added afterwards.
