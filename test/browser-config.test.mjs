@@ -5,7 +5,11 @@ import { BrowserSessionPublisher } from "../src/publisher.mjs";
 
 // Only the browser boundary is replaced: no real profile, network or login.
 function configuredPublisher(env, options) {
-  const keys = ["CURRENCY_WAR_BROWSER_CHANNEL", "CURRENCY_WAR_BROWSER_EXECUTABLE_PATH"];
+  const keys = [
+    "CURRENCY_WAR_BROWSER_CHANNEL",
+    "CURRENCY_WAR_BROWSER_EXECUTABLE_PATH",
+    "CURRENCY_WAR_CHROMIUM_SANDBOX",
+  ];
   const previous = keys.map((key) => process.env[key]);
   try {
     for (const key of keys) {
@@ -58,10 +62,28 @@ for (const { name, env, options = {}, selection } of [
     await publisher.close();
     assert.deepEqual(calls, Array.from({ length: 2 }, () => ({
       profile: "unused-test-profile",
-      launchOptions: { ...selection, headless: true, viewport: { width: 1440, height: 1000 } },
+      launchOptions: { ...selection, chromiumSandbox: true, headless: true, viewport: { width: 1440, height: 1000 } },
     })));
   });
 }
+
+test("rejects disabling the Chromium OS sandbox via options or environment", async () => {
+  let launches = 0;
+  for (const [env, options] of [
+    [{}, { chromiumSandbox: false }],
+    [{ CURRENCY_WAR_CHROMIUM_SANDBOX: "0" }, {}],
+    [{ CURRENCY_WAR_CHROMIUM_SANDBOX: "false" }, {}],
+  ]) {
+    assert.throws(
+      () => configuredPublisher(env, {
+        ...options,
+        launchPersistentContext: async () => { launches += 1; },
+      }),
+      { name: "TypeError", message: "Chromium sandbox must remain explicitly enabled" },
+    );
+  }
+  assert.equal(launches, 0);
+});
 
 test("propagates executable launch failure without falling back to another browser", async () => {
   const failure = new Error("Browser executable does not exist");

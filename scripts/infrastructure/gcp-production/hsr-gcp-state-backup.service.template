@@ -10,10 +10,8 @@ OnFailure=hsr-gcp-backup-notify.service
 Type=oneshot
 User=root
 WorkingDirectory=/opt/hsr-transfer-worker-staging
-# BLOCKER: reviewed GCP metadata-token immutable uploader/coordinator wrapper is not implemented.
-# Intended reuse is coordinatedBackup + worker-state-backup, with the existing ancestor flock.
-# Future reviewed backup command must use /opt/node-v24.22.3-linux-x64/bin/node.
-ExecStart=/usr/bin/false
+# Acquires the ancestor backup flock before running the GCP-native metadata-token uploader.
+ExecStart=/usr/bin/flock --nonblock --conflict-exit-code 75 /run/hsr-worker-backup.flock /usr/bin/env HSR_BACKUP_FLOCK_HELD=1 /opt/node-v24.22.3-linux-x64/bin/node /opt/hsr-transfer-worker-staging/scripts/infrastructure/gcp-native-backup.mjs /etc/hsr-gcp-production/backup.json
 Restart=no
 TimeoutStartSec=30min
 TimeoutStopSec=240s

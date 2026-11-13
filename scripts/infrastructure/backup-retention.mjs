@@ -3,9 +3,12 @@ import { performance } from 'node:perf_hooks';
 
 const FORMAT = 'hsr-worker-backup/v1';
 const PREFIX = 'hsr-state/';
+const ALLOWED_PREFIXES = new Map([
+  ['hsr-state/', /^hsr-state\/hsr-state-(\d{4}-\d\d-\d\dT\d\d-\d\d-\d\d-\d{3}Z)\.(enc|receipt)\.json$/],
+  ['gcp-production/hsr-state/', /^gcp-production\/hsr-state\/hsr-state-(\d{4}-\d\d-\d\dT\d\d-\d\d-\d\d-\d{3}Z)\.(enc|receipt)\.json$/],
+]);
 const DAY = 86400000, FRESH = 36 * 3600000;
 const SHA = /^[a-f0-9]{64}$/;
-const NAME = /^hsr-state\/hsr-state-(\d{4}-\d\d-\d\dT\d\d-\d\d-\d\d-\d{3}Z)\.(enc|receipt)\.json$/;
 const DEFAULTS = Object.freeze({ maxObjects: 256, maxArchiveBytes: 64 * 1024 * 1024,
   maxTotalReadBytes: 256 * 1024 * 1024, maxOperations: 1024, maxDeletePairs: 8, timeoutMs: 120000 });
 const HARD_LIMITS = { ...DEFAULTS, maxTotalReadBytes: 512 * 1024 * 1024, maxDeletePairs: 32 };
@@ -42,17 +45,17 @@ function configuration(input) {
   return limits;
 }
 
-function baseline(value, time) {
+function baseline(value, time, prefix, namePattern) {
   if (!value) fail('baseline_missing');
   if (!keys(value, 'format,createdAt,sha256,bytes,recipient,archiveName,verification,restoreVerifiedAt')
       || value.format !== FORMAT || value.verification !== 'external-gcm-restore/v1'
       || !SHA.test(value.sha256) || !SHA.test(value.recipient)
       || !Number.isSafeInteger(value.bytes) || value.bytes < 1 || value.bytes > DEFAULTS.maxArchiveBytes
-      || typeof value.archiveName !== 'string' || !NAME.test(value.archiveName)
+      || typeof value.archiveName !== 'string' || !namePattern.test(value.archiveName)
       || !value.archiveName.endsWith('.enc.json')) fail('invalid_baseline');
   const created = timestamp(value.createdAt), verified = timestamp(value.restoreVerifiedAt);
   if (created > time || verified > time || verified < created) fail('invalid_baseline');
-  if (value.archiveName !== PREFIX + 'hsr-state-' + value.createdAt.replace(/[:.]/g, '-') + '.enc.json') fail('invalid_baseline');
+  if (value.archiveName !== prefix + 'hsr-state-' + value.createdAt.replace(/[:.]/g, '-') + '.enc.json') fail('invalid_baseline');
   return Object.freeze({ ...value });
 }
 
@@ -68,14 +71,14 @@ function base64(value, minimum, maximum) {
   if (bytes.length < minimum || bytes.length > maximum || bytes.toString('base64') !== value) fail('invalid_envelope');
 }
 
-function validatePair(archive, receiptBytes, archiveName, time, recipient) {
+function validatePair(archive, receiptBytes, archiveName, time, recipient, prefix) {
   const receipt = json(receiptBytes);
   if (!keys(receipt, 'format,createdAt,sha256,bytes,recipient') || receipt.format !== FORMAT
       || !SHA.test(receipt.sha256) || !SHA.test(receipt.recipient) || receipt.recipient !== recipient
       || receipt.bytes !== archive.length || receipt.sha256 !== digest(archive)) fail('invalid_pair');
   const created = timestamp(receipt.createdAt);
   if (created > time) fail('future_timestamp');
-  if (archiveName !== PREFIX + 'hsr-state-' + receipt.createdAt.replace(/[:.]/g, '-') + '.enc.json') fail('invalid_pair');
+  if (archiveName !== prefix + 'hsr-state-' + receipt.createdAt.replace(/[:.]/g, '-') + '.enc.json') fail('invalid_pair');
   const envelope = json(archive);
   if (!keys(envelope, 'format,encryptedKey,iv,tag,ciphertext') || envelope.format !== FORMAT) fail('invalid_envelope');
   base64(envelope.encryptedKey, 384, 2048);
@@ -137,24 +140,26 @@ function context(storage, now, limits) {
   };
 }
 
-async function readPair(ctx, pair, pin) {
+async function readPair(ctx, pair, pin, prefix) {
   const archive = await ctx.read(pair.archive, ctx.limits.maxArchiveBytes);
   const receipt = await ctx.read(pair.receipt, 4096);
-  return validatePair(archive, receipt, pair.archive.name, ctx.currentTime(), pin.recipient);
+  return validatePair(archive, receipt, pair.archive.name, ctx.currentTime(), pin.recipient, prefix);
 }
 
-async function inspect(ctx, pin) {
-  const listed = await ctx.call('list', { prefix: PREFIX, limit: ctx.limits.maxObjects + 1 });
+async function inspect(ctx, pin, prefix, namePattern) {
+  const listed = await ctx.call('list', { prefix, limit: ctx.limits.maxObjects + 1 });
   if (!object(listed) || listed.complete !== true || listed.nextPageToken || listed.continuationToken
       || !Array.isArray(listed.objects) || listed.objects.length > ctx.limits.maxObjects) fail('invalid_inventory');
   const pairs = new Map(), seen = new Set();
   for (const item of listed.objects) {
     if (!object(item) || typeof item.name !== 'string' || item.name.length > 1024 || seen.has(item.name)) fail('invalid_inventory');
     seen.add(item.name);
-    const match = NAME.exec(item.name);
+    const match = namePattern.exec(item.name);
     if (!match) {
       // Unrelated keys and nested paths are outside our read/delete authority.
-      if (/^hsr-state\/hsr-state-[^/]*\.(enc|receipt)\.json$/.test(item.name)) fail('invalid_pair_name');
+      if (item.name.startsWith(prefix + 'hsr-state-') && /\.(enc|receipt)\.json$/.test(item.name) && !item.name.slice(prefix.length).includes('/')) {
+        fail('invalid_pair_name');
+      }
       continue;
     }
     if (!Number.isSafeInteger(item.bytes) || item.bytes < 1) fail('invalid_inventory');
@@ -167,7 +172,7 @@ async function inspect(ctx, pin) {
   // Validate EVERY in-scope pair before selecting any deletion batch.
   for (const pair of pairs.values()) {
     if (!pair.archive || !pair.receipt) fail('incomplete_pair');
-    valid.push({ ...pair, identity: await readPair(ctx, pair, pin) });
+    valid.push({ ...pair, identity: await readPair(ctx, pair, pin, prefix) });
   }
   const initial = valid.find(pair => pair.archive.name === pin.archiveName);
   if (!initial || ['format', 'createdAt', 'sha256', 'bytes', 'recipient'].some(k => initial.identity[k] !== pin[k])) fail('baseline_mismatch');
@@ -183,17 +188,19 @@ async function inspect(ctx, pin) {
 const publicPair = pair => ({ archiveName: pair.archive.name, receiptName: pair.receipt.name,
   createdAt: pair.identity.createdAt, sha256: pair.identity.sha256 });
 
-async function run({ storage, pinnedBaseline, now = () => new Date(), limits: inputLimits = {}, apply = false } = {}) {
+async function run({ storage, pinnedBaseline, now = () => new Date(), limits: inputLimits = {}, apply = false, prefix = PREFIX } = {}) {
   const result = { version: 1, status: 'blocked', mode: apply === true ? 'apply' : 'dry-run',
     validation: 'transport-only', restoreVerified: false, reasons: [], protected: [], candidates: [], deleted: [],
     unconfirmedDeletes: [], remainingCandidates: 0 };
   let ctx;
   try {
     if (typeof apply !== 'boolean') fail('invalid_apply');
+    const namePattern = ALLOWED_PREFIXES.get(prefix);
+    if (!namePattern) fail('invalid_configuration');
     const limits = configuration(inputLimits);
     ctx = context(storage, now, limits);
-    const pin = baseline(pinnedBaseline, ctx.currentTime());
-    const plan = await inspect(ctx, pin);
+    const pin = baseline(pinnedBaseline, ctx.currentTime(), prefix, namePattern);
+    const plan = await inspect(ctx, pin, prefix, namePattern);
     result.protected = plan.protectedPairs.map(pair => pair.archive.name);
     result.candidates = plan.candidates.slice(0, limits.maxDeletePairs).map(publicPair);
     result.remainingCandidates = Math.max(0, plan.candidates.length - limits.maxDeletePairs);
@@ -208,10 +215,10 @@ async function run({ storage, pinnedBaseline, now = () => new Date(), limits: in
     if (!apply) return result;
     for (const candidate of selected) {
       // A plan supplied by a caller is never executed; this is a freshly inspected internal plan.
-      await readPair(ctx, candidate, pin);
+      await readPair(ctx, candidate, pin, prefix);
       for (const metadata of [candidate.archive, candidate.receipt]) {
         for (const protectedPair of plan.protectedPairs) {
-          const identity = await readPair(ctx, protectedPair, pin);
+          const identity = await readPair(ctx, protectedPair, pin, prefix);
           if (identity.sha256 !== protectedPair.identity.sha256 || identity.receiptSha256 !== protectedPair.identity.receiptSha256) fail('protected_pair_changed');
         }
         const time = ctx.currentTime();

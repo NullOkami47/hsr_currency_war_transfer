@@ -14,11 +14,9 @@ EnvironmentFile=/etc/hsr-gcp-production/worker.env
 Environment=HOME=/var/lib/hsr-transfer-worker-staging/home
 Environment=XDG_CONFIG_HOME=/var/lib/hsr-transfer-worker-staging/home/.config
 Environment=XDG_CACHE_HOME=/var/lib/hsr-transfer-worker-staging/home/.cache
-# BLOCKER: a separately reviewed preflight must verify pinned VM/receipt/0700 owner,
-# reject all active profile/session/Chrome owners and acquire the shared session lock.
-# flock alone does NOT implement these checks. Do not delete this false to make green.
-# Future reviewed profile preflight must use /opt/node-v24.22.3-linux-x64/bin/node.
-ExecStartPre=/usr/bin/false
+# Verifies pinned VM identity, non-root hsr-worker owner, absence of Chrome/worker locks,
+# and quiescent 3-file production state before acquiring the shared session flock.
+ExecStartPre=/opt/node-v24.22.3-linux-x64/bin/node /opt/hsr-transfer-worker-staging/scripts/infrastructure/gcp-production-profile-preflight.mjs /etc/hsr-gcp-production/worker-preflight.json
 ExecStart=/usr/bin/flock --nonblock --conflict-exit-code 75 /var/lib/hsr-transfer-worker-staging/login/.production-worker.flock /opt/node-v24.22.3-linux-x64/bin/node /opt/hsr-transfer-worker-staging/scripts/worker-server.mjs
 Restart=no
 RuntimeMaxSec=3600
@@ -36,5 +34,5 @@ CPUAccounting=true
 TasksMax=256
 StandardOutput=journal
 StandardError=journal
-# The current publisher omits chromiumSandbox:true; explicit sandbox launch is a blocker.
-# Linux systemd/Chrome/resource acceptance is not yet done. Keep the false preflight.
+# Explicit Chromium sandbox is enforced in publisher/worker-server; Linux runtime acceptance
+# (systemd, Chrome sandbox, resource limits, and EXPLICIT_GO) still remains pending.

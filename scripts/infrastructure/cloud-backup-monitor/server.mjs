@@ -12,8 +12,13 @@ const PIN = 'hsr-state/hsr-state-2026-11-12T05-53-58-279Z.enc.json';
 const PIN_RECEIPT = PIN.replace('.enc.json', '.receipt.json');
 const FORMAT = 'hsr-worker-backup/v1';
 const ARCHIVE_LIMIT = 64 * 1024 * 1024;
-const NAME = /^hsr-state\/hsr-state-(\d{4}-\d\d-\d\dT\d\d-\d\d-\d\d-\d{3}Z)\.(enc|receipt)\.json$/;
-const EVENT_NAME = /^monitor\/events\/(\d{4}-\d\d-\d\dT\d\d-\d\d-\d\d-\d{3}Z)-([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})\.json$/;
+const NAME = /^(?:gcp-production\/)?hsr-state\/hsr-state-(\d{4}-\d\d-\d\dT\d\d-\d\d-\d\d-\d{3}Z)\.(enc|receipt)\.json$/;
+const EVENT_NAME = /^(?:gcp-production\/)?monitor\/events\/(\d{4}-\d\d-\d\dT\d\d-\d\d-\d\d-\d{3}Z)-([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})\.json$/;
+const ALLOWED_PREFIXES = ['hsr-state/', 'monitor/events/', 'monitor/credit/', 'gcp-production/hsr-state/', 'gcp-production/monitor/events/'];
+const SOURCE_SCOPES = Object.freeze({
+  azure: Object.freeze({ source: 'azure', archivePrefix: 'hsr-state/', eventPrefix: 'monitor/events/' }),
+  gcp: Object.freeze({ source: 'gcp', archivePrefix: 'gcp-production/hsr-state/', eventPrefix: 'gcp-production/monitor/events/' }),
+});
 const CREDIT_NAME = /^monitor\/credit\/\d{4}-\d\d-\d\dT\d\d-\d\d-\d\d-\d{3}Z-(?:[a-f0-9]{64}|[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})\.json$/;
 const CREDIT_CODES = new Set(['CREDIT_MONITOR_MISSING', 'CREDIT_MONITOR_STALE', 'CREDIT_MONITOR_INVALID',
   'CREDIT_BALANCE_UNAVAILABLE', 'CREDIT_BALANCE_STALE', 'CREDIT_RUNWAY_UNAVAILABLE', 'CREDIT_USD_20', 'CREDIT_USD_10',
@@ -85,7 +90,14 @@ export function createMetadataTokenProvider({ request = boundedRequest, now = Da
   };
 }
 
-export function createGcsStorage({ request = boundedRequest, getToken = createMetadataTokenProvider({ request }), now = () => new Date() } = {}) {
+export function createGcsStorage({ request = boundedRequest, getToken = createMetadataTokenProvider({ request }), now = () => new Date(), pinnedArchives = [] } = {}) {
+  const pinnedNames = new Set([PIN, PIN_RECEIPT]);
+  for (const archive of pinnedArchives) {
+    if (typeof archive === 'string' && NAME.test(archive) && archive.endsWith('.enc.json')) {
+      pinnedNames.add(archive);
+      pinnedNames.add(archive.replace('.enc.json', '.receipt.json'));
+    }
+  }
   async function call(url, { maxBytes = 65536, ...options } = {}) {
     const response = await request(url, { ...options, headers: { authorization: `Bearer ${await getToken()}` },
       timeoutMs: 20000, maxBytes });
@@ -101,7 +113,7 @@ export function createGcsStorage({ request = boundedRequest, getToken = createMe
   }
   return {
     async list({ prefix, limit, signal } = {}) {
-      if (!['hsr-state/', 'monitor/events/', 'monitor/credit/'].includes(prefix) || !Number.isSafeInteger(limit) || limit < 1 || limit > 4096) fail();
+      if (!ALLOWED_PREFIXES.includes(prefix) || !Number.isSafeInteger(limit) || limit < 1 || limit > 4096) fail();
       const objects = [], seen = new Set(), tokens = new Set(); let pageToken;
       do {
         const url = new URL(`https://storage.googleapis.com/storage/v1/b/${BUCKET}/o`);
@@ -139,7 +151,7 @@ export function createGcsStorage({ request = boundedRequest, getToken = createMe
     },
     async delete({ name, version, signal } = {}) {
       // No event, bucket, account, nested path, key, held baseline, or young object deletion.
-      if (!NAME.test(name) || name === PIN || name === PIN_RECEIPT) fail();
+      if (!NAME.test(name) || pinnedNames.has(name)) fail();
       const created = timestamp(nameTime(NAME.exec(name)[1]));
       if (!Number.isFinite(created) || now().getTime() - created <= 7 * 86400000) fail();
       const url = target(name, version);
@@ -158,25 +170,28 @@ export function createGcsStorage({ request = boundedRequest, getToken = createMe
   };
 }
 
-function baselineFromEnvironment(env) {
+function baselineFromEnvironment(env, source = 'azure') {
   try {
-    const text = env.HSR_RETENTION_BASELINE_JSON;
+    const text = source === 'gcp' ? env.HSR_GCP_RETENTION_BASELINE_JSON : env.HSR_RETENTION_BASELINE_JSON;
     if (typeof text !== 'string' || text.length > 4096) return null;
     const pin = JSON.parse(text);
+    const validArchive = source === 'gcp'
+      ? typeof pin.archiveName === 'string' && pin.archiveName.startsWith('gcp-production/hsr-state/') && NAME.test(pin.archiveName) && pin.archiveName.endsWith('.enc.json')
+      : pin.archiveName === PIN;
     if (!exactKeys(pin, 'format,createdAt,sha256,bytes,recipient,archiveName,verification,restoreVerifiedAt')
-        || pin.archiveName !== PIN || pin.verification !== 'external-gcm-restore/v1') return null;
+        || !validArchive || pin.verification !== 'external-gcm-restore/v1') return null;
     return pin;
   } catch { return null; }
 }
 
-function pairIdentity(archive, receiptBytes, name, now) {
+function pairIdentity(archive, receiptBytes, name, now, archivePrefix = 'hsr-state/') {
   try {
     const receipt = parse(receiptBytes), envelope = parse(archive);
     if (!exactKeys(receipt, 'format,createdAt,sha256,bytes,recipient') || receipt.format !== FORMAT
         || !/^[a-f0-9]{64}$/.test(receipt.sha256) || !/^[a-f0-9]{64}$/.test(receipt.recipient)
         || receipt.bytes !== archive.length || receipt.sha256 !== sha256(archive)
         || !Number.isFinite(timestamp(receipt.createdAt)) || timestamp(receipt.createdAt) > now.getTime()
-        || name !== `hsr-state/hsr-state-${receipt.createdAt.replace(/[:.]/g, '-')}.enc.json`
+        || name !== `${archivePrefix}hsr-state-${receipt.createdAt.replace(/[:.]/g, '-')}.enc.json`
         || !exactKeys(envelope, 'format,encryptedKey,iv,tag,ciphertext') || envelope.format !== FORMAT) return null;
     for (const [key, min, max] of [['encryptedKey', 384, 2048], ['iv', 12, 12], ['tag', 16, 16], ['ciphertext', 1, ARCHIVE_LIMIT]]) {
       const value = envelope[key];
@@ -188,13 +203,14 @@ function pairIdentity(archive, receiptBytes, name, now) {
   } catch { return null; }
 }
 
-async function collect(storage, now, signal) {
-  const inventory = await storage.list({ prefix: 'hsr-state/', limit: 257, signal });
+async function collect(storage, now, signal, { archivePrefix = 'hsr-state/', eventPrefix = 'monitor/events/' } = {}) {
+  const inventory = await storage.list({ prefix: archivePrefix, limit: 257, signal });
   const alerts = [];
   if (!inventory.complete || inventory.objects.length > 256) alerts.push({ code: 'backup_inventory_incomplete' });
   const map = new Map(inventory.objects.map(item => [item.name, item]));
-  const candidates = inventory.objects.filter(item => NAME.test(item.name) && item.name.endsWith('.enc.json')
-    && map.has(item.name.replace('.enc.json', '.receipt.json'))).sort((a, b) => b.name.localeCompare(a.name));
+  const candidates = inventory.objects.filter(item => NAME.test(item.name) && item.name.startsWith(archivePrefix)
+    && item.name.endsWith('.enc.json') && map.has(item.name.replace('.enc.json', '.receipt.json')))
+    .sort((a, b) => b.name.localeCompare(a.name));
   let latestPair = null;
   if (candidates.length) {
     const archive = candidates[0], receipt = map.get(archive.name.replace('.enc.json', '.receipt.json'));
@@ -202,14 +218,15 @@ async function collect(storage, now, signal) {
     else {
       const encrypted = await storage.get({ ...archive, maxBytes: ARCHIVE_LIMIT, signal });
       const identity = await storage.get({ ...receipt, maxBytes: 4096, signal });
-      latestPair = pairIdentity(encrypted.body, identity.body, archive.name, now);
+      latestPair = pairIdentity(encrypted.body, identity.body, archive.name, now, archivePrefix);
       if (latestPair) latestPair.temporaryHold = archive.temporaryHold && receipt.temporaryHold;
       else alerts.push({ code: 'backup_pair_invalid' });
     }
   }
-  const events = await storage.list({ prefix: 'monitor/events/', limit: 4096, signal });
+  const events = await storage.list({ prefix: eventPrefix, limit: 4096, signal });
   if (!events.complete) alerts.push({ code: 'status_inventory_incomplete' });
-  const eventObjects = events.objects.filter(item => EVENT_NAME.test(item.name)).sort((a, b) => b.name.localeCompare(a.name));
+  const eventObjects = events.objects.filter(item => EVENT_NAME.test(item.name) && item.name.startsWith(eventPrefix))
+    .sort((a, b) => b.name.localeCompare(a.name));
   let statusEvent = null;
   if (eventObjects.length) {
     const newest = eventObjects[0];
@@ -266,7 +283,7 @@ function safeAlerts(alerts) {
     ...(['azure', 'gcs'].includes(a.destination) ? { destination: a.destination } : {}) }));
 }
 
-function evaluateCloudObservations({ now, latestPair, statusEvent, baseline }) {
+function evaluateCloudObservations({ now, latestPair, statusEvent, baseline, source = 'azure' }) {
   // Reuse the helper's snapshot validation only. Its local journal/spool and
   // independent Azure observations are unavailable here and are never fabricated.
   const snapshotAlerts = evaluateBackupWatchdog({ now, snapshot: latestPair }).alerts
@@ -276,15 +293,20 @@ function evaluateCloudObservations({ now, latestPair, statusEvent, baseline }) {
   const age = latestPair ? now.getTime() - timestamp(latestPair.createdAt) : NaN;
   if (age === 26 * 3600000) add('backup_overdue');
   if (statusEvent === null) {
-    // Only the held first canonical pair can bootstrap an as-yet unreported run.
-    if (!latestPair || latestPair.archiveName !== PIN || latestPair.temporaryHold !== true
-        || baseline?.archiveName !== PIN || baseline.sha256 !== latestPair.sha256
+    // Only the held canonical baseline for the active source can bootstrap an as-yet unreported run.
+    const heldArchive = source === 'azure' ? PIN : baseline?.archiveName;
+    if (!latestPair || !heldArchive || latestPair.archiveName !== heldArchive || latestPair.temporaryHold !== true
+        || baseline?.archiveName !== heldArchive || baseline.sha256 !== latestPair.sha256
         || baseline.createdAt !== latestPair.createdAt || age < 0 || age >= 26 * 3600000) add('status_event_missing');
     return { alerts };
   }
   const event = statusEvent;
   const at = timestamp(event.at);
-  if (!object(event) || event.version !== 1 || !/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/.test(event.runId)
+  const validEventSource = source === 'gcp'
+    ? event.source === 'gcp'
+    : (event.source === undefined || event.source === 'azure');
+  if (!object(event) || event.version !== 1 || !validEventSource
+      || !/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/.test(event.runId)
       || !Number.isFinite(at) || at > now.getTime() || !['success', 'failure'].includes(event.result)
       || !['coordinator', 'validation', 'delivery', 'complete'].includes(event.stage)
       || !['scheduled', 'resend'].includes(event.mode) || event.restoreVerified !== false
@@ -313,7 +335,11 @@ function evaluateCloudObservations({ now, latestPair, statusEvent, baseline }) {
 // Never treat Scheduler headers or a caller-supplied request body as authentication.
 export function createMonitorServer({ env = process.env, request = boundedRequest, now = () => new Date(),
   log = line => console.log(line) } = {}) {
-  const apply = env.HSR_RETENTION_APPLY === 'true', pinnedBaseline = baselineFromEnvironment(env);
+  const rawSource = env.HSR_ACTIVE_BACKUP_SOURCE;
+  const sourceInvalid = rawSource !== undefined && !Object.hasOwn(SOURCE_SCOPES, rawSource);
+  const scope = Object.hasOwn(SOURCE_SCOPES, rawSource) ? SOURCE_SCOPES[rawSource] : SOURCE_SCOPES.azure;
+  const apply = (scope.source === 'gcp' ? env.HSR_GCP_RETENTION_APPLY : env.HSR_RETENTION_APPLY) === 'true';
+  const pinnedBaseline = baselineFromEnvironment(env, scope.source);
   const getToken = createMetadataTokenProvider({ request, now: () => now().getTime() });
   let checking = false;
   const emit = value => log(JSON.stringify(value));
@@ -337,14 +363,24 @@ export function createMonitorServer({ env = process.env, request = boundedReques
       const deadline = AbortSignal.timeout(110000);
       const checkRequest = (url, options = {}) => request(url, { ...options,
         signal: options.signal ? AbortSignal.any([deadline, options.signal]) : deadline });
-      const storage = createGcsStorage({ request: checkRequest, getToken, now });
-      const observations = await collect(storage, started, deadline);
+      const storage = createGcsStorage({
+        request: checkRequest,
+        getToken,
+        now,
+        pinnedArchives: pinnedBaseline?.archiveName ? [pinnedBaseline.archiveName] : [],
+      });
+      const observations = await collect(storage, started, deadline, scope);
       const credit = await creditAlerts(storage, started, deadline);
       const evaluated = evaluateCloudObservations({ now: started, latestPair: observations.latestPair,
-        statusEvent: observations.statusEvent, baseline: pinnedBaseline });
-      const retention = await executeBackupRetention({ storage, now, pinnedBaseline, apply });
-      const alerts = safeAlerts([...observations.alerts, ...evaluated.alerts, ...credit,
-        ...(['blocked', 'partial'].includes(retention.status) ? [{ code: 'retention_blocked' }] : [])]);
+        statusEvent: observations.statusEvent, baseline: pinnedBaseline, source: scope.source });
+      const retention = await executeBackupRetention({ storage, now, pinnedBaseline, apply, prefix: scope.archivePrefix });
+      const alerts = safeAlerts([
+        ...(sourceInvalid ? [{ code: 'active_source_invalid' }] : []),
+        ...observations.alerts,
+        ...evaluated.alerts,
+        ...credit,
+        ...(['blocked', 'partial'].includes(retention.status) ? [{ code: 'retention_blocked' }] : []),
+      ]);
       checkedAt = now().toISOString();
       for (const alert of alerts) emit({ severity: 'ERROR', event: 'hsr_backup_alert', checkedAt, ...alert });
       stage = 'heartbeat_write_failed';

@@ -1,7 +1,9 @@
 {
   "version": 1,
   "decision": "NO_GO",
-  "implemented": false,
+  "implemented": true,
+  "entrypoint": "scripts/infrastructure/gcp-native-backup.mjs",
+  "failureNotifier": "scripts/infrastructure/gcp-backup-failure-notify.mjs",
   "activationReady": false,
   "runtime": {
     "nodeBinary": "/opt/node-v24.22.3-linux-x64/bin/node",
@@ -57,7 +59,7 @@
     "immutablePrecondition": "ifGenerationMatch=0",
     "readback": "bounded exact-name ciphertext plus receipt byte/hash checks; 412 only succeeds on exact match",
     "restoreVerified": false,
-    "adapterNotImplemented": true,
+    "adapterNotImplemented": false,
     "existingAzurePrefixesUntouched": ["hsr-state/", "monitor/events/"]
   },
   "azureSecondary": {

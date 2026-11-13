@@ -1,0 +1,21 @@
+{
+  "service": "hsr-worker-production.service",
+  "endpoint": "http://127.0.0.1:8787/",
+  "environmentFile": "/etc/hsr-gcp-production/worker.env",
+  "paths": {
+    "transfers": "@@STATE_DIRECTORY@@/transfers.json",
+    "jobs": "@@STATE_DIRECTORY@@/jobs.json",
+    "security": "@@STATE_DIRECTORY@@/jobs.json.security.json"
+  },
+  "publicKeyPath": "/etc/hsr-gcp-production/recipient-public.pem",
+  "backupDirectory": "/var/lib/hsr-worker-backups-gcp-production",
+  "gcs": {
+    "enabled": true,
+    "bucket": "hsr-worker-backups-282550645630",
+    "archivePrefix": "gcp-production/hsr-state/",
+    "eventPrefix": "gcp-production/monitor/events/"
+  },
+  "azureSecondary": {
+    "enabled": false
+  }
+}

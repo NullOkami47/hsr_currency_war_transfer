@@ -442,3 +442,106 @@ test('minimal Docker file layout starts the real executable without repository d
   assert.deepEqual(await res.json(), { ok: true });
   assert.equal(output, '');
 });
+
+function gcpFixture({ at = NOW, result = 'success', azureStatus = 'success', eventSource = 'gcp' } = {}) {
+  const f = fixture({ at });
+  const gcpStem = 'gcp-production/' + stem(at);
+  const archiveName = gcpStem + '.enc.json';
+  const receiptName = gcpStem + '.receipt.json';
+  const gcpPair = pair(at);
+  f.put(archiveName, gcpPair.archive, true);
+  f.put(receiptName, Buffer.from(JSON.stringify(gcpPair.receipt)), true);
+  const runId = '22222222-2222-4222-8222-222222222222';
+  const value = {
+    version: 1,
+    runId,
+    source: eventSource,
+    at,
+    result,
+    stage: result === 'success' ? 'complete' : 'delivery',
+    mode: 'scheduled',
+    perDest: {
+      azure: { status: azureStatus, transportVerified: azureStatus === 'success', restoreVerified: false },
+      gcs: { status: result, transportVerified: result === 'success', restoreVerified: false },
+    },
+    snapshot: {
+      runStatus: result,
+      workerHealth: 'confirmed',
+      admission: true,
+      journal: { phase: 'complete', originalAdmission: true },
+    },
+    restoreVerified: false,
+  };
+  f.put(`gcp-production/monitor/events/${at.replace(/[:.]/g, '-')}-${runId}.json`, Buffer.from(JSON.stringify(value)));
+  f.env = {
+    ...f.env,
+    HSR_ACTIVE_BACKUP_SOURCE: 'gcp',
+    HSR_GCP_RETENTION_BASELINE_JSON: JSON.stringify({
+      ...gcpPair.receipt,
+      archiveName,
+      verification: 'external-gcm-restore/v1',
+      restoreVerifiedAt: at,
+    }),
+  };
+  return { f, archiveName };
+}
+
+test('HSR_ACTIVE_BACKUP_SOURCE=gcp rejects fresh Azure-only objects and status events', async (t) => {
+  const f = fixture({ at: NOW });
+  const base = await serve(t, f, { env: { ...f.env, HSR_ACTIVE_BACKUP_SOURCE: 'gcp' } });
+  const res = await fetch(`${base}/check`, { method: 'POST' });
+  assert.equal(res.status, 200);
+  const body = await res.json();
+  assert.equal(body.state, 'alert');
+  assert.ok(body.alerts.some((a) => a.code === 'snapshot_missing'));
+  assert.ok(body.alerts.some((a) => a.code === 'status_event_missing'));
+});
+
+test('HSR_ACTIVE_BACKUP_SOURCE=gcp handles skipped azure, healthy pair, overdue, failure, and invalid source', async (t) => {
+  {
+    const { f } = gcpFixture({ azureStatus: 'skipped' });
+    const base = await serve(t, f);
+    const res = await fetch(`${base}/check`, { method: 'POST' });
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(body.state, 'alert');
+    assert.ok(body.alerts.some((a) => a.code === 'destination_unverified' && a.destination === 'azure'));
+  }
+  {
+    const { f } = gcpFixture({ azureStatus: 'success', result: 'success' });
+    const base = await serve(t, f);
+    const res = await fetch(`${base}/check`, { method: 'POST' });
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(body.state, 'healthy');
+    assert.deepEqual(body.alerts, []);
+    assert.equal(body.retention.status, 'ready');
+  }
+  {
+    const { f } = gcpFixture({ at: '2026-11-11T04:00:00.000Z' });
+    const base = await serve(t, f);
+    const res = await fetch(`${base}/check`, { method: 'POST' });
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(body.state, 'alert');
+    assert.ok(body.alerts.some((a) => a.code === 'backup_overdue'));
+  }
+  {
+    const { f } = gcpFixture({ result: 'failure', azureStatus: 'failure' });
+    const base = await serve(t, f);
+    const res = await fetch(`${base}/check`, { method: 'POST' });
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(body.state, 'alert');
+    assert.ok(body.alerts.some((a) => a.code === 'backup_failed'));
+  }
+  {
+    const f = fixture({ at: NOW });
+    const base = await serve(t, f, { env: { ...f.env, HSR_ACTIVE_BACKUP_SOURCE: 'invalid' } });
+    const res = await fetch(`${base}/check`, { method: 'POST' });
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(body.state, 'alert');
+    assert.ok(body.alerts.some((a) => a.code === 'active_source_invalid'));
+  }
+});

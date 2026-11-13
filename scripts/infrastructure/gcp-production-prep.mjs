@@ -13,15 +13,15 @@ const PROFILE = '/var/lib/hsr-transfer-worker-staging/login/gcp-readonly-profile
 const CONFIG_KEYS = ['version', 'mode', 'hostname', 'stateDirectory', 'profileDirectory',
   'futureStaticIpv4', 'staticIpv4ApprovalReference'];
 const TEMPLATE_FILES = ['Caddyfile.template', 'caddy.env.template', 'worker.env.template',
+  'worker-preflight.json.template', 'backup.json.template',
   'hsr-worker-production.service.template', 'hsr-gcp-state-backup.service.template',
   'hsr-gcp-state-backup.timer.template', 'hsr-gcp-backup-notify.service.template',
   'backup-contract.json.template', 'monitor-readiness.json.template'];
 const BLOCKERS = ['FUTURE_EXPLICIT_GO_REQUIRED', 'LIVE_IDENTITY_NETWORK_COST_READBACK_REQUIRED',
   'STATIC_IPV4_APPROVAL_AND_READBACK_REQUIRED', 'DNS_TLS_AUTH_LOOPBACK_ACCEPTANCE_REQUIRED',
-  'AUTHORITATIVE_THREE_FILE_RESTORE_AND_SINGLE_WRITER_REQUIRED', 'PROFILE_OWNER_PREFLIGHT_NOT_IMPLEMENTED',
-  'PRODUCTION_CHROMIUM_SANDBOX_NOT_EXPLICIT', 'LINUX_SANDBOX_AND_RESOURCE_ACCEPTANCE_REQUIRED',
-  'GCP_NATIVE_BACKUP_ADAPTER_NOT_IMPLEMENTED',
-  'GCP_SERVICE_ACCOUNT_AND_MINIMAL_IAM_APPROVAL_REQUIRED', 'OWNER_SCOPED_MONITOR_NOT_IMPLEMENTED',
+  'AUTHORITATIVE_THREE_FILE_RESTORE_AND_SINGLE_WRITER_REQUIRED',
+  'LINUX_SANDBOX_AND_RESOURCE_ACCEPTANCE_REQUIRED',
+  'GCP_SERVICE_ACCOUNT_AND_MINIMAL_IAM_APPROVAL_REQUIRED',
   'GCP_TO_AZURE_SECONDARY_NOT_IMPLEMENTED', 'OFF_AZURE_CIPHER_RESTORE_AND_ALERT_ACCEPTANCE_REQUIRED',
   'PROTECTED_RETENTION_PIN_AND_OWNER_CHANNEL_READBACK_REQUIRED'];
 const fail = (code, message) => { const error = new Error(message); error.code = code; throw error; };
@@ -93,8 +93,8 @@ export async function buildPreparationBundle(input) {
       runtimeProvenance: 'main user-provided live review 2026-11-13; not independently read by this offline sidecar',
       profileDirectory: PROFILE, profileMigration: false, cookieMigration: false,
       profileReceipt: PROFILE + '/.readonly-vm.json', publicSubmissionsEnabled: false,
-      automaticRestart: false, runtimeMaxSeconds: 3600, chromiumSandboxVerified: false,
-      templatePreflight: 'always fails until separately implemented and reviewed' },
+      automaticRestart: false, runtimeMaxSeconds: 3600, chromiumSandboxExplicit: true, chromiumSandboxVerified: false,
+      templatePreflight: '/opt/node-v24.22.3-linux-x64/bin/node /opt/hsr-transfer-worker-staging/scripts/infrastructure/gcp-production-profile-preflight.mjs /etc/hsr-gcp-production/worker-preflight.json' },
     currentStateOwner: 'azure', currentOwnerLiveVerified: false,
     activated: false, cloudCommandsExecuted: false, httpsVerified: false, backupEnabled: false,
     restoreVerified: false, productionEnvironmentChanged: false,

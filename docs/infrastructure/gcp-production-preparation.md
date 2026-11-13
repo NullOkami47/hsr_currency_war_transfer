@@ -42,13 +42,15 @@ state 路徑固定 `/var/lib/hsr-transfer-worker-production`，不能指向 Azur
 | `preparation-plan.json` | 固定來源 SHA、VM／disk 身分、STOP、網路提案、current owner 與完整 blockers；絕不回傳 ready。 |
 | `manifest.json` | 除 manifest 本身之外所有檔案的 SHA-256／byte 數；可重現，無現在時間或隨機值。hash 是內容校驗，不是簽章、部署或 approval 證明。 |
 | `Caddyfile.template` | 穩定 FQDN、public HTTPS、bearer matcher、未授權 401、只 proxy `127.0.0.1:8787`。無 TLS downgrade。 |
-| `caddy.env.template`／`worker.env.template` | token **空白**，沒有生成或搬運秘密；worker env 保持 loopback、headless Chrome、public submissions 關閉、keepalive 關閉。空 token 不能啟動現有 worker。 |
-| `hsr-worker-production.service.template` | 非 root、systemd sandbox、read-only filesystem、限定 state/profile/home writable、無自動 restart、3600 秒。`ExecStartPre=/usr/bin/false`，直到真正 profile／writer guard 與 explicit Chrome sandbox launcher 另行實作與審核。 |
-| `hsr-gcp-state-backup.service.template` | 每次有界 oneshot 備份契約，`OnFailure=hsr-gcp-backup-notify.service`；**ExecStart 刻意為 false，不呼叫 Azure uploader**。 |
+| `caddy.env.template`／`worker.env.template` | token **空白**，沒有生成或搬運秘密；worker env 保持 loopback、headless Chrome、`CURRENCY_WAR_CHROMIUM_SANDBOX=1`、public submissions 關閉、keepalive 關閉。空 token 不能啟動現有 worker。 |
+| `worker-preflight.json` | 固定 GCP target VM/zone/instanceId、`/opt/node-v24.22.3-linux-x64/bin/node`、state 與 profile 路徑之非秘密 preflight 設定，供 `gcp-production-profile-preflight.mjs` 檢查。 |
+| `backup.json` | 固定 GCP loopback worker endpoint、`paths` 三檔、`/etc/hsr-gcp-production/recipient-public.pem`、`gcp-production/hsr-state/` 與 `gcp-production/monitor/events/` prefix 及 `azureSecondary.enabled=false` 之非秘密備份設定。 |
+| `hsr-worker-production.service.template` | 非 root、systemd sandbox、read-only filesystem、限定 state/profile/home writable、無自動 restart、3600 秒。`ExecStartPre` 已接上 `/opt/node-v24.22.3-linux-x64/bin/node` 執行 `gcp-production-profile-preflight.mjs /etc/hsr-gcp-production/worker-preflight.json`；仍受 `ConditionPathExists=/etc/hsr-gcp-production/EXPLICIT_GO` 阻擋且無 `[Install]`。 |
+| `hsr-gcp-state-backup.service.template` | 每次有界 oneshot 備份契約，`OnFailure=hsr-gcp-backup-notify.service`；`ExecStart` 已接上 `flock` + `HSR_BACKUP_FLOCK_HELD=1` + `/opt/node-v24.22.3-linux-x64/bin/node` 執行 `gcp-native-backup.mjs /etc/hsr-gcp-production/backup.json`，不呼叫 Azure MI 上傳器；仍受 `EXPLICIT_GO` 阻擋且無 `[Install]`。 |
 | `hsr-gcp-state-backup.timer.template` | 每日 UTC 19:00＝HKT 03:00，`Persistent=true`；尚未安裝或 enable。 |
-| `hsr-gcp-backup-notify.service.template` | 45 秒上限、不遞迴 OnFailure、不重啟 worker／恢復 admission；native exporter 尚未實作，刻意失敗，不假裝已通知。 |
-| `backup-contract.json` | 三檔、encryption/coordinator reuse、native token／IAM 提案、secondary 阻擋與 retention pin；**不是可交給既有 CLI 執行的 backup config**。 |
-| `monitor-readiness.json` | current owner 來源、通知 owner 來源、GCP-prefix／active-source 轉換缺口、獨立排程與警報驗收。 |
+| `hsr-gcp-backup-notify.service.template` | 45 秒上限、不遞迴 OnFailure、不重啟 worker／恢復 admission；`ExecStart` 已接上 `/opt/node-v24.22.3-linux-x64/bin/node` 執行 `gcp-backup-failure-notify.mjs /etc/hsr-gcp-production/backup.json`，僅寫入 allowlisted field 至 GCP event prefix；仍受 `EXPLICIT_GO` 阻擋且無 `[Install]`。 |
+| `backup-contract.json` | 三檔、encryption/coordinator reuse、native token／IAM 提案、secondary 阻擋與 retention pin；`implemented=true`、`gcs.adapterNotImplemented=false`，但 `decision="NO_GO"`、`activationReady=false` 且 `azureSecondary.implemented=false`。 |
+| `monitor-readiness.json` | current owner 來源、通知 owner 來源、`ownerScopedReadiness=true`（已實作 `HSR_ACTIVE_BACKUP_SOURCE=azure|gcp` 與 `gcp-production/` prefix 隔離），但仍待雲端實機部署、alert 收件與 external restore pin 驗收，`decision="NO_GO"`。 |
 
 所有 unit／timer 都沒有 `[Install]` 或 enable hook，且有未產生的 `/etc/hsr-gcp-production/EXPLICIT_GO` condition。這不是可安全安裝的成品；`false` 與空 token 是誤操作保險，不應為得到綠燈而刪除。沒有產生 install script、GO marker 或可自動執行的 cloud commands。
 
@@ -56,7 +58,7 @@ state 路徑固定 `/var/lib/hsr-transfer-worker-production`，不能指向 Azur
 
 依基準原碼／文件釘選：專案 `hsr-currency-war-worker`、zone `us-central1-a`、VM `hsr-worker-standby`、instance ID `4111188809525812699`、disk ID `9008789074271067611`、e2-micro、保留 20 GB pd-standard、`autoDelete=false`。不得自動接受同名替換資源。network／subnetwork 的精確 selfLink 本次沒有 live 證據，因此維持 null，不能猜成 default。
 
-**runtime 精確釘選**：依主控 2026-11-13 已做的 live checks，正式 worker、未來 native backup／coordinator、profile-owner preflight 與 failure exporter 一律使用 `/opt/node-v24.22.3-linux-x64/bin/node`。GCP Ubuntu apt 的 node 是 18.19.1，不是已審核的 Node 24；不使用 `/usr/bin/node`、`env node` 或 PATH fallback。本 sidecar 未自行做 cloud readback，未來啟用前仍須讀回 exact executable／版本與安裝來源。所有尚未實作的 preflight／backup ExecStart 繼續為 `/usr/bin/false`，不是現在就接上命令。
+**runtime 精確釘選**：依主控 2026-11-13 已做的 live checks，正式 worker、native backup／coordinator (`gcp-native-backup.mjs`)、profile-owner preflight (`gcp-production-profile-preflight.mjs`) 與 failure exporter (`gcp-backup-failure-notify.mjs`) 一律使用 `/opt/node-v24.22.3-linux-x64/bin/node`。GCP Ubuntu apt 的 node 是 18.19.1，不是已審核的 Node 24；不使用 `/usr/bin/node`、`env node` 或 PATH fallback。本 repo 已完成上述離線腳本與單元測試，但尚未做 live cloud/Linux systemd 實機驗收；所有正式 unit 仍由 `ConditionPathExists=/etc/hsr-gcp-production/EXPLICIT_GO`、無 `[Install]` 與 `decision="NO_GO"` 嚴格阻擋。
 
 未來 HTTPS 只提案：**經另行核准的 static IPv4 → 同一既有 NIC／network／subnetwork → 原有 Caddy → authenticated loopback worker**。不新建 NAT、LB、network、不擴大公開 worker/CDP/VNC ingress。尚未 reserve／attach static IP、改 DNS、配置 ACME 或改任何 Caddy。需要主控核對 static-IP 費用與持續占用費、DNS A/AAAA、現有 80/443 ingress、ACME TLS、同一私有 bearer 於 Caddy／worker／Vercel 的一致性。不得記錄 bearer；Caddy access logging 不在範本啟用。
 
@@ -66,20 +68,22 @@ state 路徑固定 `/var/lib/hsr-transfer-worker-production`，不能指向 Azur
 /var/lib/hsr-transfer-worker-staging/login/gcp-readonly-profile-login-20261112
 ```
 
-必須保持原位置、`hsr-worker` ownership、0700、同 VM `.readonly-vm.json` 私有 receipt，以及原有全域 `.readonly-session-lock`／profile owner／Chrome singleton 防護。不能搬 Azure、本機 cookies、profiles 或 device/session 身分。啟動前需證明 login、synthetic、one-shot、production 及任何手動 Chrome／writer 不併行；未知或 stale lock 不能自動刪除、adopt 或 kill。範本的 `.production-worker.flock` **不是**原有全域鎖的替代；Production owner preflight 尚未接上，故刻意阻擋。
+必須保持原位置、`hsr-worker` ownership、0700、同 VM `.readonly-vm.json` 私有 receipt，以及原有全域 `.readonly-session-lock`／profile owner／Chrome singleton 防護。不能搬 Azure、本機 cookies、profiles 或 device/session 身分。啟動前須由 `scripts/infrastructure/gcp-production-profile-preflight.mjs` 與實際 Linux 驗收證明 login、synthetic、one-shot、production 及任何手動 Chrome／writer 不併行；未知或 stale lock 不能自動刪除、adopt 或 kill。範本的 `.production-worker.flock` **不是**原有全域鎖的替代；實機 Linux ownership/preflight 與 `EXPLICIT_GO` 驗收尚未完成，故仍維持 NO_GO。
 
-**另有實際原碼阻擋**：目前 `src/publisher.mjs` 的 `BrowserSessionPublisher.start()` 未設定 `chromiumSandbox:true`；本地鎖定 Playwright 1.62.1 的實作在未明確 true 時會加入 `--no-sandbox`。既有嚴格 read-only login launcher 有明確 sandbox，但 Production worker 不是該 launcher。非 root／systemd hardening 並不修復此差異，不能聲稱本範本已提供可運行的 sandboxed Chrome。新增測試使用真實 publisher 與 injected browser stub 捕捉 launch options，沒有實際開啟 browser／網路。修正 publisher 或加入正式 launcher 超出本 sidecar 範圍，`PRODUCTION_CHROMIUM_SANDBOX_NOT_EXPLICIT` 維持 NO_GO；主控後續應要求明確 sandbox launch 與 Linux 實機驗收。
+**Explicit Chromium sandbox 實作狀態**：`src/publisher.mjs`（`BrowserSessionPublisher.start()`）及 `scripts/worker-server.mjs` 現已強制要求並傳遞 `chromiumSandbox: true`（若停用即擲錯拒絕啟動），且 `worker.env.template` 設定 `CURRENCY_WAR_CHROMIUM_SANDBOX=1`；`PRODUCTION_CHROMIUM_SANDBOX_NOT_EXPLICIT` 程式碼阻擋已解除。離線測試使用真實 publisher 與 injected browser stub 驗證 launch options，但 Linux/GCP VM 上實際 Chrome sandbox、cgroups/e2-micro 資源與 systemd 整合尚未實機驗收，因此 `LINUX_SANDBOX_AND_RESOURCE_ACCEPTANCE_REQUIRED` 仍維持 NO_GO。
 
 正式 state 是另外的三檔路徑（`transfers.json`、`jobs.json`、`jobs.json.security.json`），不得使用 one-shot／synthetic fixture。未來必須在 admission 暫停、queue drain、ambiguous jobs reconcile、唯一 writer 停止及 profile owner 釋放後，從最新 authoritative snapshot 安裝。若 GCP 日後已有真實寫入，rollback 必須帶回最新 GCP state，不得覆蓋成切換前 Azure 舊檔。這些是主控 runbook 的未來 gate，本產生器不執行還原或初始化空白正式 state。
 
-## GCP-native 備份：目前 NO_GO
+## GCP-native 備份：程式碼已實作離線契約，雲端仍 NO_GO
 
-### 已檢查的可重用介面
+### 已實作與可重用介面
 
-- `gcs-backup.mjs` exports：`GCS_BUCKET`、`GCS_AUDIENCE`、`validateGcsConfiguration`、`createGcsBackupClient`。後者內部固定呼叫 Azure `managedIdentityToken`，再向 GCP STS 換 token；**沒有 GCP metadata getToken 注入介面**。
+- `scripts/infrastructure/gcp-native-backup.mjs`：已實作 GCP-native immutable backup adapter（使用 `createMetadataTokenProvider`、`ifGenerationMatch=0`、bounded readback byte/hash 檢查、`coordinated-worker-backup.mjs` + `worker-state-backup.mjs` 三檔一致性快照，並寫入 allowlisted event 至 `gcp-production/monitor/events/`）。
+- `scripts/infrastructure/gcp-backup-failure-notify.mjs`：已實作 bounded failure status exporter，僅上傳 allowlisted 失敗/階段欄位至 `gcp-production/monitor/events/`。
+- `gcs-backup.mjs`：原有 Azure `managedIdentityToken` + GCP STS 流程保留給既有 Azure VM 使用，**不動**既有 Azure backup 排程。
 - `azure-blob-backup.mjs`：`validateEncryptedBackup` 可重用 transport validation；`runScheduledBackup` 等協調介面可研究，但其既有 CLI／Azure delivery 不可當作 native GCP 上傳器。
 - `coordinated-worker-backup.mjs` 的 `coordinatedBackup` 與 `worker-state-backup.mjs` 的 `createStateBackup` 可沿用：外層既有 flock → 私有 recovery journal → close admission → drain／stop exclusive writer → 僅三檔一致快照 → 確認恢復 health 與原 admission → 密文離機。失敗／unknown 不得在 OnFailure 擅自啟動 publisher。
-- `cloud-backup-monitor/server.mjs` 已 export `createMetadataTokenProvider`，只快取短期 GCP metadata token，可作未來 native adapter 候選；`createGcsStorage` 有條件 read/delete，但**沒有 immutable uploader**，且 prefix/name allowlist 不接受新 GCP namespace。不能直接沿用有 delete 的 monitor adapter 當 uploader。
+- `cloud-backup-monitor/server.mjs`：已實作 `HSR_ACTIVE_BACKUP_SOURCE=azure|gcp`、`gcp-production/` prefix 隔離、412 exact-match 與 `createMetadataTokenProvider`，並將 `gcp-native-backup.mjs` 與 monitor 的依賴方向保持單向（monitor 只依賴 `backup-watchdog.mjs` 與 `backup-retention.mjs` 以維持極簡 Docker layout）。
 - `backup-failure-notify.mjs` 的 `notifyBackupFailure` 可研究 safe field allowlist；其 CLI 仍建立 Azure-MI GCS client，**不得安裝在 GCP 假裝 native notifier**。
 
 ### 未來最小 IAM／credential 方案，未核准未建立
@@ -102,9 +106,9 @@ state 路徑固定 `/var/lib/hsr-transfer-worker-production`，不能指向 Azur
 
 GCP daily timer 在 VM 上，不依賴 Windows PC；**VM 停止時 timer 也不會執行**，因此必須保有獨立於 PC、Azure VM、GCP worker VM 的 Cloud Scheduler → authenticated Cloud Run hourly check。預期 gate 為 GCP-specific backup／status 26 小時 missed/overdue，以及 monitor heartbeat 缺失 2 小時；沿用既有通知並驗真實收件，HTTP 200／heartbeat 成功不等於 backup healthy。
 
-既有 monitor collect 看的是共用 `hsr-state/` 與 `monitor/events/` 的最新物件，event 要求 `perDest.azure`／`perDest.gcs`；fresh Azure run **不能滿足 GCP freshness**。目前沒有 active-owner isolation，不能把 `azure:skipped` 改報 success，也不能以全域 latest timestamp 掩蓋 GCP missing。
+既有 monitor（`cloud-backup-monitor/server.mjs`）與 `backup-retention.mjs` 現已支援 `HSR_ACTIVE_BACKUP_SOURCE=azure|gcp` 及獨立 namespace `gcp-production/hsr-state/`、`gcp-production/monitor/events/` 與 `HSR_GCP_RETENTION_BASELINE_JSON`／`HSR_GCP_RETENTION_APPLY`，並透過離線測試驗證「`HSR_ACTIVE_BACKUP_SOURCE=gcp` 時，fresh Azure backup／event 仍會觸發 `snapshot_missing`／`status_event_missing` 告警」、「`azure:skipped` 會觸發 `destination_unverified`」及「invalid source emit `active_source_invalid`」。
 
-具體提案檔已分開 GCP namespace：`gcp-production/hsr-state/` 與 `gcp-production/monitor/events/`，配 GCP-source schedule／protected active-owner record；尚未建立、核准或接入既有 allowlist／retention。未來可以選擇等價、經測試的 active-source transition，而不是全架構重寫；但須能證明「Azure 仍 fresh、GCP 缺席」仍對 GCP 告警。保留 Azure 原 monitor、historical evidence 與 pin；不得將另一個來源的 archive 當成 GCP 備份。
+但雲端 Cloud Run service／scheduler 尚未切換、SA/IAM 尚未核准附掛、GCP→Azure secondary 未實作且 `HSR_GCP_RETENTION_APPLY` 仍須等外部 authenticated GCM restore pin 後才能啟用，因此仍維持 `decision="NO_GO"`。保留 Azure 原 monitor、historical evidence 與 pin；不得將另一個來源的 archive 當成 GCP 備份。
 
 釘選既有 Azure-prefix baseline 身分：
 
@@ -141,6 +145,6 @@ git diff --check
 
 產生器輸出 fixture 在本 clone `var/`，不是 C 槽 temp。POSIX FIFO regression 使用 native `/tmp`（本機 WSL 的 ext4 VHDX 位於 D 槽），測後清除；Windows明示skip此項。完整／相關測試另由執行收據列出 exact commit、Node/npm、commands、exit codes 與 pass/skip 數。無 Box／cloud verification；fresh local exact-commit checkout 可驗證可重現性，但不冒稱獨立代理 review 或 Linux／實機雲端驗收。
 
-本次可聲稱的是「產生器 schema／離線輸出與安全 gate 有測試」，不是 Caddy native validator、systemd-analyze、實際 profile owner guard、GCP-native 備份、live cipher restore、通知、Production deployment 或 cutover 完成。
+本次可聲稱的是「產生器 13 項產物契約與 4 項本地程式碼模組（`chromiumSandbox:true`、`gcp-production-profile-preflight.mjs`、`gcp-native-backup.mjs`／`gcp-backup-failure-notify.mjs`、owner-scoped monitor／retention）之離線邏輯與安全 gate 已實作並通過單元測試」，不是 Caddy native validator、systemd-analyze、Linux 實機 profile owner guard、SA/IAM 權限、GCP-native 雲端上傳、live cipher restore、通知收件、Production deployment 或 cutover 完成。
 
 主線輸入reader複審：Linux FIFO在open前可能阻塞的問題已由regular-file precheck、NOFOLLOW/NONBLOCK、16KiB+1有界讀取及前後inode/size/time核對修正。先在WSL重現2秒外部timeout，再以同一regression驗證有界拒絕；純錯誤輸出不含提供路徑或JSON內容。

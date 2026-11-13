@@ -8,10 +8,8 @@ ConditionPathExists=/etc/hsr-gcp-production/EXPLICIT_GO
 [Service]
 Type=oneshot
 User=root
-# BLOCKER: GCP-native safe status exporter must be implemented, not the Azure-MI notifier CLI.
-# It must export only allowlisted phase/health/result fields to the GCP-specific event prefix.
-# Future reviewed native exporter must use /opt/node-v24.22.3-linux-x64/bin/node.
-ExecStart=/usr/bin/false
+# Exports only allowlisted phase/health/result fields to the GCP-specific event prefix.
+ExecStart=/opt/node-v24.22.3-linux-x64/bin/node /opt/hsr-transfer-worker-staging/scripts/infrastructure/gcp-backup-failure-notify.mjs /etc/hsr-gcp-production/backup.json
 Restart=no
 TimeoutStartSec=45s
 UMask=0077

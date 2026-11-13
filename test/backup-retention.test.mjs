@@ -365,3 +365,30 @@ test('real existing encryption and external GCM proof work without providing pri
   assert.equal(result.status, 'applied'); assert.equal(s.objects.size, 4);
   assert.equal(result.restoreVerified, false);
 });
+
+test('gcp-production/hsr-state/ prefix dry-run/apply works with matching pin and blocks Azure pin', async () => {
+  const gcpPrefix = 'gcp-production/hsr-state/';
+  const gcpPair = (at) => {
+    const p = pair(at);
+    const archiveName = gcpPrefix + p.archiveName.replace(/^hsr-state\//, '');
+    const receiptName = gcpPrefix + p.receiptName.replace(/^hsr-state\//, '');
+    return { ...p, archiveName, receiptName, identity: { ...p.identity, archiveName } };
+  };
+  const pinned = gcpPair('2026-10-01T19:00:00.000Z');
+  const expired = gcpPair('2026-11-01T19:00:00.000Z');
+  const fresh = gcpPair('2026-11-12T18:00:00.000Z');
+  const s = store([pinned, expired, fresh]);
+  const azurePin = { ...pair('2026-10-01T19:00:00.000Z').identity,
+    verification: 'external-gcm-restore/v1', restoreVerifiedAt: '2026-10-02T00:00:00.000Z' };
+  const blocked = await planBackupRetention({ storage: s.operations, now: clock, prefix: gcpPrefix, pinnedBaseline: azurePin });
+  assert.equal(blocked.status, 'blocked');
+  const gcpPin = { ...pinned.identity, verification: 'external-gcm-restore/v1', restoreVerifiedAt: '2026-10-02T00:00:00.000Z' };
+  const dryRun = await planBackupRetention({ storage: s.operations, now: clock, prefix: gcpPrefix, pinnedBaseline: gcpPin });
+  assert.equal(dryRun.status, 'ready');
+  assert.equal(dryRun.candidates.length, 1);
+  assert.equal(dryRun.candidates[0].archiveName, expired.archiveName);
+  const applied = await executeBackupRetention({ storage: s.operations, now: clock, prefix: gcpPrefix, apply: true, pinnedBaseline: gcpPin });
+  assert.equal(applied.status, 'applied');
+  assert.deepEqual(applied.deleted, [expired.archiveName, expired.receiptName]);
+  assert.equal(s.objects.size, 4);
+});

@@ -57,11 +57,16 @@ test('example is secret-free and validated; plan remains blocked and preserves e
     assert.equal(plan[key], false, key);
   }
   assert.equal(plan.currentStateOwner, 'azure');
-  assert.ok(plan.blockers.includes('GCP_NATIVE_BACKUP_ADAPTER_NOT_IMPLEMENTED'));
-  assert.ok(plan.blockers.includes('OWNER_SCOPED_MONITOR_NOT_IMPLEMENTED'));
+  assert.equal(plan.blockers.length, 10);
+  assert.ok(!plan.blockers.includes('GCP_NATIVE_BACKUP_ADAPTER_NOT_IMPLEMENTED'));
+  assert.ok(!plan.blockers.includes('OWNER_SCOPED_MONITOR_NOT_IMPLEMENTED'));
+  assert.ok(!plan.blockers.includes('PROFILE_OWNER_PREFLIGHT_NOT_IMPLEMENTED'));
+  assert.ok(!plan.blockers.includes('PRODUCTION_CHROMIUM_SANDBOX_NOT_EXPLICIT'));
   assert.ok(plan.blockers.includes('FUTURE_EXPLICIT_GO_REQUIRED'));
   assert.ok(plan.blockers.includes('STATIC_IPV4_APPROVAL_AND_READBACK_REQUIRED'));
+  assert.ok(plan.blockers.includes('LINUX_SANDBOX_AND_RESOURCE_ACCEPTANCE_REQUIRED'));
   assert.match(files['worker.env.template'], /CURRENCY_WAR_WORKER_TOKEN=\n/);
+  assert.match(files['worker.env.template'], /CURRENCY_WAR_CHROMIUM_SANDBOX=1/);
   assert.match(files['worker.env.template'], /CURRENCY_WAR_PUBLIC_SUBMISSIONS=0/);
   assert.match(files['worker.env.template'], /CURRENCY_WAR_PROFILE_DIR=\/var\/lib\/hsr-transfer-worker-staging\/login\/gcp-readonly-profile-login-20261112/);
   assert.doesNotMatch(JSON.stringify(files), /BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY/);
@@ -137,14 +142,16 @@ test('rendered services fail closed with safe OnFailure, no install hooks or res
   assert.match(worker, /NoNewPrivileges=true/);
   assert.match(worker, /ProtectSystem=strict/);
   assert.match(worker, /RuntimeMaxSec=3600/);
-  assert.match(worker, /ExecStartPre=\/usr\/bin\/false/);
-  assert.doesNotMatch(worker, /--no-sandbox|chmod|chown|rm -/);
+  assert.match(worker, /ExecStartPre=\/opt\/node-v24\.22\.3-linux-x64\/bin\/node \/opt\/hsr-transfer-worker-staging\/scripts\/infrastructure\/gcp-production-profile-preflight\.mjs \/etc\/hsr-gcp-production\/worker-preflight\.json/);
+  assert.doesNotMatch(worker, /--no-sandbox|chmod|chown|rm -|\/usr\/bin\/false/);
   const backup = files['hsr-gcp-state-backup.service.template'];
   assert.match(backup, /OnFailure=hsr-gcp-backup-notify.service/);
-  assert.match(backup, /ExecStart=\/usr\/bin\/false/);
+  assert.match(backup, /ExecStart=\/usr\/bin\/flock --nonblock --conflict-exit-code 75 \/run\/hsr-worker-backup\.flock \/usr\/bin\/env HSR_BACKUP_FLOCK_HELD=1 \/opt\/node-v24\.22\.3-linux-x64\/bin\/node \/opt\/hsr-transfer-worker-staging\/scripts\/infrastructure\/gcp-native-backup\.mjs \/etc\/hsr-gcp-production\/backup\.json/);
+  assert.doesNotMatch(backup, /\/usr\/bin\/false/);
   const notify = files['hsr-gcp-backup-notify.service.template'];
   assert.doesNotMatch(notify, /^OnFailure=/m);
-  assert.match(notify, /ExecStart=\/usr\/bin\/false/);
+  assert.match(notify, /ExecStart=\/opt\/node-v24\.22\.3-linux-x64\/bin\/node \/opt\/hsr-transfer-worker-staging\/scripts\/infrastructure\/gcp-backup-failure-notify\.mjs \/etc\/hsr-gcp-production\/backup\.json/);
+  assert.doesNotMatch(notify, /\/usr\/bin\/false/);
   assert.match(notify, /TimeoutStartSec=45s/);
   assert.match(files['hsr-gcp-state-backup.timer.template'], /OnCalendar=\*-\*-\* 19:00:00 UTC/);
   assert.match(files['hsr-gcp-state-backup.timer.template'], /Persistent=true/);
@@ -166,7 +173,11 @@ test('backup and monitor contracts pin existing baseline and expose owner/authen
   const backup = JSON.parse(files['backup-contract.json']);
   assert.equal(backup.runtime.nodeBinary, '/opt/node-v24.22.3-linux-x64/bin/node');
   assert.equal(backup.runtime.usesAptNode, false);
-  assert.equal(backup.implemented, false);
+  assert.equal(backup.implemented, true);
+  assert.equal(backup.activationReady, false);
+  assert.equal(backup.gcs.adapterNotImplemented, false);
+  assert.equal(backup.entrypoint, 'scripts/infrastructure/gcp-native-backup.mjs');
+  assert.equal(backup.failureNotifier, 'scripts/infrastructure/gcp-backup-failure-notify.mjs');
   assert.deepEqual(Object.keys(backup.snapshotConfig.paths).sort(), ['jobs', 'security', 'transfers']);
   assert.equal(backup.snapshotConfig.paths.security, backup.snapshotConfig.paths.jobs + '.security.json');
   assert.equal(backup.snapshotConfig.service, 'hsr-worker-production.service');
@@ -183,7 +194,7 @@ test('backup and monitor contracts pin existing baseline and expose owner/authen
   const monitor = JSON.parse(files['monitor-readiness.json']);
   assert.equal(monitor.currentOwner.source, 'azure');
   assert.equal(monitor.currentOwner.liveVerified, false);
-  assert.equal(monitor.ownerScopedReadiness, false);
+  assert.equal(monitor.ownerScopedReadiness, true);
   assert.equal(monitor.schedule.independentOfPc, true);
   assert.equal(monitor.schedule.independentOfWorkerVm, true);
   assert.equal(monitor.schedule.missedBackupHours, 26);
@@ -207,7 +218,7 @@ test('bundle is deterministic and reports content hashes, never reads state or p
   }
 });
 
-test('current production publisher sandbox omission is an explicit activation blocker, not a readiness claim', async () => {
+test('production publisher enforces chromiumSandbox:true while Linux runtime acceptance stays a blocker', async () => {
   let launchOptions;
   const publisher = new BrowserSessionPublisher({ profileDir: config().profileDirectory, logger: {},
     launchPersistentContext: async (_path, options) => {
@@ -216,11 +227,16 @@ test('current production publisher sandbox omission is an explicit activation bl
     } });
   await publisher.start();
   await publisher.close();
-  assert.notEqual(launchOptions.chromiumSandbox, true, 'Re-evaluate this snapshot-derived blocker after any publisher change');
+  assert.equal(launchOptions.chromiumSandbox, true);
   const { plan, files } = await (await implementation()).buildPreparationBundle(config());
-  assert.ok(plan.blockers.includes('PRODUCTION_CHROMIUM_SANDBOX_NOT_EXPLICIT'));
+  assert.ok(!plan.blockers.includes('PRODUCTION_CHROMIUM_SANDBOX_NOT_EXPLICIT'));
+  assert.ok(plan.blockers.includes('LINUX_SANDBOX_AND_RESOURCE_ACCEPTANCE_REQUIRED'));
+  assert.equal(plan.worker.chromiumSandboxExplicit, true);
   assert.equal(plan.worker.chromiumSandboxVerified, false);
-  assert.match(files['hsr-worker-production.service.template'], /current publisher omits chromiumSandbox:true/);
+  const { validatePreflightConfig } = await import('../scripts/infrastructure/gcp-production-profile-preflight.mjs');
+  const { validateGcpNativeBackupConfig } = await import('../scripts/infrastructure/gcp-native-backup.mjs');
+  validatePreflightConfig(JSON.parse(files['worker-preflight.json']));
+  validateGcpNativeBackupConfig(JSON.parse(files['backup.json']));
 });
 
 test('writer creates local files exclusively and refuses overwrite or unsafe paths', async t => {

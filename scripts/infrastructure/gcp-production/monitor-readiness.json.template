@@ -1,7 +1,7 @@
 {
   "version": 1,
   "decision": "NO_GO",
-  "ownerScopedReadiness": false,
+  "ownerScopedReadiness": true,
   "currentOwner": {
     "source": "azure",
     "evidenceSource": "docs/infrastructure/resilience-live-deployment.md at ca657a47809e1b78aa278a13d71600ce5fd8614a",
