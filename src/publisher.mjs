@@ -43,12 +43,7 @@ function findLineupId(value) {
 export class BrowserSessionPublisher {
   constructor({
     profileDir,
-    browserChannel = process.env.CURRENCY_WAR_BROWSER_CHANNEL || "chrome",
-    browserExecutablePath = process.env.CURRENCY_WAR_BROWSER_EXECUTABLE_PATH || undefined,
-    chromiumSandbox = process.env.CURRENCY_WAR_CHROMIUM_SANDBOX === undefined
-      || process.env.CURRENCY_WAR_CHROMIUM_SANDBOX === ""
-      ? true
-      : process.env.CURRENCY_WAR_CHROMIUM_SANDBOX === "1",
+    browserChannel = "chrome",
     headless = false,
     authRecoveryDelayMs = 8_000,
     launchPersistentContext,
@@ -57,14 +52,9 @@ export class BrowserSessionPublisher {
     if (!profileDir) {
       throw new TypeError("A dedicated browser profile directory is required");
     }
-    if (chromiumSandbox !== true) {
-      throw new TypeError("Chromium sandbox must remain explicitly enabled");
-    }
 
     this.profileDir = profileDir;
     this.browserChannel = browserChannel;
-    this.browserExecutablePath = browserExecutablePath;
-    this.chromiumSandbox = true;
     this.headless = headless;
     this.authRecoveryDelayMs = authRecoveryDelayMs;
     this.launchPersistentContext = launchPersistentContext;
@@ -99,10 +89,7 @@ export class BrowserSessionPublisher {
     }
 
     this.context = await launchPersistentContext(this.profileDir, {
-      ...(this.browserExecutablePath
-        ? { executablePath: this.browserExecutablePath }
-        : { channel: this.browserChannel }),
-      chromiumSandbox: this.chromiumSandbox,
+      channel: this.browserChannel,
       headless: this.headless,
       viewport: { width: 1440, height: 1000 },
     });

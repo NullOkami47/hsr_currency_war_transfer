@@ -1,7 +1,0 @@
-**
-!Dockerfile
-!.dockerignore
-!package.json
-!server.mjs
-!backup-watchdog.mjs
-!backup-retention.mjs

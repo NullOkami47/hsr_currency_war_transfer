@@ -1,8 +1,0 @@
-[Unit]
-Description=Daily Azure Students credit check at 03:15 HKT
-[Timer]
-OnCalendar=*-*-* 19:15:00 UTC
-Persistent=true
-Unit=hsr-credit-export.service
-[Install]
-WantedBy=timers.target

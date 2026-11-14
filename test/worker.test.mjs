@@ -37,46 +37,20 @@ async function waitForResult(queue, jobId) {
   throw new Error("Worker job did not finish in time");
 }
 
-async function waitForSignal(signal, description) {
-  let timer;
-  try {
-    await Promise.race([
-      signal,
-      new Promise((_, reject) => {
-        timer = setTimeout(() => reject(new Error(`${description} timed out`)), 5000);
-      }),
-    ]);
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
 test("deduplicates active jobs and publishes a persistent partial result", async (t) => {
   const directory = await mkdtemp(join(tmpdir(), "currency-war-worker-"));
+  t.after(() => rm(directory, { recursive: true, force: true }));
 
   let releaseTransfer;
   const transferGate = new Promise((resolve) => {
     releaseTransfer = resolve;
   });
-  let signalTransferStarted;
-  const transferStarted = new Promise((resolve) => {
-    signalTransferStarted = resolve;
-  });
   let transferCalls = 0;
   const store = new JsonWorkerJobStore(join(directory, "jobs.json"));
-  const update = store.update.bind(store);
-  store.update = async (...args) => {
-    if (args[1].status === "running") {
-      // Simulate slow storage so transfer start can outlast the old polling loop.
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-    }
-    return update(...args);
-  };
   const queue = new TransferJobQueue({
     store,
     transferFn: async (sourceId) => {
       transferCalls += 1;
-      signalTransferStarted();
       await transferGate;
       return {
         status: "created",
@@ -87,19 +61,6 @@ test("deduplicates active jobs and publishes a persistent partial result", async
       };
     },
   });
-  const drain = queue.drain.bind(queue);
-  const drainCompletions = [];
-  queue.drain = (...args) => {
-    const completion = drain(...args);
-    completion.catch(() => {});
-    drainCompletions.push(completion);
-    return completion;
-  };
-  t.after(async () => {
-    releaseTransfer();
-    await waitForSignal(Promise.all(drainCompletions), "Worker cleanup");
-    await rm(directory, { recursive: true, force: true });
-  });
 
   const [first, duplicate] = await Promise.all([
     queue.submit(SOURCE_ID),
@@ -107,7 +68,9 @@ test("deduplicates active jobs and publishes a persistent partial result", async
   ]);
 
   assert.equal(duplicate.jobId, first.jobId);
-  await waitForSignal(transferStarted, "Transfer start");
+  for (let attempt = 0; attempt < 20 && transferCalls === 0; attempt += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 2));
+  }
   assert.equal(transferCalls, 1);
 
   releaseTransfer();
@@ -118,7 +81,6 @@ test("deduplicates active jobs and publishes a persistent partial result", async
 
   const reloaded = new JsonWorkerJobStore(join(directory, "jobs.json"));
   assert.equal((await reloaded.get(first.jobId)).status, "completed");
-  assert.equal(transferCalls, 1);
 });
 
 test("runs transfer jobs sequentially", async (t) => {

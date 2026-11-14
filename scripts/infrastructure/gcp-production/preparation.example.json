@@ -1,9 +1,0 @@
-{
-  "version": 1,
-  "mode": "offline-preparation",
-  "hostname": "worker.example.invalid",
-  "stateDirectory": "/var/lib/hsr-transfer-worker-production",
-  "profileDirectory": "/var/lib/hsr-transfer-worker-staging/login/gcp-readonly-profile-login-20261112",
-  "futureStaticIpv4": null,
-  "staticIpv4ApprovalReference": null
-}

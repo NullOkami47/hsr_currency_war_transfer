@@ -3,6 +3,7 @@ import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 import { JsonWorkerJobStore, createWorkerHandler, DEFAULT_WORKER_SETTINGS } from "../src/worker.mjs";
 import { JsonSecurityStore } from "../src/security-state.mjs";
 import { REQUEST_BUDGETS } from "../src/request-budget.mjs";
@@ -228,7 +229,7 @@ test("F2 actual worker process restart honours an administrator disable despite 
   const port = portFinder.address().port;
   await new Promise(resolve => portFinder.close(resolve));
   async function start() {
-    const process = spawn(globalThis.process.execPath, [new URL("../scripts/worker-server.mjs", import.meta.url).pathname.replace(/^\/([A-Z]:)/, "$1")], {
+    const process = spawn(globalThis.process.execPath, [fileURLToPath(new URL("../scripts/worker-server.mjs", import.meta.url))], {
       env: {
         ...globalThis.process.env,
         CURRENCY_WAR_WORKER_TOKEN: TOKEN,
