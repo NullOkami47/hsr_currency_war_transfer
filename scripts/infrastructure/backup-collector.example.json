@@ -1,0 +1,11 @@
+{
+  "sshTarget": "azureuser@REPLACE_WITH_VERIFIED_HOST",
+  "sshKeyPath": "D:\\HSRRecoveryKeys\\azure-ssh-key",
+  "remoteScript": "/opt/hsr-transfer-worker/scripts/infrastructure/coordinated-worker-backup.mjs",
+  "remoteConfig": "/etc/hsr-backup/backup.json",
+  "remoteBackupDirectory": "/var/lib/hsr-worker-backups",
+  "backupDirectory": "D:\\hsr-worker-backups",
+  "privateKeyPath": "D:\\HSRRecoveryKeys\\backup-private.pem",
+  "repository": "D:\\CodexWork\\hsr-free-worker-migration",
+  "passphraseCredentialPath": "D:\\HSRRecoveryKeys\\backup-passphrase.clixml"
+}

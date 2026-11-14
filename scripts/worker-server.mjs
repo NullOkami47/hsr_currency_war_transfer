@@ -52,6 +52,7 @@ if (
 
 const publisher = new BrowserSessionPublisher({
   profileDir,
+  chromiumSandbox: true,
   headless: process.env.CURRENCY_WAR_HEADLESS === "1",
 });
 const transferStore = new JsonTransferStore(transferStatePath);

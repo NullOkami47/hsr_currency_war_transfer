@@ -1,0 +1,15 @@
+# OFFLINE TEMPLATE ONLY. Merge into the existing Caddy configuration after future explicit GO.
+# Never replace unrelated sites, staging routes, firewall rules, NICs or TLS policy.
+# Stable DNS must resolve to the future approved static IPv4 on the SAME existing NIC.
+# Both this variable and the worker token must be provisioned privately, identically and nonempty.
+# caddy validate/adapt plus real missing/wrong/valid bearer tests remain required on Linux.
+@@HOSTNAME@@ {
+    @authorised header Authorization "Bearer {$HSR_GCP_WORKER_TOKEN}"
+    handle @authorised {
+        reverse_proxy 127.0.0.1:8787
+    }
+    handle {
+        respond "Unauthorised" 401
+    }
+    header -Server
+}

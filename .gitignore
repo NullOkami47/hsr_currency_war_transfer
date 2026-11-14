@@ -1,6 +1,14 @@
 node_modules/
+.vercel/
 .env
 .env.*
 !.env.example
 var/
 browser-profile/
+# Recovery data and key material must remain outside the repository.
+hsr-state-*.enc.json
+hsr-state-*.receipt.json
+latest-verified.json
+.verification-config.json
+*-private.pem
+*-passphrase.clixml

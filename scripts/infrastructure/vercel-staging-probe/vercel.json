@@ -1,0 +1,10 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": null,
+  "functions": {
+    "api/probe.mjs": {
+      "maxDuration": 60,
+      "supportsCancellation": true
+    }
+  }
+}

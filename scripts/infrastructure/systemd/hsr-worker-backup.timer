@@ -1,0 +1,10 @@
+[Unit]
+Description=Daily encrypted HSR state backup
+
+[Timer]
+OnCalendar=*-*-* 19:00:00 UTC
+Persistent=true
+Unit=hsr-worker-backup.service
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,13 @@
+{
+  "account": "operator@example.invalid",
+  "project": "replace-with-verified-project-id",
+  "zone": "us-central1-a",
+  "instance": "hsr-worker-standby",
+  "maxRunSeconds": 3600,
+  "healthUrl": "https://replace-with-approved-existing-domain.invalid/health",
+  "costEvidence": {
+    "verifiedAt": null,
+    "freeTierAvailable": false,
+    "budgetsVerified": false
+  }
+}
