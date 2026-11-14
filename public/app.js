@@ -338,6 +338,7 @@ function applyTranslations() {
   updateBondTrigger();
   renderBondGrid();
   setSearchBusy(state.searchBusy);
+  setScanMoreBusy(state.scanMoreBusy);
   renderResults();
   renderTray();
 }
@@ -841,19 +842,18 @@ function setScanMoreBusy(busy) {
   state.scanMoreBusy = busy;
   elements["scan-more-button"].disabled = busy;
   elements["scan-more-button"].replaceChildren();
+  const label = document.createElement("span");
+  label.id = "scan-more-label";
+  label.dataset.i18n = busy ? "scanningMore" : "scanMore";
+  label.textContent = t(label.dataset.i18n);
   if (busy) {
     const spinner = document.createElement("span");
     spinner.className = "button__spinner";
     spinner.setAttribute("aria-hidden", "true");
-    const label = document.createElement("span");
-    label.textContent = t("scanningMore");
     elements["scan-more-button"].append(spinner, label);
-  } else {
-    const label = document.createElement("span");
-    label.id = "scan-more-label";
-    label.textContent = t("scanMore");
-    elements["scan-more-button"].append(label);
+    return;
   }
+  elements["scan-more-button"].append(label);
 }
 
 function updateScanMoreButton() {
@@ -867,26 +867,31 @@ function resetPaginationState() {
   state.nextPage = 1;
   state.hasMore = false;
   state.searchQuery = null;
+  state.scanMoreError = null;
   updateScanMoreButton();
 }
 
-function renderResults() {
-  elements["candidate-list"].replaceChildren();
-  if (!state.searchResult) {
-    updateScanMoreButton();
-    return;
+async function buildSearchError(status, data) {
+  const presentation = getSearchErrorPresentation(status, data);
+  if (presentation.refreshRoles && await loadRoles()) {
+    state.selectedRoleIds = new Set(retainKnownRoleIds(state.selectedRoleIds, state.rolesById));
+    state.selectedBondIds = new Set(retainKnownRoleIds(state.selectedBondIds, state.bondsById));
+    renderRoleGrid(); updateRoleTrigger(); renderBondGrid(); updateBondTrigger();
   }
-  const candidates = state.candidates;
-  elements["results-header"].hidden = false;
-  elements["result-count"].textContent = t("resultCount", { count: candidates.length });
+  const searchError = new Error("search");
+  searchError.presentation = presentation;
+  return searchError;
+}
+
+function renderSearchStatus() {
   elements["search-status"].replaceChildren();
-  const pageInfo = state.searchResult.pageInfo ?? {};
+  const pageInfo = state.searchResult?.pageInfo ?? {};
   const partialWarning = () => statusPanel(
     "",
     t("partialSearchTitle"),
     t("partialSearchBody", { page: pageInfo.failedPage ?? "—" }),
   );
-  if (!candidates.length) {
+  if (!state.candidates.length) {
     if (state.hasMore) {
       elements["search-status"].append(
         statusPanel(
@@ -899,22 +904,42 @@ function renderResults() {
       elements["search-status"].append(statusPanel("empty", t("noResultsTitle"), t("noResultsBody")));
     }
     if (pageInfo.partial) elements["search-status"].append(partialWarning());
+  } else {
+    const info = document.createElement("p");
+    info.className = "result-summary";
+    info.textContent = t("scanned", { count: state.scannedStrategies });
+    elements["search-status"].append(info);
+    if (pageInfo.partial) {
+      elements["search-status"].append(partialWarning());
+    } else if (pageInfo.truncated && !state.hasMore) {
+      elements["search-status"].append(statusPanel("", t("truncatedTitle"), t("truncatedBody")));
+    }
+  }
+  if (state.scanMoreError) {
+    elements["search-status"].append(statusPanel("error", t(state.scanMoreError.titleKey), t(state.scanMoreError.bodyKey)));
+  }
+}
+
+function renderResults() {
+  elements["candidate-list"].replaceChildren();
+  if (!state.searchResult) {
     updateScanMoreButton();
     return;
   }
-  candidates.forEach((candidate, index) => elements["candidate-list"].append(candidateCard(candidate, index)));
-  const info = document.createElement("p"); info.className = "result-summary"; info.textContent = t("scanned", { count: state.scannedStrategies });
-  elements["search-status"].append(info);
-  if (pageInfo.partial) {
-    elements["search-status"].append(partialWarning());
-  } else if (pageInfo.truncated && !state.hasMore) {
-    elements["search-status"].append(statusPanel("", t("truncatedTitle"), t("truncatedBody")));
+  const candidates = state.candidates;
+  elements["results-header"].hidden = false;
+  elements["result-count"].textContent = t("resultCount", { count: candidates.length });
+  renderSearchStatus();
+  if (candidates.length) {
+    candidates.forEach((candidate, index) => elements["candidate-list"].append(candidateCard(candidate, index)));
   }
   updateScanMoreButton();
 }
 
 async function performScanMore() {
   if (state.scanMoreBusy || !state.hasMore || state.mode !== "details" || !state.searchQuery) return;
+  const controller = state.searchController;
+  state.scanMoreError = null;
   setScanMoreBusy(true);
   try {
     const payload = {
@@ -929,11 +954,12 @@ async function performScanMore() {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(payload),
-      signal: state.searchController?.signal,
+      signal: controller?.signal,
     });
     const data = await response.json();
+    if (controller && controller !== state.searchController) return;
     if (!response.ok) {
-      throw new Error("scan_more_failed");
+      throw await buildSearchError(response.status, data);
     }
 
     const freshCandidates = data.candidates ?? [];
@@ -942,40 +968,29 @@ async function performScanMore() {
     const startIndex = state.candidates.length;
     state.candidates = state.candidates.concat(toAppend);
 
+    state.searchResult = { ...(state.searchResult ?? {}), pageInfo: data.pageInfo };
     state.scannedStrategies = (state.scannedStrategies || 0) + (data.pageInfo?.scannedStrategies ?? 0);
     state.nextPageToken = data.pageInfo?.nextPageToken ?? null;
     state.nextPage = data.pageInfo?.nextPage ?? (state.nextPage + 2);
     state.hasMore = Boolean(data.pageInfo?.hasMore);
 
-    if (state.candidates.length > 0 && elements["candidate-list"].children.length === 0) {
-      renderResults();
-    } else if (toAppend.length > 0) {
+    if (toAppend.length > 0) {
       toAppend.forEach((candidate, idx) => {
         elements["candidate-list"].append(candidateCard(candidate, startIndex + idx));
       });
-      elements["result-count"].textContent = t("resultCount", { count: state.candidates.length });
-      let summaryEl = elements["search-status"].querySelector(".result-summary");
-      if (!summaryEl) {
-        summaryEl = document.createElement("p");
-        summaryEl.className = "result-summary";
-        elements["search-status"].prepend(summaryEl);
-      }
-      summaryEl.textContent = t("scanned", { count: state.scannedStrategies });
-    } else {
-      if (state.candidates.length === 0) {
-        renderResults();
-      } else {
-        let summaryEl = elements["search-status"].querySelector(".result-summary");
-        if (summaryEl) {
-          summaryEl.textContent = t("scanned", { count: state.scannedStrategies });
-        }
-      }
     }
+    elements["result-count"].textContent = t("resultCount", { count: state.candidates.length });
+    renderSearchStatus();
     updateScanMoreButton();
   } catch (error) {
-    if (error.name === "AbortError") return;
+    if (error.name === "AbortError" || (controller && controller !== state.searchController)) return;
+    state.scanMoreError = error.presentation ?? getSearchErrorPresentation(0, null);
+    renderSearchStatus();
+    updateScanMoreButton();
   } finally {
-    setScanMoreBusy(false);
+    if (!controller || controller === state.searchController) {
+      setScanMoreBusy(false);
+    }
   }
 }
 
@@ -1054,12 +1069,8 @@ async function performSearch() {
   }
   state.searchController?.abort(); state.searchController = new AbortController();
   resetTransferUi(); state.selectedCandidate = null; document.body.classList.remove("has-selection"); elements["transfer-tray"].hidden = true;
-  setSearchBusy(true); showSearchLoading(); closeRolePicker(); closeBondPicker();
-  state.scannedStrategies = 0;
-  state.nextPageToken = null;
-  state.nextPage = 1;
-  state.hasMore = false;
-  elements["scan-more-container"].hidden = true;
+  setSearchBusy(true); setScanMoreBusy(false); showSearchLoading(); closeRolePicker(); closeBondPicker();
+  resetPaginationState();
   state.searchQuery = {
     keyword,
     authorKeyword,
@@ -1079,13 +1090,7 @@ async function performSearch() {
     const response = await fetch("/api/search", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(payload), signal: state.searchController.signal });
     const data = await response.json();
     if (!response.ok) {
-      const presentation = getSearchErrorPresentation(response.status, data);
-      if (presentation.refreshRoles && await loadRoles()) {
-        state.selectedRoleIds = new Set(retainKnownRoleIds(state.selectedRoleIds, state.rolesById));
-        state.selectedBondIds = new Set(retainKnownRoleIds(state.selectedBondIds, state.bondsById));
-        renderRoleGrid(); updateRoleTrigger(); renderBondGrid(); updateBondTrigger();
-      }
-      const searchError = new Error("search"); searchError.presentation = presentation; throw searchError;
+      throw await buildSearchError(response.status, data);
     }
     state.searchResult = data;
     state.candidates = state.searchResult.candidates ?? [];
@@ -1098,7 +1103,7 @@ async function performSearch() {
   } catch (error) {
     if (error.name === "AbortError") return;
     const presentation = error.presentation ?? getSearchErrorPresentation(0, null);
-    state.searchResult = null; state.candidates = []; state.hasMore = false; elements["results-header"].hidden = true; elements["candidate-list"].replaceChildren(); elements["search-status"].replaceChildren(statusPanel("error", t(presentation.titleKey), t(presentation.bodyKey)));
+    state.searchResult = null; state.candidates = []; state.hasMore = false; state.scanMoreError = null; elements["results-header"].hidden = true; elements["candidate-list"].replaceChildren(); elements["search-status"].replaceChildren(statusPanel("error", t(presentation.titleKey), t(presentation.bodyKey)));
     updateScanMoreButton();
   } finally { setSearchBusy(false); }
 }
