@@ -55,11 +55,11 @@ Search and candidate selection do not require sign-in. Publishing is handled by 
 
 | Feature | Description |
 | --- | --- |
-| 🔎 Flexible search | Exact China URL/ID lookup plus title, author, character and Bond filters |
-| 🔗 Cross-region conversion | Allow-listed China payload conversion with cross-region game-data ID handling |
+| 🔎 Flexible search | Exact China URL/ID lookup plus title, author, character (including 1–5 cost and 7-cost Aha), and Bond filters |
+| 🔗 Cross-region conversion | Allow-listed conversion of characters, equipment, spotlight recommendations, and Bonds with cross-region ID handling |
 | 🛡️ Secure publishing | Creates or edits through the official Global web UI without exporting cookies, passwords or browser storage |
-| ✅ Post-publish verification | Re-fetches and normalises the Global strategy, then compares gameplay fields and the complete title prefix |
-| ♻️ Create or update in place | Updates mapped strategies when needed instead of creating duplicates |
+| ✅ Post-publish verification | Re-fetches and normalises the Global strategy, comparing characters, equipment, spotlight recommendations, and title prefix |
+| ♻️ Create or update in place | Updates mapped strategies when needed and reconciles interrupted publishes before retrying to avoid duplicates |
 | 🌓 Multilingual interface | Traditional Chinese, Simplified Chinese and English with light and dark themes |
 | 🕘 Local submission history | Keeps up to 50 completed records in the browser for later access to codes and official links |
 | ⚙️ Administrator console | Controls public submission, blacklist, rate limits, quotas, queue capacity and record retention |
@@ -180,12 +180,13 @@ See [`.env.example`](.env.example), the [administrator publishing connector](doc
 - Preserve the remaining Chinese title and operation text.
 - Add `｜作者名稱` only when the title remains within 60 characters.
 - Add `來源：作者名稱` only when the operation text remains within 800 characters.
-- Ignore IDs unavailable on Global and return every omission in `ignored`.
+- Ignore character, equipment, spotlight, and Bond IDs unavailable on Global and return every omission in `ignored`.
+- Retain and verify both equipment and spotlight recommendation fields (`first_spot_lights`, `second_spot_lights`, `rec_spot_light_index`).
 - Return the existing code when the mapped Global strategy still matches.
 - Edit the mapped strategy in place when its source changes.
-- Create a new strategy when no valid mapping exists.
+- Create a new strategy when no valid mapping exists, and verify pending interrupted publications before issuing another write to avoid duplicates.
 - Re-fetch and compare published data before returning success.
-- Verify gameplay fields and the complete rebuilt title prefix.
+- Verify gameplay fields (including equipment and spotlight recommendations) and the complete rebuilt title prefix.
 - Serialise local publishing jobs to prevent races between duplicate requests.
 
 </details>
