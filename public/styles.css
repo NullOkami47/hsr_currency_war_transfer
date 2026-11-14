@@ -1429,6 +1429,16 @@ html[data-theme="dark"] .route-line span:last-child {
   gap: var(--space-3);
 }
 
+.results-more {
+  display: flex;
+  justify-content: center;
+  margin-top: var(--space-4);
+}
+
+.results-more .button {
+  width: 100%;
+}
+
 .candidate--loading {
   min-height: 12rem;
 }

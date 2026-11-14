@@ -222,6 +222,10 @@ Object.assign(messages["zh-Hant"], {
   heroCopy: "貼上分享連結，或用攻略名稱、作者、角色與羈絆篩選候選攻略。確認陣容後，再交由管理員帳號建立國際服版本。",
   initialBody: "使用 URL／ID 精確查找，或以攻略名稱、作者、角色與羈絆組合搜尋。",
   noResultsBody: "請嘗試縮短攻略或作者關鍵字、減少所選角色或羈絆，或改用精確 URL／ID。",
+  scanMore: "掃描更多攻略",
+  scanningMore: "正在掃描…",
+  noResultsScanMoreTitle: "前 {count} 筆攻略中未找到符合條件的結果",
+  noResultsScanMoreBody: "可點擊「掃描更多攻略」繼續搜尋後續內容，或調整搜尋條件。",
 });
 Object.assign(messages["zh-Hans"], {
   adminConsole: "管理员控制台",
@@ -246,6 +250,10 @@ Object.assign(messages["zh-Hans"], {
   heroCopy: "粘贴分享链接，或用攻略名称、作者、角色与羁绊筛选候选攻略。确认阵容后，再交由管理员账号建立国际服版本。",
   initialBody: "使用 URL／ID 精确查找，或以攻略名称、作者、角色与羁绊组合搜索。",
   noResultsBody: "请尝试缩短攻略或作者关键词、减少所选角色或羁绊，或改用精确 URL／ID。",
+  scanMore: "扫描更多攻略",
+  scanningMore: "正在扫描…",
+  noResultsScanMoreTitle: "前 {count} 条攻略中未找到符合条件的结果",
+  noResultsScanMoreBody: "可点击“扫描更多攻略”继续搜索后续内容，或调整搜索条件。",
 });
 Object.assign(messages.en, {
   adminConsole: "Administrator console",
@@ -270,6 +278,10 @@ Object.assign(messages.en, {
   heroCopy: "Paste a shared link, or filter strategies by title, author, characters and Bonds. Confirm the lineup, then let the administrator account create the Global version.",
   initialBody: "Look up an exact URL / ID, or combine strategy title, author, character and Bond filters.",
   noResultsBody: "Try a shorter title or author keyword, fewer selected characters or Bonds, or an exact strategy URL / ID.",
+  scanMore: "Scan more strategies",
+  scanningMore: "Scanning more…",
+  noResultsScanMoreTitle: "No matching strategies found in the first {count} scanned",
+  noResultsScanMoreBody: "Click \"Scan more strategies\" to scan further, or adjust your criteria.",
 });
 
 const state = {
@@ -285,6 +297,12 @@ const state = {
   selectedCandidate: null,
   searchResult: null,
   searchBusy: false,
+  scannedStrategies: 0,
+  nextPageToken: null,
+  nextPage: 1,
+  hasMore: false,
+  scanMoreBusy: false,
+  searchQuery: null,
   theme: document.documentElement.dataset.theme === "dark" ? "dark" : "light",
   roleLoadFailed: false,
   bondLoadFailed: false,
@@ -294,7 +312,7 @@ const state = {
 };
 
 const elements = Object.fromEntries([
-  "locale-select", "theme-toggle", "global-archive-link", "search-form", "source-input", "source-field", "source-error", "keyword-input", "author-input", "details-error", "role-trigger", "role-trigger-label", "role-popover", "role-filter", "role-clear", "role-filters", "role-grid", "role-status", "bond-trigger", "bond-trigger-label", "bond-popover", "bond-filter", "bond-clear", "bond-grid", "bond-status", "search-button", "search-status", "results-header", "result-count", "candidate-list", "transfer-tray", "tray-title", "tray-roster", "transfer-status", "selection-clear", "transfer-submit", "share-code-wrap", "share-code", "copy-code", "view-global-strategy",
+  "locale-select", "theme-toggle", "global-archive-link", "search-form", "source-input", "source-field", "source-error", "keyword-input", "author-input", "details-error", "role-trigger", "role-trigger-label", "role-popover", "role-filter", "role-clear", "role-filters", "role-grid", "role-status", "bond-trigger", "bond-trigger-label", "bond-popover", "bond-filter", "bond-clear", "bond-grid", "bond-status", "search-button", "search-status", "results-header", "result-count", "candidate-list", "scan-more-container", "scan-more-button", "scan-more-label", "transfer-tray", "tray-title", "tray-roster", "transfer-status", "selection-clear", "transfer-submit", "share-code-wrap", "share-code", "copy-code", "view-global-strategy",
 ].map((id) => [id, document.getElementById(id)]));
 
 function t(key, variables = {}) {
@@ -403,6 +421,7 @@ function setMode(mode, focus = false) {
   closeRolePicker();
   closeBondPicker();
   clearValidation();
+  resetPaginationState();
 }
 
 function clearValidation() {
@@ -434,7 +453,6 @@ function openRolePicker() {
   elements["role-popover"].hidden = false;
   elements["role-trigger"].setAttribute("aria-expanded", "true");
   constrainRolePopoverToViewport();
-  elements["role-filter"].focus();
 }
 
 function closeRolePicker() {
@@ -449,7 +467,6 @@ function openBondPicker() {
   elements["bond-popover"].hidden = false;
   elements["bond-trigger"].setAttribute("aria-expanded", "true");
   constrainBondPopoverToViewport();
-  elements["bond-filter"].focus();
 }
 
 function closeBondPicker() {
@@ -605,6 +622,7 @@ function renderRoleGrid() {
     input.addEventListener("change", () => {
       if (input.checked) state.selectedRoleIds.add(role.id); else state.selectedRoleIds.delete(role.id);
       updateRoleTrigger();
+      resetPaginationState();
     });
     const name = document.createElement("span");
     name.className = "role-chip__name";
@@ -670,6 +688,7 @@ function renderBondGrid() {
         if (input.checked) state.selectedBondIds.add(bond.id);
         else state.selectedBondIds.delete(bond.id);
         updateBondTrigger();
+        resetPaginationState();
       });
       const name = document.createElement("span");
       name.className = "role-chip__name";
@@ -818,9 +837,45 @@ function candidateCard(candidate, index) {
   return article;
 }
 
+function setScanMoreBusy(busy) {
+  state.scanMoreBusy = busy;
+  elements["scan-more-button"].disabled = busy;
+  elements["scan-more-button"].replaceChildren();
+  if (busy) {
+    const spinner = document.createElement("span");
+    spinner.className = "button__spinner";
+    spinner.setAttribute("aria-hidden", "true");
+    const label = document.createElement("span");
+    label.textContent = t("scanningMore");
+    elements["scan-more-button"].append(spinner, label);
+  } else {
+    const label = document.createElement("span");
+    label.id = "scan-more-label";
+    label.textContent = t("scanMore");
+    elements["scan-more-button"].append(label);
+  }
+}
+
+function updateScanMoreButton() {
+  const shouldShow = state.mode === "details" && Boolean(state.hasMore) && !state.searchBusy && Boolean(state.searchResult);
+  elements["scan-more-container"].hidden = !shouldShow;
+}
+
+function resetPaginationState() {
+  state.scannedStrategies = 0;
+  state.nextPageToken = null;
+  state.nextPage = 1;
+  state.hasMore = false;
+  state.searchQuery = null;
+  updateScanMoreButton();
+}
+
 function renderResults() {
   elements["candidate-list"].replaceChildren();
-  if (!state.searchResult) return;
+  if (!state.searchResult) {
+    updateScanMoreButton();
+    return;
+  }
   const candidates = state.candidates;
   elements["results-header"].hidden = false;
   elements["result-count"].textContent = t("resultCount", { count: candidates.length });
@@ -832,17 +887,95 @@ function renderResults() {
     t("partialSearchBody", { page: pageInfo.failedPage ?? "—" }),
   );
   if (!candidates.length) {
-    elements["search-status"].append(statusPanel("empty", t("noResultsTitle"), t("noResultsBody")));
+    if (state.hasMore) {
+      elements["search-status"].append(
+        statusPanel(
+          "empty",
+          t("noResultsScanMoreTitle", { count: state.scannedStrategies }),
+          t("noResultsScanMoreBody"),
+        ),
+      );
+    } else {
+      elements["search-status"].append(statusPanel("empty", t("noResultsTitle"), t("noResultsBody")));
+    }
     if (pageInfo.partial) elements["search-status"].append(partialWarning());
+    updateScanMoreButton();
     return;
   }
   candidates.forEach((candidate, index) => elements["candidate-list"].append(candidateCard(candidate, index)));
-  const info = document.createElement("p"); info.className = "result-summary"; info.textContent = t("scanned", { count: pageInfo.scannedStrategies });
+  const info = document.createElement("p"); info.className = "result-summary"; info.textContent = t("scanned", { count: state.scannedStrategies });
   elements["search-status"].append(info);
   if (pageInfo.partial) {
     elements["search-status"].append(partialWarning());
-  } else if (pageInfo.truncated) {
+  } else if (pageInfo.truncated && !state.hasMore) {
     elements["search-status"].append(statusPanel("", t("truncatedTitle"), t("truncatedBody")));
+  }
+  updateScanMoreButton();
+}
+
+async function performScanMore() {
+  if (state.scanMoreBusy || !state.hasMore || state.mode !== "details" || !state.searchQuery) return;
+  setScanMoreBusy(true);
+  try {
+    const payload = {
+      ...state.searchQuery,
+      maxPages: 2,
+      pageSize: 10,
+      maxStrategies: 20,
+      startPage: state.nextPage,
+      nextPageToken: state.nextPageToken,
+    };
+    const response = await fetch("/api/search", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(payload),
+      signal: state.searchController?.signal,
+    });
+    const data = await response.json();
+    if (!response.ok) {
+      throw new Error("scan_more_failed");
+    }
+
+    const freshCandidates = data.candidates ?? [];
+    const existingIds = new Set(state.candidates.map((c) => c.id));
+    const toAppend = freshCandidates.filter((c) => !existingIds.has(c.id));
+    const startIndex = state.candidates.length;
+    state.candidates = state.candidates.concat(toAppend);
+
+    state.scannedStrategies = (state.scannedStrategies || 0) + (data.pageInfo?.scannedStrategies ?? 0);
+    state.nextPageToken = data.pageInfo?.nextPageToken ?? null;
+    state.nextPage = data.pageInfo?.nextPage ?? (state.nextPage + 2);
+    state.hasMore = Boolean(data.pageInfo?.hasMore);
+
+    if (state.candidates.length > 0 && elements["candidate-list"].children.length === 0) {
+      renderResults();
+    } else if (toAppend.length > 0) {
+      toAppend.forEach((candidate, idx) => {
+        elements["candidate-list"].append(candidateCard(candidate, startIndex + idx));
+      });
+      elements["result-count"].textContent = t("resultCount", { count: state.candidates.length });
+      let summaryEl = elements["search-status"].querySelector(".result-summary");
+      if (!summaryEl) {
+        summaryEl = document.createElement("p");
+        summaryEl.className = "result-summary";
+        elements["search-status"].prepend(summaryEl);
+      }
+      summaryEl.textContent = t("scanned", { count: state.scannedStrategies });
+    } else {
+      if (state.candidates.length === 0) {
+        renderResults();
+      } else {
+        let summaryEl = elements["search-status"].querySelector(".result-summary");
+        if (summaryEl) {
+          summaryEl.textContent = t("scanned", { count: state.scannedStrategies });
+        }
+      }
+    }
+    updateScanMoreButton();
+  } catch (error) {
+    if (error.name === "AbortError") return;
+  } finally {
+    setScanMoreBusy(false);
   }
 }
 
@@ -888,6 +1021,7 @@ function setSearchBusy(busy) {
   } else {
     const label = document.createElement("span"); label.textContent = t("search"); elements["search-button"].append(label);
   }
+  updateScanMoreButton();
 }
 
 function setTransferBusy(busy) {
@@ -921,8 +1055,27 @@ async function performSearch() {
   state.searchController?.abort(); state.searchController = new AbortController();
   resetTransferUi(); state.selectedCandidate = null; document.body.classList.remove("has-selection"); elements["transfer-tray"].hidden = true;
   setSearchBusy(true); showSearchLoading(); closeRolePicker(); closeBondPicker();
+  state.scannedStrategies = 0;
+  state.nextPageToken = null;
+  state.nextPage = 1;
+  state.hasMore = false;
+  elements["scan-more-container"].hidden = true;
+  state.searchQuery = {
+    keyword,
+    authorKeyword,
+    roleIds: [...state.selectedRoleIds],
+    bondIds: [...state.selectedBondIds],
+  };
   try {
-    const payload = state.mode === "direct" ? { source } : { keyword, authorKeyword, roleIds: [...state.selectedRoleIds], bondIds: [...state.selectedBondIds], maxPages: 10, pageSize: 10 };
+    const payload = state.mode === "direct"
+      ? { source }
+      : {
+          ...state.searchQuery,
+          maxPages: 2,
+          pageSize: 10,
+          maxStrategies: 20,
+          startPage: 1,
+        };
     const response = await fetch("/api/search", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(payload), signal: state.searchController.signal });
     const data = await response.json();
     if (!response.ok) {
@@ -934,11 +1087,19 @@ async function performSearch() {
       }
       const searchError = new Error("search"); searchError.presentation = presentation; throw searchError;
     }
-    state.searchResult = data; state.candidates = state.searchResult.candidates ?? []; renderResults();
+    state.searchResult = data;
+    state.candidates = state.searchResult.candidates ?? [];
+    state.scannedStrategies = data.pageInfo?.scannedStrategies ?? 0;
+    state.nextPageToken = data.pageInfo?.nextPageToken ?? null;
+    state.nextPage = data.pageInfo?.nextPage ?? 3;
+    state.hasMore = Boolean(data.pageInfo?.hasMore);
+    renderResults();
+    updateScanMoreButton();
   } catch (error) {
     if (error.name === "AbortError") return;
     const presentation = error.presentation ?? getSearchErrorPresentation(0, null);
-    state.searchResult = null; state.candidates = []; elements["results-header"].hidden = true; elements["candidate-list"].replaceChildren(); elements["search-status"].replaceChildren(statusPanel("error", t(presentation.titleKey), t(presentation.bodyKey)));
+    state.searchResult = null; state.candidates = []; state.hasMore = false; elements["results-header"].hidden = true; elements["candidate-list"].replaceChildren(); elements["search-status"].replaceChildren(statusPanel("error", t(presentation.titleKey), t(presentation.bodyKey)));
+    updateScanMoreButton();
   } finally { setSearchBusy(false); }
 }
 
@@ -1088,10 +1249,13 @@ for (const tab of document.querySelectorAll("[data-mode]")) {
 }
 elements["role-trigger"].addEventListener("click", () => elements["role-popover"].hidden ? openRolePicker() : closeRolePicker());
 elements["role-filter"].addEventListener("input", renderRoleGrid);
-elements["role-clear"].addEventListener("click", () => { state.selectedRoleIds.clear(); renderRoleGrid(); updateRoleTrigger(); });
+elements["role-clear"].addEventListener("click", () => { state.selectedRoleIds.clear(); renderRoleGrid(); updateRoleTrigger(); resetPaginationState(); });
 elements["bond-trigger"].addEventListener("click", () => elements["bond-popover"].hidden ? openBondPicker() : closeBondPicker());
 elements["bond-filter"].addEventListener("input", renderBondGrid);
-elements["bond-clear"].addEventListener("click", () => { state.selectedBondIds.clear(); renderBondGrid(); updateBondTrigger(); });
+elements["bond-clear"].addEventListener("click", () => { state.selectedBondIds.clear(); renderBondGrid(); updateBondTrigger(); resetPaginationState(); });
+elements["keyword-input"].addEventListener("input", resetPaginationState);
+elements["author-input"].addEventListener("input", resetPaginationState);
+elements["scan-more-button"].addEventListener("click", performScanMore);
 document.addEventListener("click", (event) => {
   const clickedInsideRolePicker = event.composedPath().some((node) =>
     node instanceof Element && node.classList.contains("role-picker"));

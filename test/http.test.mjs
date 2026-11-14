@@ -178,6 +178,65 @@ test("serves bounded combined strategy searches", async () => {
   });
 });
 
+test("forwards pagination parameters when provided", async () => {
+  let received;
+  const handler = createSearchHandler({
+    searchChinaStrategiesFn: async (query) => {
+      received = query;
+      return { mode: "search", candidates: [] };
+    },
+  });
+  const response = responseRecorder();
+
+  await handler(
+    {
+      method: "POST",
+      body: {
+        keyword: "姬子",
+        startPage: 3,
+        maxStrategies: 20,
+        nextPageToken: "token_abc123",
+      },
+    },
+    response,
+  );
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(received.startPage, 3);
+  assert.equal(received.maxStrategies, 20);
+  assert.equal(received.nextPageToken, "token_abc123");
+});
+
+test("rejects invalid pagination parameters", async () => {
+  const handler = createSearchHandler({
+    searchChinaStrategiesFn: async () => ({ mode: "search", candidates: [] }),
+  });
+
+  const response1 = responseRecorder();
+  await handler(
+    {
+      method: "POST",
+      body: { keyword: "姬子", startPage: 0 },
+    },
+    response1,
+  );
+  assert.equal(response1.statusCode, 400);
+  assert.equal(response1.json().error.code, "invalid_request");
+  assert.equal(response1.json().error.reason, "invalid_pagination");
+
+  const response2 = responseRecorder();
+  await handler(
+    {
+      method: "POST",
+      body: { keyword: "姬子", maxStrategies: 150 },
+    },
+    response2,
+  );
+  assert.equal(response2.statusCode, 400);
+  assert.equal(response2.json().error.code, "invalid_request");
+  assert.equal(response2.json().error.reason, "invalid_pagination");
+});
+
 test("rejects a non-array Bond search before calling China", async () => {
   let called = false;
   const handler = createSearchHandler({

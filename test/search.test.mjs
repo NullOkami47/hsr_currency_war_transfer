@@ -66,6 +66,12 @@ const bonds = [
     trait_icon: "guardian.png",
     trait_type: 2,
   },
+  {
+    trait_id: "300302",
+    trait_name: "巡海游侠",
+    trait_icon: "ranger.png",
+    trait_type: 2,
+  },
 ];
 
 function config() {
@@ -139,6 +145,7 @@ test("builds localised Faction and School Bond options", () => {
 
   assert.deepEqual(options.map(({ id, type }) => ({ id, type })), [
     { id: "1001", type: "faction" },
+    { id: "300302", type: "faction" },
     { id: "2004", type: "school" },
   ]);
   assert.deepEqual(options[0].names, {
@@ -466,6 +473,9 @@ test("returns collected candidates when a later page still fails", async () => {
     scannedStrategies: 1,
     truncated: true,
     partial: true,
+    hasMore: true,
+    nextPageToken: "next",
+    nextPage: 2,
     failedPage: 2,
   });
 });
@@ -571,4 +581,124 @@ test("rejects unknown or special-only Bond IDs before scanning pages", async () 
 
 test("requires at least one search criterion", async () => {
   await assert.rejects(searchChinaStrategies(), /Provide a China strategy/);
+});
+
+test("accepts Galaxy Ranger bond and matches lineups containing it", async () => {
+  const result = await searchChinaStrategies(
+    { bondIds: ["300302"] },
+    {
+      fetchConfigFn: async () => config(),
+      fetchLineupPageFn: async () => ({
+        list: [
+          lineup({ id: "6a56fe3021253d0e1a9f4761", bondIds: ["300302"] }),
+          lineup({ id: "6a56fe3021253d0e1a9f4762", bondIds: ["1001"] }),
+        ],
+        next_page_token: null,
+      }),
+    },
+  );
+
+  assert.equal(result.candidates.length, 1);
+  assert.equal(result.candidates[0].id, "6a56fe3021253d0e1a9f4761");
+});
+
+test("scans up to maxStrategies and returns cursor progression tokens", async () => {
+  const pageCalls = [];
+  const result = await searchChinaStrategies(
+    {
+      keyword: "姬子",
+      maxPages: 5,
+      pageSize: 10,
+      maxStrategies: 20,
+      startPage: 1,
+    },
+    {
+      fetchConfigFn: async () => config(),
+      fetchLineupPageFn: async (region, { page, nextPageToken }) => {
+        pageCalls.push({ page, nextPageToken });
+        return {
+          list: Array.from({ length: 10 }, (_, i) =>
+            lineup({ id: `strategy-page-${page}-${i}`, title: `姬子 strategy ${page}-${i}` })),
+          next_page_token: `token-after-page-${page}`,
+        };
+      },
+    },
+  );
+
+  assert.equal(pageCalls.length, 2);
+  assert.deepEqual(pageCalls, [
+    { page: 1, nextPageToken: undefined },
+    { page: 2, nextPageToken: "token-after-page-1" },
+  ]);
+  assert.equal(result.pageInfo.scannedPages, 2);
+  assert.equal(result.pageInfo.scannedStrategies, 20);
+  assert.equal(result.pageInfo.hasMore, true);
+  assert.equal(result.pageInfo.nextPageToken, "token-after-page-2");
+  assert.equal(result.pageInfo.nextPage, 3);
+  assert.equal(result.pageInfo.truncated, true);
+
+  const resumeCalls = [];
+  const secondResult = await searchChinaStrategies(
+    {
+      keyword: "姬子",
+      maxPages: 2,
+      pageSize: 10,
+      maxStrategies: 20,
+      startPage: result.pageInfo.nextPage,
+      nextPageToken: result.pageInfo.nextPageToken,
+    },
+    {
+      fetchConfigFn: async () => config(),
+      fetchLineupPageFn: async (region, { page, nextPageToken }) => {
+        resumeCalls.push({ page, nextPageToken });
+        return {
+          list: Array.from({ length: 10 }, (_, i) =>
+            lineup({ id: `strategy-page-${page}-${i}`, title: `姬子 strategy ${page}-${i}` })),
+          next_page_token: `token-after-page-${page}`,
+        };
+      },
+    },
+  );
+
+  assert.deepEqual(resumeCalls, [
+    { page: 3, nextPageToken: "token-after-page-2" },
+    { page: 4, nextPageToken: "token-after-page-3" },
+  ]);
+  assert.equal(secondResult.pageInfo.scannedPages, 2);
+  assert.equal(secondResult.pageInfo.nextPage, 5);
+});
+
+test("returns hasMore false and null cursor tokens when upstream strategies are exhausted", async () => {
+  const result = await searchChinaStrategies(
+    {
+      keyword: "姬子",
+      maxPages: 5,
+      pageSize: 10,
+      maxStrategies: 50,
+      startPage: 1,
+    },
+    {
+      fetchConfigFn: async () => config(),
+      fetchLineupPageFn: async (region, { page }) => {
+        if (page === 1) {
+          return {
+            list: Array.from({ length: 10 }, (_, i) =>
+              lineup({ id: `strategy-1-${i}`, title: `姬子 strategy 1-${i}` })),
+            next_page_token: "token-1",
+          };
+        }
+        return {
+          list: [lineup({ id: "strategy-2-0", title: "姬子 strategy 2-0" })],
+          next_page_token: null,
+        };
+      },
+    },
+  );
+
+  assert.equal(result.pageInfo.scannedPages, 2);
+  assert.equal(result.pageInfo.scannedStrategies, 11);
+  assert.equal(result.pageInfo.hasMore, false);
+  assert.equal(result.pageInfo.nextPageToken, null);
+  assert.equal(result.pageInfo.nextPage, null);
+  assert.equal(result.pageInfo.truncated, false);
 });

@@ -84,8 +84,9 @@ cost-3, cost-4, and cost-5 filters, and its portrait follows the active filter
 actual internal variant's cost. Strategy search matches all three internal
 IDs. `isExpert` drives the Expert Consultant catalogue filter.
 
-Bond entries come from `trait_info_list`. Only `trait_type: 0` (Faction) and
-`trait_type: 1` (School) are exposed; special character traits are excluded.
+Bond entries come from `trait_info_list`. `trait_type: 0` (Faction),
+`trait_type: 1` (School), and the Galaxy Ranger Bond ("巡海游侠", `trait_id: 300302`)
+are exposed; special character traits are excluded.
 Names are merged across the same three interface locales by stable Bond ID.
 
 ## `POST /api/search`
@@ -126,9 +127,13 @@ locally because the upstream API may silently ignore invalid filters.
 Public requests are limited to a 64 KiB JSON body, 120 characters for
 `keyword`, 80 characters for `authorKeyword`, 16 `roleIds`, and 16 `bondIds`.
 The arrays are validated before any upstream read. Requests are also capped at
-10 pages and 20 strategies per page. The response
-includes `pageInfo.truncated`; when true, the candidate list is a bounded
-result rather than an exhaustive index.
+10 pages and 20 strategies per page. Optional pagination parameters include
+`startPage` (integer 1-100, default 1), `nextPageToken` (cursor token string from
+previous `pageInfo`), and `maxStrategies` (integer 1-100, maximum strategies to scan
+in this search pass). The response includes `pageInfo.scannedStrategies`,
+`pageInfo.truncated`, `pageInfo.hasMore`, `pageInfo.nextPageToken`, and `pageInfo.nextPage`;
+when `pageInfo.truncated` is true, the candidate list is a bounded result rather
+than an exhaustive index.
 
 The repository includes an instance-local development limiter of 30 searches
 per 60 seconds. Its client identity is a keyed HMAC; raw network addresses are

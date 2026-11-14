@@ -337,6 +337,15 @@ export function createSearchHandler({
         PUBLIC_SEARCH_LIMITS.pageSize,
         "pageSize",
       );
+      const startPage = body.startPage !== undefined
+        ? boundedInteger(body.startPage, 1, 100, "startPage")
+        : undefined;
+      const maxStrategies = body.maxStrategies !== undefined
+        ? boundedInteger(body.maxStrategies, 20, 100, "maxStrategies")
+        : undefined;
+      const nextPageToken = body.nextPageToken !== undefined && body.nextPageToken !== null && body.nextPageToken !== ""
+        ? boundedText(body.nextPageToken, 256, "nextPageToken", "invalid_token")
+        : undefined;
       const rateLimit = await rateLimiter.consume(
         clientKeyFn(request),
         now().getTime(),
@@ -354,7 +363,7 @@ export function createSearchHandler({
         return;
       }
 
-      const result = await searchChinaStrategiesFn({
+      const searchOptions = {
         source: body.source,
         keyword,
         authorKeyword,
@@ -363,7 +372,12 @@ export function createSearchHandler({
         maxPages,
         pageSize,
         order: body.order ?? "Hot",
-      });
+        ...(startPage !== undefined ? { startPage } : {}),
+        ...(nextPageToken !== undefined ? { nextPageToken } : {}),
+        ...(maxStrategies !== undefined ? { maxStrategies } : {}),
+      };
+
+      const result = await searchChinaStrategiesFn(searchOptions);
       sendJson(response, 200, result);
     } catch (error) {
       errorResponse(response, error);

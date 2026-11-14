@@ -35,10 +35,21 @@ function localisedRoleIndex(config) {
   );
 }
 
+function isGalaxyRangerTrait(bond) {
+  const id = String(bond?.trait_id ?? "");
+  const name = String(bond?.trait_name ?? "");
+  return id === "300302" || id === "3003" || ["巡海游侠", "巡海遊俠", "Galaxy Ranger"].includes(name);
+}
+
+function isSearchableBondTrait(bond) {
+  const type = Number(bond?.trait_type);
+  return [0, 1].includes(type) || isGalaxyRangerTrait(bond);
+}
+
 function bondIndex(config) {
   return new Map(
     (config?.trait_info_list ?? [])
-      .filter(({ trait_type: type }) => [0, 1].includes(Number(type)))
+      .filter((bond) => isSearchableBondTrait(bond))
       .map((bond) => [String(bond.trait_id), bond]),
   );
 }
@@ -196,7 +207,10 @@ export function getChinaBondOptions(
       const english = englishBonds.get(id);
       return {
         id,
-        type: Number(bond.trait_type) === 0 ? "faction" : "school",
+        type:
+          Number(bond.trait_type) === 0 || isGalaxyRangerTrait(bond)
+            ? "faction"
+            : "school",
         name: String(simplified?.trait_name ?? bond.trait_name ?? ""),
         names: {
           zhHans: String(simplified?.trait_name ?? bond.trait_name ?? ""),
@@ -363,6 +377,9 @@ export async function searchChinaStrategies(
     maxPages = 10,
     pageSize = 10,
     order = "Hot",
+    startPage = 1,
+    nextPageToken,
+    maxStrategies,
   } = {},
   {
     fetchConfigFn = fetchConfig,
@@ -417,6 +434,9 @@ export async function searchChinaStrategies(
         scannedStrategies: 1,
         truncated: false,
         partial: false,
+        hasMore: false,
+        nextPageToken: null,
+        nextPage: null,
       },
     };
   }
@@ -444,6 +464,21 @@ export async function searchChinaStrategies(
       "invalid_pagination",
     );
   }
+  if (!Number.isInteger(startPage) || startPage < 1 || startPage > 100) {
+    throw new PublicInputError(
+      "startPage must be an integer from 1 to 100",
+      "invalid_pagination",
+    );
+  }
+  if (
+    maxStrategies !== undefined
+    && (!Number.isInteger(maxStrategies) || maxStrategies < 1 || maxStrategies > 500)
+  ) {
+    throw new PublicInputError(
+      "maxStrategies must be an integer from 1 to 500",
+      "invalid_pagination",
+    );
+  }
 
   const config = await retryRead(() => fetchConfigFn("cn"), {
     attempts: initialReadRetryAttempts,
@@ -463,13 +498,16 @@ export async function searchChinaStrategies(
   const normalisedAuthorKeyword = normaliseText(authorNameKeyword);
   const candidates = [];
   const seenIds = new Set();
-  let nextPageToken;
+  let currentToken = nextPageToken ? String(nextPageToken).trim() : undefined;
   let scannedPages = 0;
   let scannedStrategies = 0;
   let hasMore = false;
   let failedPage = null;
 
-  for (let page = 1; page <= maxPages; page += 1) {
+  for (let page = startPage; page < startPage + maxPages; page += 1) {
+    if (maxStrategies !== undefined && scannedStrategies >= maxStrategies) {
+      break;
+    }
     let result;
     try {
       result = await fetchLineupPageWithRetry(
@@ -477,7 +515,7 @@ export async function searchChinaStrategies(
         {
           page,
           limit: pageSize,
-          nextPageToken,
+          nextPageToken: currentToken,
           roleIds: upstreamRoleIds,
           traitIds: selectedBondIds,
           order,
@@ -535,8 +573,8 @@ export async function searchChinaStrategies(
       }
     }
 
-    nextPageToken = result.next_page_token;
-    hasMore = Boolean(nextPageToken && lineups.length > 0);
+    currentToken = result.next_page_token;
+    hasMore = Boolean(currentToken && lineups.length > 0);
     if (!hasMore) {
       break;
     }
@@ -558,8 +596,16 @@ export async function searchChinaStrategies(
     pageInfo: {
       scannedPages,
       scannedStrategies,
-      truncated: Boolean(failedPage) || (hasMore && scannedPages === maxPages),
+      truncated:
+        Boolean(failedPage)
+        || (hasMore
+          && (scannedPages === maxPages
+            || (maxStrategies !== undefined
+              && scannedStrategies >= maxStrategies))),
       partial: Boolean(failedPage),
+      hasMore,
+      nextPageToken: hasMore ? (currentToken ?? null) : null,
+      nextPage: hasMore ? startPage + scannedPages : null,
       ...(failedPage ? { failedPage } : {}),
     },
   };
