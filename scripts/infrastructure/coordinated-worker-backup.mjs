@@ -117,9 +117,9 @@ async function main() {
     acquire:async()=>{}, release:async()=>{},
     checkJournal:journal.check, beginJournal:journal.begin, phaseJournal:journal.phase, completeJournal:journal.complete,
     dashboard:()=>request("/admin"), setSubmissions:enabled=>request("/admin","PUT",{publicSubmissionsEnabled:enabled}),
-    // The production unit allows 240 seconds for graceful browser shutdown.
-    // Wait past that systemd deadline before deciding stop ownership is uncertain.
-    stop:()=>run("systemctl",["stop",config.service],{timeout:270000}),
+    // With SendSIGKILL=no, systemd can spend 240 seconds in each of its
+    // stop-sigterm and final-sigterm phases. Observe both before reconciliation.
+    stop:()=>run("systemctl",["stop",config.service],{timeout:510000}),
     assertStopped:()=>assertSystemdStopped(config.service),
     start:()=>run("systemctl",["start",config.service],{timeout:30000}),
     health:async()=>{for(let i=0;i<20;i++){try{await request("/health");return;}catch{await new Promise(r=>setTimeout(r,500));}}throw new Error("Worker did not recover health; submissions remain disabled");},

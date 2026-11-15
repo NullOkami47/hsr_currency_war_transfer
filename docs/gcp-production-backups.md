@@ -39,7 +39,8 @@ The original service and admission must recover before the run is successful.
 The owner approved the repair maintenance on 2026-11-15 with an additional
 no-force requirement. The worker drop-in sets `SendSIGKILL=no`: reaching the
 240-second graceful-stop deadline must not kill a remaining profile owner.
-The coordinator bounds its stop command at 270 seconds. An ambiguous stop
+Systemd can wait through two 240-second signal phases; the coordinator bounds
+its stop command at 510 seconds to observe both. An ambiguous stop
 blocks snapshotting and any second publisher; preserve the live process and
 reconcile it before retrying. A busy queue is polled for up to 120 drain checks,
 then the original admission setting is restored without stopping the worker.
