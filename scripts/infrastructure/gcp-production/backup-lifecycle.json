@@ -1,0 +1,12 @@
+{
+  "rule": [
+    {
+      "action": { "type": "Delete" },
+      "condition": { "age": 14, "matchesPrefix": ["gcp-production/monitor/events/"] }
+    },
+    {
+      "action": { "type": "Delete" },
+      "condition": { "age": 30, "matchesPrefix": ["gcp-production/hsr-state/"] }
+    }
+  ]
+}
