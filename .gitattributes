@@ -1,0 +1,5 @@
+# Linux deployment bytes and approval hashes must not change on Windows checkout.
+scripts/infrastructure/needrestart/* text eol=lf
+scripts/infrastructure/worker-availability/* text eol=lf
+scripts/infrastructure/*restart*.mjs text eol=lf
+scripts/infrastructure/gcp-coordinated-restart.sh text eol=lf
