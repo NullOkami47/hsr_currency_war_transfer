@@ -12,8 +12,7 @@ The 15 November candidate verification established:
   zero failures at `5b126b0`.
 - Independent Box source checkout, clean dependency installation, Node 24.21.0,
   Ubuntu 24.04/systemd 255: full suite 554 tests, 536 pass, 18 skips, zero failures
-  at `5b126b0`. The checkout was initially installed at its parent; the final
-  difference was one Caddy test expectation, with unchanged dependencies.
+  at `5b126b0`, with a fresh checkout and clean dependency installation.
 - Explicit Linux tests: two real coordinated-restart cases including failed-start
   recovery; one real unprivileged probe service case; seven real systemd/Chrome
   graceful-shutdown cases; 51 root spool-retention cases. All passed. These are
@@ -56,6 +55,14 @@ RestartKillSignal were 15, and NeedDaemonReload was no. The needrestart candidat
 was staged in a root-owned isolated directory and its `check` command evaluated
 the actual configuration without installing the fragment. The result changes
 only the exact worker selection among the checked services.
+
+The staged Linux restart adapter was also executed in read-only mode against the
+real VM at 15:37 UTC. It verified the pinned contract, live publisher/flock and
+authenticated admin/health, with admission true, zero queued/running work and no
+restart. This exposed two compatibility differences which were corrected:
+systemd omits empty command-array properties, and the existing preflight config
+is root:hsr-worker 0640. The reader permits only the explicitly identified worker
+group and that exact read-only mode; live permissions remain unchanged.
 
 No active needrestart, production worker unit, backup unit/timer, Caddy route or
 Google uptime policy was changed. The three existing backup policies remain
