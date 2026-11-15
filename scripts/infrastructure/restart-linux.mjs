@@ -39,6 +39,7 @@ export function assertUnitContract(text) {
 
 export function assertServicePolicy(unit) {
   if (unit.LoadState !== 'loaded' || unit.KillMode !== 'mixed' || unit.SendSIGKILL !== 'no'
+      || !['15', 'SIGTERM'].includes(unit.KillSignal) || !['15', 'SIGTERM'].includes(unit.RestartKillSignal) || unit.NeedDaemonReload !== 'no'
       || !['4min', '240s', '240000000'].includes(unit.TimeoutStopUSec) || unit.Restart !== 'no'
       || unit.User !== 'hsr-worker' || unit.Group !== 'hsr-worker' || unit.WorkingDirectory !== SOURCE) fail('Unsafe service stop/start policy');
   exactArgv(unit.ExecStart, `/usr/bin/flock --no-fork --nonblock --conflict-exit-code 75 ${PUBLISHER_LOCK} ${NODE} ${SOURCE}/scripts/worker-server.mjs`, 'ExecStart');
@@ -132,7 +133,7 @@ export async function createLinuxRestartOperations() {
     if (!response.ok) fail('Authenticated maintenance request failed');
     const text = await response.text(); if (text.length > 8 * 1024 * 1024) fail('Unbounded worker response'); return JSON.parse(text);
   }
-  const show = async () => properties((await run('/usr/bin/systemctl', ['show', SERVICE, '--property=LoadState,ActiveState,SubState,MainPID,ControlPID,Result,Job,ControlGroup,InvocationID,KillMode,SendSIGKILL,TimeoutStopUSec,Restart,User,Group,WorkingDirectory,ExecStart,ExecStartPre,ExecStartPost,ExecStop,ExecStopPost,EnvironmentFiles'], { timeout: 10000, maxBuffer: 65536 })).stdout);
+  const show = async () => properties((await run('/usr/bin/systemctl', ['show', SERVICE, '--property=LoadState,ActiveState,SubState,MainPID,ControlPID,Result,Job,ControlGroup,InvocationID,KillMode,SendSIGKILL,KillSignal,RestartKillSignal,NeedDaemonReload,TimeoutStopUSec,Restart,User,Group,WorkingDirectory,ExecStart,ExecStartPre,ExecStartPost,ExecStop,ExecStopPost,EnvironmentFiles'], { timeout: 10000, maxBuffer: 65536 })).stdout);
   async function contract() {
     await verifySharedLock(); const unit = await show(); assertServicePolicy(unit);
     if (unit.ControlGroup && unit.ControlGroup !== '/system.slice/' + SERVICE) fail('Unexpected service cgroup');
@@ -145,6 +146,7 @@ export async function createLinuxRestartOperations() {
     const config = JSON.parse(configText);
     if (digest(config) !== digest({ version: 1, project: 'hsr-currency-war-worker', zone: 'us-central1-a', instance: 'hsr-worker-standby', instanceId: '4111188809525812699', nodeBinary: NODE, stateDirectory: STATE, profileDirectory: PROFILE })) fail('Strict preflight configuration changed');
     return digest({ unitCatSha256: EXPECTED_UNIT_CAT_SHA256,
+      loadedStopPolicy: { KillSignal: unit.KillSignal, RestartKillSignal: unit.RestartKillSignal, NeedDaemonReload: unit.NeedDaemonReload },
       preflight: sha(preflightText), config: sha(configText), environment: sha(await readRestartFile(ENVIRONMENT, { owner: 0, maximum: 65536 })) });
   }
   async function observation(stopped, original, options = {}) {

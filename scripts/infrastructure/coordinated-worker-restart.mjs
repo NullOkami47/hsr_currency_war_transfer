@@ -74,10 +74,12 @@ export async function coordinatedRestart({ operations: ops, authorised = false, 
         if (!record.verified || record.verified.admission !== false || record.baseline?.admission !== false) throw new Error('Invalid restoring checkpoint');
         await ops.assertRunning(record.startedProcess); await ops.health();
         let restored = dashboard(await ops.dashboard());
-        if (restored.settings.publicSubmissionsEnabled !== record.originalAdmission) {
-          if (record.originalAdmission !== true || restored.settings.publicSubmissionsEnabled !== false) throw new Error('Admission outcome is ambiguous; manual reconciliation required');
+        if (restored.settings.publicSubmissionsEnabled === false) {
           await closedProof(record);
           if (dashboardProof(restored) !== record.dashboard) throw new Error('Authenticated dashboard changed before restoring admission');
+        }
+        if (restored.settings.publicSubmissionsEnabled !== record.originalAdmission) {
+          if (record.originalAdmission !== true || restored.settings.publicSubmissionsEnabled !== false) throw new Error('Admission outcome is ambiguous; manual reconciliation required');
           await ops.assertRunning(record.startedProcess); await sameContract(record); check();
           await ops.setAdmission(true); restored = dashboard(await ops.dashboard(), true);
         }

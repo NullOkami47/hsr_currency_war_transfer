@@ -208,6 +208,26 @@ test('explicit recovery completes interrupted restoring after new jobs arrive wi
   const count = f.counts(); await f.run({ recover: true }); assert.equal((await f.record()).phase, 'complete');
   assert.equal(f.counts().starts, count.starts); assert.equal(f.counts().stops, count.stops); assert.equal(f.counts().admissionMutations, count.admissionMutations); assert.equal(f.counts().replay, 0);
 });
+test('original false restoring recovery refuses changed durable state and pending verification', async t => {
+  for (const drift of ['pending', 'security']) {
+    const f = await fixture(t, false);
+    f.setAdmissionHook(async () => { if ((await f.record()).phase === 'restoring') throw new Error('interrupted restoring'); });
+    await assert.rejects(f.run(), /interrupted restoring/);
+    const counts = f.counts();
+    if (drift === 'pending') await f.transfers.set('a', { verificationPending: true });
+    else await writeFile(f.paths.security, JSON.stringify({ version: 1, requests: {}, sessions: {} }), { mode: 0o600 });
+    await assert.rejects(f.run({ recover: true }), /pending|changed/i);
+    assert.equal((await f.record()).phase, 'restoring'); assert.deepEqual(f.counts(), counts);
+  }
+});
+test('original true restoring recovery verifies closed state before any reopen PUT', async t => {
+  const f = await fixture(t); const phase = f.ops.journal.phase;
+  f.ops.journal.phase = async (...args) => { const record = await phase(...args); if (args[0] === 'restoring') throw new Error('interrupted before reopen'); return record; };
+  await assert.rejects(f.run(), /interrupted before reopen/); f.ops.journal.phase = phase;
+  await f.transfers.set('a', { verificationPending: true }); const counts = f.counts();
+  await assert.rejects(f.run({ recover: true }), /pending/i); assert.deepEqual(f.counts(), counts);
+  assert.equal((await f.request('/admin')).settings.publicSubmissionsEnabled, false);
+});
 test('backup collision and unfinished backup journal block every mutation without falsifying backup status', async t => {
   const f = await fixture(t); f.collide(); await assert.rejects(f.run(), /collision/); assert.equal(f.counts().admissionMutations, 0);
   const g = await fixture(t); const file = join(g.backupDirectory, 'journal.json'); const value = JSON.parse(await readFile(file, 'utf8')); value.phase = 'starting'; await writeFile(file, JSON.stringify(value));
@@ -261,11 +281,11 @@ test('reopened admission or service/preflight drift is never overwritten', async
 });
 
 test('Linux policy and process checks reject escalation, duplicate publisher and surviving Chrome', () => {
-  const policy = { LoadState: 'loaded', KillMode: 'mixed', SendSIGKILL: 'no', TimeoutStopUSec: '4min', Restart: 'no', User: 'hsr-worker', Group: 'hsr-worker', WorkingDirectory: '/opt/hsr-transfer-worker-staging',
+  const policy = { LoadState: 'loaded', KillMode: 'mixed', SendSIGKILL: 'no', KillSignal: '15', RestartKillSignal: '15', NeedDaemonReload: 'no', TimeoutStopUSec: '4min', Restart: 'no', User: 'hsr-worker', Group: 'hsr-worker', WorkingDirectory: '/opt/hsr-transfer-worker-staging',
     ExecStart: '{ path=/usr/bin/flock ; argv[]=/usr/bin/flock --no-fork --nonblock --conflict-exit-code 75 /var/lib/hsr-transfer-worker-staging/login/.production-worker.flock /opt/node-v24.22.3-linux-x64/bin/node /opt/hsr-transfer-worker-staging/scripts/worker-server.mjs ; ignore_errors=no ; }',
     ExecStartPre: '{ path=/opt/node-v24.22.3-linux-x64/bin/node ; argv[]=/opt/node-v24.22.3-linux-x64/bin/node /opt/hsr-transfer-worker-staging/scripts/infrastructure/gcp-production-profile-preflight.mjs /etc/hsr-gcp-production/worker-preflight.json ; ignore_errors=no ; }', ExecStartPost: '', ExecStop: '', ExecStopPost: '' };
   assert.doesNotThrow(() => assertServicePolicy(policy));
-  for (const patch of [{ KillMode: 'control-group' }, { SendSIGKILL: 'yes' }, { TimeoutStopUSec: '90s' }, { Restart: 'always' },
+  for (const patch of [{ KillMode: 'control-group' }, { SendSIGKILL: 'yes' }, { KillSignal: '9' }, { RestartKillSignal: '9' }, { NeedDaemonReload: 'yes' }, { KillSignal: undefined }, { RestartKillSignal: undefined }, { NeedDaemonReload: undefined }, { TimeoutStopUSec: '90s' }, { Restart: 'always' },
     { ExecStop: '{ path=/bin/kill ; argv[]=/bin/kill -9 $MAINPID ; }' }, { ExecStopPost: '{ path=/bin/rm ; argv[]=/bin/rm -rf /tmp/profile ; }' },
     { ExecStartPost: '{ path=/usr/bin/touch ; argv[]=/usr/bin/touch /tmp/started ; }' },
     { ExecStartPre: policy.ExecStartPre + ' { path=/bin/true ; argv[]=/bin/true ; }' }, { ExecStart: policy.ExecStart + ' { path=/bin/true ; argv[]=/bin/true ; }' }]) assert.throws(() => assertServicePolicy({ ...policy, ...patch }));
