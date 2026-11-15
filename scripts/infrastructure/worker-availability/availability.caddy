@@ -1,0 +1,10 @@
+# Candidate fragment for the existing HTTPS site's route block. Insert before
+# its existing Bearer matcher. Do not replace any other route or use handle_path.
+handle /_hsr/availability {
+    reverse_proxy 127.0.0.1:8790 {
+        transport http {
+            dial_timeout 1s
+            response_header_timeout 3s
+        }
+    }
+}
