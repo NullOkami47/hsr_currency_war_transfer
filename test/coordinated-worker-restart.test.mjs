@@ -17,9 +17,10 @@ import { assertServicePolicy, assertProcessEvidence, verifySharedLock, assertRes
 const now = Date.parse('2026-11-15T12:00:00Z');
 const token = 'synthetic-maintenance-token-123456789';
 async function fixture(t, enabled = true) {
-  const root = await mkdtemp(join(process.platform === 'win32' ? 'D:/CodexWork/' : tmpdir(), 'hsr-restart-test-'));
+  const parent = await realpath(tmpdir());
+  const root = await mkdtemp(join(parent, 'hsr-restart-test-'));
   t.after(async () => {
-    const actual = await realpath(root); const parent = resolve(process.platform === 'win32' ? 'D:/CodexWork/' : tmpdir());
+    const actual = await realpath(root);
     assert.ok(actual.startsWith(parent + (process.platform === 'win32' ? '\\' : '/') + 'hsr-restart-test-'));
     assert.equal((await lstat(actual)).isSymbolicLink(), false); await rm(actual, { recursive: true });
   });

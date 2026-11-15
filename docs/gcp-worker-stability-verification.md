@@ -8,11 +8,11 @@ is stacked on Draft PR #10; it does not overwrite or merge that PR.
 
 The 15 November candidate verification established:
 
-- Windows Node 24.18.0: full suite 554 tests, 526 pass, 28 platform/opt-in skips,
-  zero failures at `5b126b0`.
+- Windows Node 24.18.0: full suite 555 tests, 526 pass, 29 platform/opt-in skips,
+  zero failures at `760727b`.
 - Independent Box source checkout, clean dependency installation, Node 24.21.0,
-  Ubuntu 24.04/systemd 255: full suite 554 tests, 536 pass, 18 skips, zero failures
-  at `5b126b0`, with a fresh checkout and clean dependency installation.
+  Ubuntu 24.04/systemd 255: full suite 555 tests, 536 pass, 19 skips, zero failures
+  at `760727b`, with a fresh checkout and clean dependency installation.
 - Explicit Linux tests: two real coordinated-restart cases including failed-start
   recovery; one real unprivileged probe service case; seven real systemd/Chrome
   graceful-shutdown cases; 51 root spool-retention cases. All passed. These are
@@ -20,6 +20,16 @@ The 15 November candidate verification established:
 - Real Caddy 2.6.2 preserved the existing Bearer and fallback routes, rejected
   probe credentials on privileged routes and returned 504 at the configured
   response-header deadline for a stalled probe.
+- A root-only preflight-permission test passed on the final implementation:
+  only the pinned root-owned 0640 file and explicitly selected worker group are
+  accepted; group write, other access, wrong owners/groups and symlinks fail.
+
+Hosted Windows checks exposed a test-only portability error: the synthetic
+restart fixture assumed `D:/CodexWork` existed on every runner. The fixture now
+uses the canonical system temporary directory for creation and its existing
+cleanup-containment check. Local runs set `TEMP` and `TMP` on D drive. No service
+logic, assertion or hosted job was disabled to repair this failure. Consult the
+current PR head and private final receipt for its exact final CI and rerun results.
 
 The final 6.1 Sol review passed the loaded systemd signal/reload and restoring
 admission corrections. The candidate figures above remain dated evidence for
