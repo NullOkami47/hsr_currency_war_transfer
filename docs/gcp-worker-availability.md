@@ -123,8 +123,14 @@ snapshots can safely cause a transient failed sample.
 The service samples every five seconds and coalesces timer/HTTP refreshes into
 one probe. Success and failure are cached for five seconds from sampling start,
 not sampling completion. At most eight HTTP waiters, 32 connections and a
-32-connection listen backlog are admitted. The fixed global budget starts with
-24 requests and refills 12/second; excess requests return 503 without sensor work.
+32-connection listen backlog are admitted. The fixed authenticated request budget
+starts with 24 requests and refills 12/second; excess requests return 503 without
+sensor work. Authentication, exact path/method, body framing and header count are
+validated before spending this budget, so anonymous or malformed requests cannot
+deplete it. Node retains all headers within the existing 4 KiB byte cap
+(`maxHeadersCount=0`); the handler explicitly rejects more than 32 raw header pairs
+before authentication or framing processing, without silently truncating duplicate
+Authorization or late Transfer-Encoding/Content-Length headers.
 Headers/requests/socket inactivity have three-second limits; keepalive is one
 second, one request per socket. Caddy-facing budget is global and does not trust
 X-Forwarded-For. Internet floods can still cause unavailable responses; these
@@ -204,23 +210,33 @@ extra keys and is intentionally not used. No failure-body Cloud Logging is enabl
 
 Alert policy filters only `monitoring.googleapis.com/uptime_check/check_passed`
 for the exact check ID/project/host and `uptime_url`. It aligns at 60 seconds using
-ALIGN_NEXT_OLDER, reduces with REDUCE_COUNT_FALSE and groups only by resource
-project/host and check_id. Checker labels are aggregated away: count > 1 means
-at least two checker locations failed; the single resulting series must remain
-above threshold for 180 seconds, with trigger count 1. This counts locations, not
+ALIGN_NEXT_OLDER, reduces with REDUCE_COUNT_TRUE and groups only by resource
+project/host and check_id. Checker labels are aggregated away: fewer than two
+fresh successful locations is unhealthy; the single resulting series must remain
+below 2 for 180 seconds, with trigger count 1. One false/two true is healthy;
+one false/two missing and one true/two missing are unhealthy. Missing failed series
+cannot make a failure count shrink into a false recovery. An open outage remains
+unhealthy until at least two fresh successful locations are observed, subject to
+the separate missing-data auto-close behaviour below. This counts locations, not
 necessarily two different broad regions. One ongoing outage yields one aggregate
 incident instead of an incident per checker or per minute. Sampling, ingestion
 and evaluation delays mean this is approximately three minutes, not a 180-second
-delivery guarantee; failing checker identities may change during the window.
+delivery guarantee; successful checker identities may change during the window.
 
 Notifications request OPENED and CLOSED. No renotifyInterval or per-channel
 reminder strategy is set; `notificationRateLimit` is deliberately absent because
 Google implements it for log-match policies, not this metric policy. Missing
-data uses EVALUATION_MISSING_DATA_NO_OP. `autoClose: 604800s` closes a stale open
+data uses EVALUATION_MISSING_DATA_ACTIVE: if all checker series disappear, the
+condition evaluates as unhealthy after Google's missing-data evaluation grace;
+an open incident does not resolve merely because fresh samples disappear.
+This also covers loss of checker telemetry once the series has been established;
+a never-observed/new check still requires live cloud acceptance. The local model
+illustrates already-aligned observations, not Google's ingestion timing or grace.
+`autoClose: 604800s` closes a stale open
 incident after Google's missing-data timeout; **that closure is not evidence of
-health recovery**, and can still send CLOSED. Require fresh successful uptime
-samples before declaring recovery. This policy does not independently detect a
-failure of Google's own checker/metric ingestion service. Email deduplication,
+health recovery**, and can still send CLOSED. Require at least two fresh successful
+uptime samples from distinct checker locations before declaring recovery.
+Email deduplication,
 channel delivery and cloud incident behaviour require separate authorised live
 acceptance; the synthetic illustration does not prove cloud delivery.
 

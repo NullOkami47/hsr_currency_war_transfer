@@ -39,16 +39,16 @@ export function buildAlertPolicy(input = {}) {
   if (!channel.startsWith(channelPrefix) || !/^[1-9]\d{0,24}$/.test(channel.slice(channelPrefix.length))) invalid();
   return {
     displayName: 'HSR worker sustained unavailability', enabled: true, combiner: 'OR',
-    conditions: [{ displayName: 'At least two checker locations fail for three minutes', conditionThreshold: {
+    conditions: [{ displayName: 'Fewer than two fresh successful locations for three minutes', conditionThreshold: {
       filter: `metric.type="monitoring.googleapis.com/uptime_check/check_passed" AND resource.type="uptime_url" AND metric.label.check_id="${checkId}" AND resource.label.project_id="${EXPECTED_PROJECT}" AND resource.label.host="${HOST}"`,
-      comparison: 'COMPARISON_GT', thresholdValue: 1, duration: '180s', trigger: { count: 1 },
-      evaluationMissingData: 'EVALUATION_MISSING_DATA_NO_OP',
-      aggregations: [{ alignmentPeriod: '60s', perSeriesAligner: 'ALIGN_NEXT_OLDER', crossSeriesReducer: 'REDUCE_COUNT_FALSE',
+      comparison: 'COMPARISON_LT', thresholdValue: 2, duration: '180s', trigger: { count: 1 },
+      evaluationMissingData: 'EVALUATION_MISSING_DATA_ACTIVE',
+      aggregations: [{ alignmentPeriod: '60s', perSeriesAligner: 'ALIGN_NEXT_OLDER', crossSeriesReducer: 'REDUCE_COUNT_TRUE',
         groupByFields: ['resource.label.project_id', 'resource.label.host', 'metric.label.check_id'] }],
     } }],
     notificationChannels: [channel],
     alertStrategy: { notificationPrompts: ['OPENED', 'CLOSED'], autoClose: '604800s' },
-    documentation: { mimeType: 'text/markdown', content: 'Independent HTTPS availability for the existing HSR worker. At least two checker locations have failed continuously for three minutes. Inspect Caddy, hsr-worker-availability.service and hsr-worker-production.service using read-only status. Backup success cannot establish worker availability. A prolonged backup drain/stop can legitimately alert. Do not replay publishing jobs or restart a second worker. A CLOSED notification can also result from missing-data autoClose; verify successful check samples before claiming recovery.' },
+    documentation: { mimeType: 'text/markdown', content: 'Independent HTTPS availability for the existing HSR worker. Fewer than two fresh successful checker locations for three minutes is unhealthy. Missing checker series do not establish recovery; all missing data is evaluated as active after the missing-data grace. Inspect Caddy, hsr-worker-availability.service and hsr-worker-production.service using read-only status. Backup success cannot establish worker availability. A prolonged backup drain/stop can legitimately alert. Do not replay publishing jobs or restart a second worker. A CLOSED notification can also result from missing-data autoClose; verify at least two fresh successful check samples before claiming recovery.' },
   };
 }
 

@@ -42,22 +42,24 @@ export async function startAvailability({ credentials, port = 8790, readUnit, re
         'x-content-type-options': 'nosniff', connection: 'close', ...(healthy ? {} : { 'retry-after': '5' }) });
       res.end(healthy ? '{"status":"ok"}' : unavailable);
     };
+    if (req.rawHeaders.length > 64 || req.method !== 'GET' || req.url !== AVAILABILITY_PATH || !authenticate(req, expected)
+        || req.headers['transfer-encoding'] !== undefined
+        || (req.headers['content-length'] !== undefined && req.headers['content-length'] !== '0')) { reply(false); return; }
     const now = nowUs();
     budget = Math.min(24, budget + Math.max(0, Number(now - lastBudget) / 1000000) * 12);
     lastBudget = now;
     if (budget < 1) { reply(false); return; }
     budget--;
-    if (req.method !== 'GET' || req.url !== AVAILABILITY_PATH || !authenticate(req, expected)
-        || req.headers['transfer-encoding'] !== undefined
-        || (req.headers['content-length'] !== undefined && req.headers['content-length'] !== '0')
-        || active >= 8) { reply(false); return; }
+    if (active >= 8) { reply(false); return; }
     active++;
     try { reply(await probe.check()); }
     catch { reply(false); }
     finally { active--; }
   });
   server.maxConnections = 32;
-  server.maxHeadersCount = 32;
+  // Preserve all headers within maxHeaderSize so authentication/framing cannot
+  // be hidden by Node's silent count truncation. Reject over 32 pairs above.
+  server.maxHeadersCount = 0;
   server.maxRequestsPerSocket = 1;
   server.setTimeout(3000, socket => socket.destroy());
   // Parse failures do not echo Node's parser error or any request contents.

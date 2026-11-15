@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import http from 'node:http';
+import { createConnection } from 'node:net';
 import { once } from 'node:events';
 import { readFile } from 'node:fs/promises';
 import { parseCredentials, assertPrivateMetadata } from '../scripts/infrastructure/worker-availability/credentials.mjs';
@@ -213,6 +214,22 @@ function requestRaw(url, headers) {
   });
 }
 
+function requestTcp(url, headers, body = '') {
+  return new Promise((resolve, reject) => {
+    const target = new URL(url);
+    const socket = createConnection({ host: '127.0.0.1', port: Number(target.port) });
+    let response = '';
+    socket.setTimeout(2500, () => socket.destroy(new Error('Synthetic HTTP response timed out')));
+    socket.on('connect', () => socket.write(`GET /_hsr/availability HTTP/1.1\r\n${headers.join('\r\n')}\r\n\r\n${body}`));
+    socket.on('data', bytes => {
+      response += bytes.toString('utf8');
+      if (response.length > 8192) socket.destroy(new Error('Synthetic HTTP response exceeded limit'));
+    });
+    socket.on('error', reject);
+    socket.on('end', () => resolve(response));
+  });
+}
+
 test('HTTP exposes only an authenticated exact GET and fixed JSON with no status/admin details', async t => {
   const { url, server } = await availability(t);
   assert.equal(server.address().address, '127.0.0.1');
@@ -247,8 +264,51 @@ test('HTTP fails closed on probe exception, request bodies and bounded global re
   assert.equal(body.status, 503);
   const statuses = [];
   for (let i = 0; i < 28; i++) statuses.push((await fetch(url + '/_hsr/availability', { headers: { authorization } })).status);
-  assert.ok(statuses.includes(200));
-  assert.ok(statuses.slice(-5).every(status => status === 503));
+  assert.deepEqual(statuses, [...Array(24).fill(200), ...Array(4).fill(503)]);
+});
+
+test('anonymous and invalid requests cannot spend the authenticated probe budget', async t => {
+  const { url } = await availability(t);
+  for (let i = 0; i < 24; i++) {
+    const response = await fetch(url + '/_hsr/availability');
+    assert.equal(response.status, 503);
+    assert.equal(await response.text(), '{"status":"unavailable"}');
+  }
+  for (const [path, headers] of [['/other', { authorization }], ['/_hsr/availability', { authorization: 'Basic !!!' }]]) {
+    const response = await fetch(url + path, { headers });
+    assert.equal(response.status, 503); await response.text();
+  }
+  assert.equal((await requestRaw(url + '/_hsr/availability', { Authorization: authorization, 'Content-Length': '1' })).status, 503);
+  for (let i = 0; i < 24; i++) {
+    const response = await fetch(url + '/_hsr/availability', { headers: { authorization } });
+    assert.equal(response.status, 200, `authenticated request ${i + 1}`);
+    assert.equal(await response.text(), '{"status":"ok"}');
+  }
+  const excess = await fetch(url + '/_hsr/availability', { headers: { authorization } });
+  assert.equal(excess.status, 503);
+  assert.equal(await excess.text(), '{"status":"unavailable"}');
+});
+
+test('raw TCP rejects excess headers including duplicate auth and chunked framing beyond the header limit', async t => {
+  const { url } = await availability(t);
+  const base = ['Host: 127.0.0.1', `Authorization: ${authorization}`];
+  const padding = Array.from({ length: 32 }, (_, i) => `X-Pad-${i}: x`);
+  const boundary = await requestTcp(url, [...base, ...padding.slice(0, 30)]);
+  assert.match(boundary, /^HTTP\/1\.1 200 /);
+  for (const [label, headers, body] of [
+    ['33 headers', [...base, ...padding.slice(0, 31)], ''],
+    ['late duplicate auth', [...base, ...padding, `Authorization: ${authorization}`], ''],
+    ['late chunked body', [...base, ...padding, 'Transfer-Encoding: chunked'], '1\r\nx\r\n0\r\n\r\n'],
+    ['late content length', [...base, ...padding, 'Content-Length: 1'], 'x'],
+  ]) {
+    await t.test(label, async () => {
+      const response = await requestTcp(url, headers, body);
+      assert.match(response, /^HTTP\/1\.1 503 /, label);
+      assert.equal(response.includes('{"status":"ok"}'), false, label);
+      assert.equal(response.includes(authorization), false, label);
+      assert.match(response, /\{"status":"unavailable"\}/, label);
+    });
+  }
 });
 
 test('HTTP bounds concurrent waiters while one shared refresh is pending', async t => {
@@ -306,16 +366,17 @@ test('Google native uptime payload pins HTTPS, strict SSL, exact whole JSON, ded
   assert.equal(config.logCheckFailures, false);
 });
 
-test('alert payload is one resource/check aggregate with sustained >=2 failed locations, open/closed only and no renotify', () => {
+test('alert payload requires two successful locations with missing data active, open/closed only and no renotify', () => {
   const { alertPolicy: policy, projectId } = buildMonitoringPayloads(monitoringInput);
   assert.equal(projectId, 'hsr-currency-war-worker');
   assert.equal(policy.conditions.length, 1); assert.equal(policy.combiner, 'OR');
+  assert.equal(policy.conditions[0].displayName, 'Fewer than two fresh successful locations for three minutes');
   const condition = policy.conditions[0].conditionThreshold;
-  assert.equal(condition.duration, '180s'); assert.equal(condition.comparison, 'COMPARISON_GT');
-  assert.equal(condition.thresholdValue, 1); assert.deepEqual(condition.trigger, { count: 1 });
-  assert.equal(condition.evaluationMissingData, 'EVALUATION_MISSING_DATA_NO_OP');
+  assert.equal(condition.duration, '180s'); assert.equal(condition.comparison, 'COMPARISON_LT');
+  assert.equal(condition.thresholdValue, 2); assert.deepEqual(condition.trigger, { count: 1 });
+  assert.equal(condition.evaluationMissingData, 'EVALUATION_MISSING_DATA_ACTIVE');
   assert.deepEqual(condition.aggregations, [{ alignmentPeriod: '60s', perSeriesAligner: 'ALIGN_NEXT_OLDER',
-    crossSeriesReducer: 'REDUCE_COUNT_FALSE', groupByFields: ['resource.label.project_id', 'resource.label.host', 'metric.label.check_id'] }]);
+    crossSeriesReducer: 'REDUCE_COUNT_TRUE', groupByFields: ['resource.label.project_id', 'resource.label.host', 'metric.label.check_id'] }]);
   assert.equal(condition.filter, 'metric.type="monitoring.googleapis.com/uptime_check/check_passed" AND resource.type="uptime_url" AND metric.label.check_id="hsr-availability-assigned-id" AND resource.label.project_id="hsr-currency-war-worker" AND resource.label.host="worker.35-223-56-40.sslip.io"');
   assert.deepEqual(policy.alertStrategy, { notificationPrompts: ['OPENED', 'CLOSED'], autoClose: '604800s' });
   assert.deepEqual(policy.notificationChannels, [monitoringInput.notificationChannel]);
@@ -335,15 +396,20 @@ test('payload builder rejects project/channel/filter injection and supports a ba
   assert.throws(() => buildMonitoringPayloads({ ...monitoringInput, workerToken: PASSWORD }), /^Error: Invalid monitoring payload input$/);
 });
 
-test('synthetic aligned observations illustrate sustained-window and incident dedup semantics, not cloud delivery', () => {
-  const { alertPolicy: policy } = buildMonitoringPayloads(monitoringInput), threshold = policy.conditions[0].conditionThreshold;
+function illustrateIncident(policy) {
+  const threshold = policy.conditions[0].conditionThreshold;
   const duration = parseInt(threshold.duration) * 1000;
   // This tiny test-only model consumes the actual config; it is not a second
   // alert engine shipped to the VM and does not emulate Google ingestion.
   let since, opened = false;
   const notifications = [];
   const observe = (at, checkers) => {
-    const failing = checkers.filter(passed => passed === false).length > threshold.thresholdValue;
+    const present = checkers.filter(passed => typeof passed === 'boolean');
+    const wanted = threshold.aggregations[0].crossSeriesReducer === 'REDUCE_COUNT_TRUE';
+    const count = present.filter(passed => passed === wanted).length;
+    const failing = present.length === 0
+      ? threshold.evaluationMissingData === 'EVALUATION_MISSING_DATA_ACTIVE' || opened
+      : threshold.comparison === 'COMPARISON_LT' ? count < threshold.thresholdValue : count > threshold.thresholdValue;
     if (!failing) {
       since = undefined;
       if (opened) { opened = false; notifications.push('CLOSED'); }
@@ -352,6 +418,12 @@ test('synthetic aligned observations illustrate sustained-window and incident de
       if (!opened && at - since >= duration) { opened = true; notifications.push('OPENED'); }
     }
   };
+  return { observe, notifications };
+}
+
+test('synthetic aligned observations illustrate sustained-window and incident dedup semantics, not cloud delivery', () => {
+  const { alertPolicy: policy } = buildMonitoringPayloads(monitoringInput);
+  const { observe, notifications } = illustrateIncident(policy);
   for (const at of [0, 60000, 120000, 180000]) observe(at, [false, true, true]);
   assert.deepEqual(notifications, []);
   observe(240000, [false, false, true]); observe(300000, [false, false, true]);
@@ -360,10 +432,29 @@ test('synthetic aligned observations illustrate sustained-window and incident de
   for (const at of [420000, 480000, 540000]) observe(at, [false, false, true]);
   assert.deepEqual(notifications, []);
   observe(600000, [false, false, true]);
-  for (const at of [660000, 720000, 780000]) observe(at, [false, false, false]);
+  observe(660000, [false, false, false]);
+  observe(720000, [false, null, null]);
+  observe(780000, [true, null, null]);
+  observe(840000, [null, null, null]);
   assert.deepEqual(notifications, ['OPENED']);
-  observe(840000, [true, true, true]);
+  observe(900000, [false, true, true]);
   assert.deepEqual(notifications, ['OPENED', 'CLOSED']);
+});
+
+test('missing checker observations cannot clear an outage or establish health without two fresh successes', () => {
+  const { alertPolicy: policy } = buildMonitoringPayloads(monitoringInput);
+  for (const missing of [[false, null, null], [null, null, null]]) {
+    const { observe, notifications } = illustrateIncident(policy);
+    observe(0, [false, true, true]);
+    for (const at of [60000, 120000, 180000]) observe(at, missing);
+    assert.deepEqual(notifications, []);
+    observe(240000, missing);
+    assert.deepEqual(notifications, ['OPENED']);
+    observe(300000, missing); observe(360000, [true, null, null]);
+    assert.deepEqual(notifications, ['OPENED']);
+    observe(420000, [true, true, null]);
+    assert.deepEqual(notifications, ['OPENED', 'CLOSED']);
+  }
 });
 
 test('optional current official discovery schema accepts payload property names, types and enums', {
