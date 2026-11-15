@@ -2,7 +2,8 @@ name: CI
 
 on:
   pull_request:
-    branches: [main]
+    # The stabilisation follow-up is stacked on the still-unmerged backup repair.
+    branches: [main, codex/gcp-production-backup-20261115]
   push:
     branches: [main]
 
