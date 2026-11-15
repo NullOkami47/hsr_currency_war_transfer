@@ -46,7 +46,12 @@ root-owned 0600, without links. systemd PID 1 projects them read-only into
 `/run/credentials/hsr-worker-availability.service`; DynamicUser accesses that
 projection, not the protected host source. The loader only accepts this exact
 `CREDENTIALS_DIRECTORY`. It requires a root/current-UID owned private directory
-and private regular single-link files (owner bits only, no group/other access),
+and private regular single-link files (owner bits only, no group/other access).
+Within this exact namespace it also accepts systemd's root:root read-only
+projection: directory mode 0550 and regular-file mode 0440, with no special bits.
+DynamicUser access may be granted by systemd's private projection/ACL; matching
+the process GID is not required. Other group-readable modes, group/world writes,
+world access and non-root ownership of this projection shape are rejected. It
 rejects symlinks with lstat/O_NOFOLLOW, checks inode identity, and bounds username
 and password reads to 128 and 256 bytes. Raw read buffers are zeroed after use;
 Node strings remain ordinary process memory. Missing/invalid credentials prevent
@@ -61,6 +66,13 @@ ProcSubset=pid, ProtectProc=invisible or a private PID namespace: those would
 obstruct existing loopback health or the required read-only worker PID checks.
 It does not use MemoryDenyWriteExecute because Node/V8 requires JIT memory.
 It has no Requires/PartOf/BindsTo relationship to the worker or backup service.
+DynamicUser identity lookup requires `libnss-systemd` and `systemd` in the
+`passwd`/`group` NSS entries in `/etc/nsswitch.conf`. Main's isolated Box diagnosis
+found that a files-only NSS setup without this module failed even a plain
+DynamicUser unit's systemctl request with `Transport endpoint is not connected`;
+this is not evidence that the probe needs root or a static account. Verify these
+prerequisites on the target and reproduce with the dependency in the isolated
+Linux test environment before changing sandbox permissions.
 Sidecar `Restart=on-failure` with five starts per minute applies only to this
 candidate; it does not alter the worker's restart policy.
 

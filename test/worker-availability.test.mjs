@@ -28,6 +28,30 @@ test('credential permissions fail closed for links, non-private modes, foreign o
   }
 });
 
+test('fixed systemd namespace accepts exact root:root read-only credential projections without assuming the process group', () => {
+  const credentialDirectory = '/run/credentials/hsr-worker-availability.service';
+  const options = { uid: 61503, maxBytes: 256, credentialDirectory };
+  const file = { isFile: () => true, isDirectory: () => false, uid: 0, gid: 0,
+    mode: 0o100440, size: 44, nlink: 1 };
+  const directory = { isFile: () => false, isDirectory: () => true, uid: 0, gid: 0,
+    mode: 0o40550, size: 0, nlink: 2 };
+  assert.doesNotThrow(() => assertPrivateMetadata(file, options));
+  assert.doesNotThrow(() => assertPrivateMetadata(directory, { ...options, directory: true }));
+  for (const namespace of [undefined, '/run/credentials/another.service']) {
+    assert.throws(() => assertPrivateMetadata(file, { ...options, credentialDirectory: namespace }), /Invalid availability credentials/);
+    assert.throws(() => assertPrivateMetadata(directory, { ...options, credentialDirectory: namespace, directory: true }), /Invalid availability credentials/);
+  }
+  for (const change of [{ uid: 61503 }, { gid: 61503 }, { mode: 0o100640 }, { mode: 0o100460 },
+    { mode: 0o100444 }, { mode: 0o104440 }, { nlink: 0 }, { nlink: 2 }, { size: 257 },
+    { isFile: () => false, mode: 0o120440 }]) {
+    assert.throws(() => assertPrivateMetadata({ ...file, ...change }, options), /Invalid availability credentials/);
+  }
+  for (const change of [{ uid: 61503 }, { gid: 61503 }, { mode: 0o40750 }, { mode: 0o40570 },
+    { mode: 0o40555 }, { mode: 0o44550 }, { isDirectory: () => false, mode: 0o120550 }]) {
+    assert.throws(() => assertPrivateMetadata({ ...directory, ...change }, { ...options, directory: true }), /Invalid availability credentials/);
+  }
+});
+
 const unit = (overrides = {}) => Object.entries({ Id: 'hsr-worker-production.service', LoadState: 'loaded',
   ActiveState: 'active', SubState: 'running', MainPID: '123', Result: 'success',
   ControlGroup: '/system.slice/hsr-worker-production.service',
