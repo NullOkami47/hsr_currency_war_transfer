@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
 import { once } from "node:events";
 import { createServer } from "node:http";
-import { mkdtemp, mkdir, readFile, writeFile, appendFile, lstat } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, writeFile, appendFile, lstat, readlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -36,6 +36,12 @@ function run(command, args, accepted = [0]) {
 function control(...args) { return run("sudo", ["-n", "systemctl", ...args]); }
 function conflict(lock, expected) {
   run("/usr/bin/flock", ["--nonblock", "--conflict-exit-code", "75", lock, "/usr/bin/true"], [expected]);
+}
+function lockAvailable(lock) {
+  const result = spawnSync("/usr/bin/flock", ["--nonblock", "--conflict-exit-code", "75", lock, "/usr/bin/true"], { timeout: 5_000 });
+  assert.ifError(result.error);
+  assert.ok([0, 75].includes(result.status));
+  return result.status === 0;
 }
 
 async function childFixture(root) {
@@ -152,9 +158,14 @@ async function integration(t) {
     }
     control("daemon-reload");
     const record = { dir, unit, unitPath, lock };
-    t.after(() => {
+    t.after(async () => {
       // Every path/unit is constructed above for this invocation only.
-      run("sudo", ["-n", "systemctl", "stop", unit], [0, 5]);
+      // Let an intentionally timed-out fixture finish without killing it.
+      await writeFile(join(dir, "release-request"), "release");
+      await writeFile(join(dir, "release-child"), "release");
+      run("sudo", ["-n", "systemctl", "stop", unit], [0, 1, 5]);
+      await until(() => Number(control("show", unit, "-p", "MainPID", "--value")) === 0, "fixture exit");
+      await until(() => lockAvailable(lock), "fixture lock release");
       run("sudo", ["-n", "systemctl", "reset-failed", unit], [0, 1]);
       run("sudo", ["-n", "rm", "-f", `${unitPath}.d/override.conf`, unitPath]);
       if (dropIn) run("sudo", ["-n", "rmdir", `${unitPath}.d`]);
@@ -186,6 +197,7 @@ async function integration(t) {
       const { pid } = JSON.parse(await readFile(join(dir, "ready"), "utf8"));
       assert.equal(Number(control("show", unit, "-p", "MainPID", "--value")), pid);
       assert.equal(control("show", unit, "-p", "KillMode", "--value"), "mixed");
+      assert.equal(control("show", unit, "-p", "SendSIGKILL", "--value"), "no");
       const stop = spawn("sudo", ["-n", "systemctl", "stop", unit]);
       const stopped = once(stop, "exit");
       await until(() => exists(join(dir, "parent-term")), "main Node received TERM");
@@ -222,6 +234,41 @@ async function integration(t) {
       }
     });
   }
+  await t.test("stop timeout preserves live Chrome and flock until voluntary cleanup", async () => {
+    const { dir, unit, lock } = await service("timeout-chromium", "chromium", productionDropIn);
+    const { pid, child } = JSON.parse(await readFile(join(dir, "ready"), "utf8"));
+    const singleton = join(dir, "chrome-profile/SingletonLock");
+    const originalLock = await readlink(singleton);
+    const chromePid = Number(originalLock.match(/-(\d+)$/)?.[1]);
+    assert.ok(chromePid > 0, "Chrome lock must identify its live owner");
+    assert.equal(control("show", unit, "-p", "SendSIGKILL", "--value"), "no");
+    assert.equal(control("show", unit, "-p", "TimeoutStopUSec", "--value"), "5s");
+    // Deliberately hold the real browser request past the unit's stop deadline.
+    const result = spawnSync("sudo", ["-n", "systemctl", "stop", unit], {
+      encoding: "utf8", timeout: 15_000,
+    });
+    assert.ifError(result.error);
+    // systemctl can return zero even when the unit failed its stop deadline.
+    assert.ok([0, 1].includes(result.status), result.stderr);
+    assert.equal(control("show", unit, "-p", "Result", "--value"), "timeout");
+    for (const livePid of [pid, child, chromePid]) await lstat(`/proc/${livePid}`);
+    assert.equal(await readlink(singleton), originalLock);
+    assert.equal(await exists(join(dir, "chrome-profile/SingletonSocket")), true);
+    assert.equal(await exists(join(dir, "chrome-profile/SingletonCookie")), true);
+    assert.equal(await exists(join(dir, "child-term")), false);
+    assert.equal(await exists(join(dir, "events")), false);
+    conflict(lock, 75);
+    await writeFile(join(dir, "release-request"), "release");
+    await until(() => exists(join(dir, "child-cleanup-started")), "browser closed after timeout");
+    conflict(lock, 75);
+    await writeFile(join(dir, "release-child"), "release");
+    await until(async () => !(await exists(`/proc/${pid}`)), "voluntary worker exit after timeout");
+    await until(() => lockAvailable(lock), "lock release after voluntary cleanup");
+    conflict(lock, 0);
+    assert.equal(await exists(singleton), false);
+    assert.equal(await readFile(join(dir, "events"), "utf8"), "browser-closed\nchild-cleaned\nparent-cleaned\n");
+    t.diagnostic("stop timed out without killing Node, synthetic child or Chrome; locks released only after voluntary cleanup");
+  });
   await t.test("actual worker shares cleanup across repeated TERM and INT", async () => {
     const dir = join(root, "actual-worker");
     await mkdir(dir);

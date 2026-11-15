@@ -36,6 +36,21 @@ stopping the exclusive publisher. A snapshot refuses active/ambiguous jobs or a
 transfer lock. It does not discard pending jobs: failure to drain blocks capture.
 The original service and admission must recover before the run is successful.
 
+The owner approved the repair maintenance on 2026-11-15 with an additional
+no-force requirement. The worker drop-in sets `SendSIGKILL=no`: reaching the
+240-second graceful-stop deadline must not kill a remaining profile owner.
+The coordinator bounds its stop command at 270 seconds. An ambiguous stop
+blocks snapshotting and any second publisher; preserve the live process and
+reconcile it before retrying. A busy queue is polled for up to 120 drain checks,
+then the original admission setting is restored without stopping the worker.
+That attempt fails safely and remains visible to backup monitoring.
+
+Keep the daily timer disabled throughout repair acceptance. Installation,
+service recovery, real profile reopen, a complete encrypted upload and isolated
+decryption/restore must all pass before enabling it. An installation rollback
+may restore the saved source only after proving that no publisher or browser
+remains. Never use lock deletion or a forced process kill to make that proof pass.
+
 Excluded: browser profiles, cookies, HoYoLAB login material, worker/Vercel
 authentication secrets, recovery private keys and recovery codes. Source and
 deployment configuration are reconstructed from reviewed Git history and the

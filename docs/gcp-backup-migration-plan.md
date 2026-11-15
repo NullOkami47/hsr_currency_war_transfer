@@ -10,12 +10,14 @@ from reviewed PR 8 head `f62b28020304d4c3c43b618757e10f8471dfc8cd`.
   failed on retained Chrome singleton links. Azure is deallocated.
 - [x] Preserve configuration/journal evidence locally outside Git; upload the
   completed encrypted snapshot left in the GCP spool without restarting anything.
-- [ ] Obtain the separately required authority for recovering the failed publisher.
-- [ ] Verify a graceful shutdown unit in an isolated Linux systemd environment;
+- [x] Obtain the separately required authority for recovering the failed publisher.
+- [x] Verify a graceful shutdown unit in an isolated Linux systemd environment;
   retain strict stale-lock preflight and all snapshot consistency checks.
-- [ ] Test monitor retry, exact 03:00 Asia/Hong_Kong schedule plus two-hour grace,
+- [x] Test monitor retry, exact 03:00 Asia/Hong_Kong schedule plus two-hour grace,
   integrity, missing receipt, source separation and healthy/error log behaviour.
-- [ ] Independently review and verify the exact commit from a fresh checkout.
+- [x] Independently review and verify commit `86926a6` from a fresh checkout.
+- [x] Receive explicit authority for repair deployment and backup acceptance;
+  apply the owner's no-force stop and idle-queue conditions before maintenance.
 - [ ] Deploy only reviewed backup/monitor files and narrow systemd drop-ins.
   Production interruptions require the owner's explicit approval.
 - [ ] Create a fresh production snapshot, download ciphertext, decrypt using the
@@ -23,7 +25,7 @@ from reviewed PR 8 head `f62b28020304d4c3c43b618757e10f8471dfc8cd`.
   hashes, and remove isolated plaintext without replaying jobs.
 - [ ] Pin the externally restored pair; enable guarded seven-day pruning and
   bounded event lifecycle. Preserve historical Azure ciphertext and recovery keys.
-- [ ] Replace the old exact alert policy with deduplicated GCP health monitoring;
+- [x] Replace the old exact alert policy with deduplicated GCP health monitoring;
   retain independent missing-monitor-heartbeat protection and existing channels.
 - [ ] Read back deployed configuration, schedule, integrity, monitor and production
   health; commit the narrow changes and open a PR. No automatic merge.
