@@ -1,8 +1,9 @@
 name: CI
 
+# Include the exact base branch of the unmerged backup-repair follow-up.
 on:
   pull_request:
-    branches: [main]
+    branches: [main, codex/gcp-production-backup-20261115]
   push:
     branches: [main]
 

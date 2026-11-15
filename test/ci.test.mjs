@@ -8,7 +8,7 @@ test("CI verifies supported Node versions on Linux and Windows", async () => {
     "utf8",
   );
 
-  assert.match(workflow, /pull_request:\s*\n\s+branches: \[main\]/);
+  assert.match(workflow, /pull_request:\s*\n\s+branches: \[main, codex\/gcp-production-backup-20261115\]/);
   assert.match(workflow, /push:\s*\n\s+branches: \[main\]/);
   assert.match(workflow, /os: \[ubuntu-latest, windows-latest\]/);
   assert.match(workflow, /node-version: \[20, 22\]/);
