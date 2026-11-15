@@ -29,12 +29,19 @@ function responseRecorder() {
 }
 
 async function waitForResult(queue, jobId) {
-  for (let attempt = 0; attempt < 50; attempt += 1) {
-    const result = await queue.get(jobId);
-    if (result?.status !== "queued") return result;
-    await new Promise((resolve) => setTimeout(resolve, 5));
+  let timer;
+  const deadline = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error("Worker job did not finish within 5 seconds")), 5000);
+  });
+  try {
+    for (;;) {
+      const result = await Promise.race([queue.get(jobId), deadline]);
+      if (result && result.status !== "queued") return result;
+      await Promise.race([new Promise((resolve) => setTimeout(resolve, 5)), deadline]);
+    }
+  } finally {
+    clearTimeout(timer);
   }
-  throw new Error("Worker job did not finish in time");
 }
 
 test("deduplicates active jobs and publishes a persistent partial result", async (t) => {
@@ -68,13 +75,9 @@ test("deduplicates active jobs and publishes a persistent partial result", async
   ]);
 
   assert.equal(duplicate.jobId, first.jobId);
-  for (let attempt = 0; attempt < 20 && transferCalls === 0; attempt += 1) {
-    await new Promise((resolve) => setTimeout(resolve, 2));
-  }
-  assert.equal(transferCalls, 1);
-
   releaseTransfer();
   const result = await waitForResult(queue, first.jobId);
+  assert.equal(transferCalls, 1);
   assert.equal(result.status, "partial");
   assert.equal(result.shareCode, "share-code");
   assert.equal(result.ignored[0].id, "9999");

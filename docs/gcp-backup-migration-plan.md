@@ -15,22 +15,27 @@ from reviewed PR 8 head `f62b28020304d4c3c43b618757e10f8471dfc8cd`.
   retain strict stale-lock preflight and all snapshot consistency checks.
 - [x] Test monitor retry, exact 03:00 Asia/Hong_Kong schedule plus two-hour grace,
   integrity, missing receipt, source separation and healthy/error log behaviour.
-- [x] Independently review and verify commit `86926a6` from a fresh checkout.
+- [x] Independently review and verify commit `86926a6` and deployed commit `0cf25ff70d13f85cad6cbc8250e03707022cce94` from a fresh checkout.
 - [x] Receive explicit authority for repair deployment and backup acceptance;
   apply the owner's no-force stop and idle-queue conditions before maintenance.
-- [ ] Deploy only reviewed backup/monitor files and narrow systemd drop-ins.
+- [x] Deploy only reviewed backup/monitor files and narrow systemd drop-ins (commit `0cf25ff70d13f85cad6cbc8250e03707022cce94`).
   Production interruptions require the owner's explicit approval.
-- [ ] Create a fresh production snapshot, download ciphertext, decrypt using the
+- [x] Create a fresh production snapshot, download ciphertext, decrypt using the
   existing D-drive recovery key, validate all three state files against capture
   hashes, and remove isolated plaintext without replaying jobs.
-- [ ] Pin the externally restored pair; enable guarded seven-day pruning and
+- [x] Pin the externally restored pair; enable guarded seven-day pruning and
   bounded event lifecycle. Preserve historical Azure ciphertext and recovery keys.
 - [x] Replace the old exact alert policy with deduplicated GCP health monitoring;
   retain independent missing-monitor-heartbeat protection and existing channels.
-- [ ] Read back deployed configuration, schedule, integrity, monitor and production
+- [x] Read back deployed configuration, schedule, integrity, monitor and production
   health; commit the narrow changes and open a PR. No automatic merge.
 
 Reuse the current regional bucket, attached service account, scale-to-zero Cloud
 Run monitor and hourly Scheduler. No new always-on resources or service-account
 keys. Backups exclude browser profiles, cookies and HoYoLAB credentials. Public
 repository artifacts contain only source, tests and sanitised receipts.
+
+Acceptance completed on 2026-11-15. See `gcp-backup-acceptance-20261115.md`
+for the exact backup, real restore, maintenance interruption and deployed hashes.
+PR #10 remains draft and unmerged. The next automatic run is 2026-11-16
+03:00 Asia/Hong_Kong; that future execution is not represented as already tested.

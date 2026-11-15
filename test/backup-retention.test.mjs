@@ -241,10 +241,26 @@ test('read budget, operation budget, and deletion batch bound work without bypas
 });
 
 test('timeout aborts bounded reads and never starts deletion after a late response', async () => {
-  const s = setup(); let signal;
-  s.operations.list = async args => { signal = args.signal; await new Promise(r => setTimeout(r, 30)); return { complete: true, objects: [] }; };
-  const result = await executeBackupRetention({ ...s.options, apply: true, limits: { timeoutMs: 5 } });
-  assert.equal(result.status, 'blocked'); assert.ok(signal.aborted);
+  const s = setup(), list = s.operations.list;
+  let signal, lateResponse;
+  s.operations.list = args => {
+    signal = args.signal;
+    lateResponse = new Promise(resolve => {
+      // Return a valid inventory only after the real deadline aborts the read.
+      const respond = () => resolve(list(args));
+      if (signal.aborted) respond();
+      else signal.addEventListener('abort', respond, { once: true });
+    });
+    return lateResponse;
+  };
+  // Leave enough headroom to enter the read on shared runners; its response is
+  // driven by cancellation, not by an independent sleep racing the deadline.
+  const result = await executeBackupRetention({ ...s.options, apply: true, limits: { timeoutMs: 5000 } });
+  assert.equal(result.status, 'blocked');
+  assert.deepEqual(result.reasons, ['deadline_exceeded']);
+  assert.ok(signal instanceof AbortSignal); assert.equal(signal.aborted, true);
+  await lateResponse;
+  assert.equal(s.calls.filter(([op]) => op === 'get' || op === 'delete').length, 0);
   assert.equal(s.objects.size, 6);
 });
 
