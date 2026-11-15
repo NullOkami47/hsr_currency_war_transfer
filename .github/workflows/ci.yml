@@ -1,8 +1,8 @@
 name: CI
 
+# Include the exact base branch of the unmerged backup-repair follow-up.
 on:
   pull_request:
-    # The stabilisation follow-up is stacked on the still-unmerged backup repair.
     branches: [main, codex/gcp-production-backup-20261115]
   push:
     branches: [main]
