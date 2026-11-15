@@ -212,13 +212,29 @@ test('HTTP bounds concurrent waiters while one shared refresh is pending', async
   const { url } = await availability(t, { nowUs: () => BigInt(time) * 1000n,
     readHealth: async () => { if (++calls > 1) await barrier; return true; } });
   time = 8000;
-  const requests = Array.from({ length: 12 }, () => fetch(url + '/_hsr/availability', { headers: { authorization } }));
+  let rejected = 0, completed = 0, observedRejections, failObservation;
+  const rejections = new Promise((resolve, reject) => { observedRejections = resolve; failObservation = reject; });
+  const deadline = setTimeout(() => failObservation(new Error('Expected four rejected responses while eight waiters remain blocked')), 2500);
+  const requests = Array.from({ length: 12 }, () => fetch(url + '/_hsr/availability', { headers: { authorization } })
+    .then(async response => {
+      completed++;
+      if (response.status === 503) {
+        assert.equal(await response.text(), '{"status":"unavailable"}');
+        if (++rejected === 4) observedRejections();
+      }
+      return response;
+    }));
+  for (const request of requests) void request.catch(failObservation);
   try {
-    const first = await Promise.race(requests);
-    assert.equal(first.status, 503);
-  } finally { release(); }
+    // Every excess request must be observed before releasing the accepted batch;
+    // the first rejection alone says nothing about requests still in transit.
+    await rejections;
+    assert.equal(completed, 4);
+    assert.equal(rejected, 4);
+  } finally { clearTimeout(deadline); release(); }
   const responses = await Promise.all(requests);
   assert.equal(responses.filter(res => res.status === 200).length, 8);
+  assert.equal(responses.filter(res => res.status === 503).length, 4);
   assert.equal(calls, 2);
 });
 
