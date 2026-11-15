@@ -41,5 +41,5 @@ test('real Caddy preserves worker authentication and only forwards the exact pro
  assert.deepEqual(seen,[['worker','/health'],['probe','/_hsr/availability'],['probe','/_hsr/availability']]);
  stallProbe=true;
  const failed=await fetch(`http://127.0.0.1:${port}/_hsr/availability`,{headers:{authorization:probe},signal:AbortSignal.timeout(8000)});
- assert.equal(failed.status,502,'a stalled sidecar must terminate at the Caddy response-header deadline');
+ assert.equal(failed.status,504,'a stalled sidecar must terminate at the Caddy response-header deadline');
 });
