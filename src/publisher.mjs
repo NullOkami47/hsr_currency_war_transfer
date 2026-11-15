@@ -43,8 +43,14 @@ function findLineupId(value) {
 export class BrowserSessionPublisher {
   constructor({
     profileDir,
-    browserChannel = "chrome",
+    browserChannel = process.env.CURRENCY_WAR_BROWSER_CHANNEL || "chrome",
+    browserExecutablePath = process.env.CURRENCY_WAR_BROWSER_EXECUTABLE_PATH || undefined,
+    chromiumSandbox = process.env.CURRENCY_WAR_CHROMIUM_SANDBOX === undefined
+      || process.env.CURRENCY_WAR_CHROMIUM_SANDBOX === ""
+      ? true
+      : process.env.CURRENCY_WAR_CHROMIUM_SANDBOX === "1",
     headless = false,
+    handleProcessSignals = true,
     authRecoveryDelayMs = 8_000,
     launchPersistentContext,
     logger = console,
@@ -52,16 +58,25 @@ export class BrowserSessionPublisher {
     if (!profileDir) {
       throw new TypeError("A dedicated browser profile directory is required");
     }
+    if (chromiumSandbox !== true) {
+      throw new TypeError("Chromium sandbox must remain explicitly enabled");
+    }
 
     this.profileDir = profileDir;
     this.browserChannel = browserChannel;
+    this.browserExecutablePath = browserExecutablePath;
+    this.chromiumSandbox = true;
     this.headless = headless;
+    this.handleProcessSignals = handleProcessSignals;
     this.authRecoveryDelayMs = authRecoveryDelayMs;
     this.launchPersistentContext = launchPersistentContext;
     this.logger = logger;
     this.context = null;
     this.page = null;
     this.requestChain = Promise.resolve();
+    this.startPromise = null;
+    this.closePromise = null;
+    this.closing = false;
   }
 
   logSessionEvent(level, event, details = {}) {
@@ -76,10 +91,23 @@ export class BrowserSessionPublisher {
   }
 
   async start() {
+    if (this.closing) {
+      throw new PublishingSessionError("Publishing session is closing");
+    }
+    if (this.startPromise) return this.startPromise;
     if (this.context) {
       return;
     }
 
+    this.startPromise = this.launchContext();
+    try {
+      await this.startPromise;
+    } finally {
+      this.startPromise = null;
+    }
+  }
+
+  async launchContext() {
     let launchPersistentContext = this.launchPersistentContext;
     if (!launchPersistentContext) {
       const { chromium } = await import("playwright-core");
@@ -89,8 +117,14 @@ export class BrowserSessionPublisher {
     }
 
     this.context = await launchPersistentContext(this.profileDir, {
-      channel: this.browserChannel,
+      ...(this.browserExecutablePath
+        ? { executablePath: this.browserExecutablePath }
+        : { channel: this.browserChannel }),
+      chromiumSandbox: this.chromiumSandbox,
       headless: this.headless,
+      ...(this.handleProcessSignals === false
+        ? { handleSIGINT: false, handleSIGTERM: false }
+        : {}),
       viewport: { width: 1440, height: 1000 },
     });
 
@@ -107,6 +141,9 @@ export class BrowserSessionPublisher {
   }
 
   async request(path, payload) {
+    if (this.closing) {
+      throw new PublishingSessionError("Publishing session is closing");
+    }
     const operation = this.requestChain.then(() =>
       this.requestUnlocked(path, payload),
     );
@@ -179,6 +216,9 @@ export class BrowserSessionPublisher {
       envelope.body?.retcode === -100 &&
       authRecoveryAttempt < 2
     ) {
+      if (this.closing) {
+        throw new PublishingSessionError("Publishing session is closing");
+      }
       const action = authRecoveryAttempt === 0
         ? "reload_event_page"
         : "rebuild_browser_context";
@@ -190,7 +230,8 @@ export class BrowserSessionPublisher {
       if (authRecoveryAttempt === 0) {
         await this.page.goto(APP_URL, { waitUntil: "domcontentloaded" });
       } else {
-        await this.close();
+        // Recovery is not final shutdown and must not wait on its own request.
+        await this.closeContext();
         await this.start();
       }
       await this.page.waitForTimeout(this.authRecoveryDelayMs);
@@ -291,7 +332,20 @@ export class BrowserSessionPublisher {
     return { lineupId };
   }
 
-  async close() {
+  close() {
+    if (!this.closePromise) {
+      this.closing = true;
+      this.closePromise = (async () => {
+        await this.requestChain;
+        // A direct start (e.g. login) may not belong to requestChain.
+        await this.startPromise?.catch(() => {});
+        await this.closeContext();
+      })();
+    }
+    return this.closePromise;
+  }
+
+  async closeContext() {
     if (this.context) {
       await this.context.close();
       this.context = null;
