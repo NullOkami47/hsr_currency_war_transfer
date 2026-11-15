@@ -19,6 +19,20 @@ with no arguments. Do not add runtime endpoint or credential-value environment
 overrides. `PORT`, `HOST`, HTTP proxy settings and worker environment variables
 do not select its listener or upstream.
 
+The unit runs as the dedicated static system account and primary group
+`hsr-availability`. Its empty `SupplementaryGroups=` assignment adds no unit-level
+groups; the target account must have no secondary group memberships, which the
+deployment plan must verify from the target's user/group database. Main's
+approval/deployment plan must validate that the account and group are absent or
+already match the approved dedicated identity, create a locked `nologin` account
+with no home and no secondary memberships if absent, and fail closed on name,
+UID, GID or membership conflicts. Check `getent passwd hsr-availability` and
+`getent group hsr-availability` before creation; do not adopt a pre-existing shared
+group. The plan must also validate ownership and modes of installed files and the
+credential source directory. This component does not create accounts or mutate the
+live host. Do not substitute `root`, `nobody`, the worker account or a shared
+service group.
+
 The only listener is IPv4 `127.0.0.1:8790`. Only `GET /_hsr/availability` is
 accepted: no query string, suffix, alternate path, body or other method. One
 canonical Basic header is required; duplicate/comma-combined, malformed base64,
@@ -43,13 +57,13 @@ command arguments, logs, shared evidence or chat.
 
 The host directory must be root-owned 0700 and the two regular source files
 root-owned 0600, without links. systemd PID 1 projects them read-only into
-`/run/credentials/hsr-worker-availability.service`; DynamicUser accesses that
+`/run/credentials/hsr-worker-availability.service`; `hsr-availability` accesses that
 projection, not the protected host source. The loader only accepts this exact
 `CREDENTIALS_DIRECTORY`. It requires a root/current-UID owned private directory
 and private regular single-link files (owner bits only, no group/other access).
 Within this exact namespace it also accepts systemd's root:root read-only
 projection: directory mode 0550 and regular-file mode 0440, with no special bits.
-DynamicUser access may be granted by systemd's private projection/ACL; matching
+Service-user access may be granted by systemd's private projection/ACL; matching
 the process GID is not required. Other group-readable modes, group/world writes,
 world access and non-root ownership of this projection shape are rejected. It
 rejects symlinks with lstat/O_NOFOLLOW, checks inode identity, and bounds username
@@ -59,20 +73,19 @@ startup and produce only a fixed generic error. systemd loads credentials at
 service start; rotation needs an authorised sidecar restart and matching uptime
 credential update. No worker admin token or `worker.env` is opened or loaded.
 
-The candidate uses DynamicUser, no capabilities, NoNewPrivileges, a read-only
-filesystem, no writable state directory, private tmp/devices, task/memory/CPU/FD
-limits and loopback-only IP access. It intentionally does not set PrivateNetwork,
+The candidate uses the dedicated static account, no capabilities, NoNewPrivileges,
+a read-only filesystem, no writable state directory, private tmp/devices,
+task/memory/CPU/FD limits and loopback-only IP access. It intentionally does not set PrivateNetwork,
 ProcSubset=pid, ProtectProc=invisible or a private PID namespace: those would
 obstruct existing loopback health or the required read-only worker PID checks.
 It does not use MemoryDenyWriteExecute because Node/V8 requires JIT memory.
 It has no Requires/PartOf/BindsTo relationship to the worker or backup service.
-DynamicUser identity lookup requires `libnss-systemd` and `systemd` in the
-`passwd`/`group` NSS entries in `/etc/nsswitch.conf`. Main's isolated Box diagnosis
-found that a files-only NSS setup without this module failed even a plain
-DynamicUser unit's systemctl request with `Transport endpoint is not connected`;
-this is not evidence that the probe needs root or a static account. Verify these
-prerequisites on the target and reproduce with the dependency in the isolated
-Linux test environment before changing sandbox permissions.
+The static account is selected because transient DynamicUser systemctl callers
+failed on production with `Transport endpoint is not connected`, while the isolated
+Box's existing static unprivileged identity succeeded. The dedicated account still
+requires independent acceptance under the full unit sandbox. It does not
+require `libnss-systemd` or `systemd` NSS entries. The fixed user/group must still
+resolve through the target's ordinary NSS configuration before starting the unit.
 Sidecar `Restart=on-failure` with five starts per minute applies only to this
 candidate; it does not alter the worker's restart policy.
 
@@ -218,7 +231,7 @@ Current official Google REST schemas were reviewed on 2026-11-15:
 - [Official uptime alert JSON example](https://docs.cloud.google.com/monitoring/alerts/policies-in-json)
 - [Public uptime checks](https://docs.cloud.google.com/monitoring/uptime-checks)
 - [RE2 absolute anchors](https://github.com/google/re2/wiki/Syntax)
-- [systemd credentials and DynamicUser](https://www.freedesktop.org/software/systemd/man/latest/systemd.exec.html)
+- [systemd credentials and user/group identity](https://www.freedesktop.org/software/systemd/man/latest/systemd.exec.html)
 - [systemd read-only D-Bus access](https://www.freedesktop.org/software/systemd/man/latest/org.freedesktop.systemd1.html#Security)
 
 Main's current official discovery snapshot was also read at
@@ -251,9 +264,10 @@ Main's independent Linux acceptance must use a fresh exact-commit checkout:
    `hsr-worker-production.service` in the default system.slice, serving fixed
    loopback 8787 `/health` JSON with no upstream activity. Do not replace a real
    worker unit. Install/start the sidecar candidate and private test credentials.
-3. Verify DynamicUser can read the private credential projection, access
-   unprivileged systemctl show over the system bus and read the synthetic PID's
-   proc files under the complete sandbox. Assert correct cgroup identity,
+3. Verify `hsr-availability` has no secondary group memberships, can read the
+   private credential projection, access unprivileged systemctl show over the
+   system bus and read the synthetic PID's proc files under the complete sandbox.
+   Assert correct cgroup identity,
    nonfuture monotonic start and live stable process. There is no assumption that
    this succeeds merely because root can run the command. Host hidepid/LSM/D-Bus
    restrictions cause safe 503; resolve a minimal read-only permission cause or

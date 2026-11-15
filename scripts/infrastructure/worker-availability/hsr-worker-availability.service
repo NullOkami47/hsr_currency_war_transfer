@@ -6,7 +6,9 @@ StartLimitBurst=5
 
 [Service]
 Type=simple
-DynamicUser=yes
+User=hsr-availability
+Group=hsr-availability
+SupplementaryGroups=
 WorkingDirectory=/opt/hsr-worker-availability
 ExecStart=/opt/node-v24.22.3-linux-x64/bin/node /opt/hsr-worker-availability/server.mjs
 LoadCredential=probe-username:/etc/hsr-worker-availability/probe-username

@@ -11,6 +11,27 @@ import { buildMonitoringPayloads, buildUptimeCheckConfig, buildAlertPolicy } fro
 const PASSWORD = 'synthetic-probe-password-000000000000';
 const credentialText = () => ({ username: 'uptime-probe\n', password: `${PASSWORD}\n` });
 
+test('candidate unit uses a dedicated static account with unchanged read-only credential and sandbox boundaries', async () => {
+  const unit = await readFile(new URL('../scripts/infrastructure/worker-availability/hsr-worker-availability.service', import.meta.url), 'utf8');
+  const entries = unit.split('[Service]')[1].split('[Install]')[0].trim().split(/\r?\n/);
+  const values = key => entries.filter(line => line.startsWith(`${key}=`)).map(line => line.slice(key.length + 1));
+  for (const [key, value] of Object.entries({ User: 'hsr-availability', Group: 'hsr-availability',
+    SupplementaryGroups: '', NoNewPrivileges: 'yes', CapabilityBoundingSet: '',
+    AmbientCapabilities: '', ProtectSystem: 'strict', ProtectHome: 'yes', PrivateTmp: 'yes',
+    PrivateDevices: 'yes', ProtectKernelTunables: 'yes', ProtectKernelModules: 'yes',
+    ProtectKernelLogs: 'yes', ProtectControlGroups: 'yes', ProtectClock: 'yes',
+    RestrictSUIDSGID: 'yes', RestrictNamespaces: 'yes', IPAddressDeny: 'any',
+    IPAddressAllow: '127.0.0.1/32', RestrictAddressFamilies: 'AF_INET AF_UNIX' })) {
+    assert.deepEqual(values(key), [value], key);
+  }
+  assert.deepEqual(values('DynamicUser'), []);
+  assert.deepEqual(values('LoadCredential'), [
+    'probe-username:/etc/hsr-worker-availability/probe-username',
+    'probe-password:/etc/hsr-worker-availability/probe-password',
+  ]);
+  assert.deepEqual(values('ExecStart'), ['/opt/node-v24.22.3-linux-x64/bin/node /opt/hsr-worker-availability/server.mjs']);
+});
+
 test('credentials accept only dedicated Basic credentials and reject malformed or additional configuration', () => {
   assert.deepEqual(parseCredentials(credentialText()), { username: 'uptime-probe', password: PASSWORD });
   for (const change of [{ workerToken: PASSWORD }, { worker: 'unneeded' }, { username: 'bad:user' }, { password: 'short' }, { username: 'uptime-probe\nextra' }]) {
