@@ -31,7 +31,9 @@ const exactArgv = (value, expected, label) => {
       || !/;\s*ignore_errors=no\s*;/.test(value)) fail(`Unsafe ${label} command set`);
 };
 const noCommands = (value, label) => {
-  if (typeof value !== 'string' || value.trim() !== '') fail(`Unsafe ${label} command set`);
+  // systemd 255 omits empty command arrays, including with show --all.
+  // The separately pinned unit text still proves the approved absence of hooks.
+  if (value !== undefined && (typeof value !== 'string' || value.trim() !== '')) fail(`Unsafe ${label} command set`);
 };
 export function assertUnitContract(text) {
   if (typeof text !== 'string' || sha(text) !== EXPECTED_UNIT_CAT_SHA256) fail('Service unit/drop-in raw contract changed');

@@ -285,6 +285,9 @@ test('Linux policy and process checks reject escalation, duplicate publisher and
     ExecStart: '{ path=/usr/bin/flock ; argv[]=/usr/bin/flock --no-fork --nonblock --conflict-exit-code 75 /var/lib/hsr-transfer-worker-staging/login/.production-worker.flock /opt/node-v24.22.3-linux-x64/bin/node /opt/hsr-transfer-worker-staging/scripts/worker-server.mjs ; ignore_errors=no ; }',
     ExecStartPre: '{ path=/opt/node-v24.22.3-linux-x64/bin/node ; argv[]=/opt/node-v24.22.3-linux-x64/bin/node /opt/hsr-transfer-worker-staging/scripts/infrastructure/gcp-production-profile-preflight.mjs /etc/hsr-gcp-production/worker-preflight.json ; ignore_errors=no ; }', ExecStartPost: '', ExecStop: '', ExecStopPost: '' };
   assert.doesNotThrow(() => assertServicePolicy(policy));
+  const omittedEmptyHooks = { ...policy };
+  for (const key of ['ExecStartPost', 'ExecStop', 'ExecStopPost']) delete omittedEmptyHooks[key];
+  assert.doesNotThrow(() => assertServicePolicy(omittedEmptyHooks), 'systemd 255 omits empty command arrays even with --all');
   for (const patch of [{ KillMode: 'control-group' }, { SendSIGKILL: 'yes' }, { KillSignal: '9' }, { RestartKillSignal: '9' }, { NeedDaemonReload: 'yes' }, { KillSignal: undefined }, { RestartKillSignal: undefined }, { NeedDaemonReload: undefined }, { TimeoutStopUSec: '90s' }, { Restart: 'always' },
     { ExecStop: '{ path=/bin/kill ; argv[]=/bin/kill -9 $MAINPID ; }' }, { ExecStopPost: '{ path=/bin/rm ; argv[]=/bin/rm -rf /tmp/profile ; }' },
     { ExecStartPost: '{ path=/usr/bin/touch ; argv[]=/usr/bin/touch /tmp/started ; }' },
