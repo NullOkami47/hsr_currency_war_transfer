@@ -57,6 +57,7 @@ export function stateProof(state, at = Date.now(), { allowActive = false } = {})
     counts: { jobs: Object.keys(jobs.jobs).length, mappings: Object.keys(transfers.transfers).length, sessions: Object.keys(security.sessions).length } };
 }
 export function assertPreserved(before, after, at = Date.now(), { admission = false } = {}) {
+  if (before.admission !== false) fail('Closed baseline required');
   if (after.admission !== admission) fail('Admission changed; manual reconciliation required');
   for (const key of ['jobs', 'jobSchema', 'settings', 'transfers', 'security', 'quotaSchema', 'blockedUntil']) if (before[key] !== after[key]) fail('Durable state changed; preservation unverified');
   // Ordered multiset comparison preserves duplicate events and client identity.
@@ -85,6 +86,13 @@ export function createRestartJournal({ directory, service }) {
     if (!record || record.version !== 1 || record.service !== service || !PHASES.includes(record.phase)
         || typeof record.originalAdmission !== 'boolean' || !/^[a-zA-Z0-9-]{1,100}$/.test(record.runId) || !Number.isSafeInteger(record.startAttempts) || record.startAttempts < 0
         || !object(record.initial) || !Array.isArray(record.evidence) || typeof record.contract !== 'string') fail('Invalid maintenance journal; manual reconciliation required');
+    if (record.originalAdmission !== record.initial.admission) fail('Original admission must match initial state');
+    if (record.baseline !== undefined && (!object(record.baseline) || record.baseline.admission !== false)) fail('Closed baseline required');
+    if (record.phase === 'restoring') {
+      if (!object(record.verified) || record.verified.admission !== false || record.verified.active !== 0
+          || !object(record.baseline) || !Number.isFinite(record.verified.at) || !record.startedProcess?.identity || record.startAttempts < 1) fail('Invalid verified restoring checkpoint');
+      assertPreserved(record.baseline, record.verified, record.verified.at);
+    }
     return record;
   };
   async function persist(next, exclusive = false) {
@@ -110,6 +118,8 @@ export function createRestartJournal({ directory, service }) {
           || typeof record.runId !== 'string' || typeof record.updatedAt !== 'string') fail('Backup journal must be valid and complete under shared lock');
     },
     async begin(value) {
+      if (!value?.initial || typeof value.initial.admission !== 'boolean'
+          || value.originalAdmission !== undefined && value.originalAdmission !== value.initial.admission) fail('Original admission must match initial state');
       const previous = await this.read();
       if (previous && previous.phase !== 'complete') fail('Unfinished maintenance journal requires explicit recover');
       if (previous) {
@@ -123,6 +133,7 @@ export function createRestartJournal({ directory, service }) {
     },
     async phase(phase, patch = {}) {
       if (!current || !PHASES.includes(phase)) fail('Invalid restart checkpoint');
+      if (patch.baseline && patch.baseline.admission !== false) fail('Closed baseline required');
       const next = { ...current, ...patch, phase, updatedAt: new Date().toISOString(), evidence: [...current.evidence, { phase, at: Date.now(), ...patch }] };
       validate(next); await persist(next); return structuredClone(next);
     },

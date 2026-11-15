@@ -16,6 +16,7 @@ const PROFILE = '/var/lib/hsr-transfer-worker-staging/login/gcp-readonly-profile
 const PREFLIGHT = SOURCE + '/scripts/infrastructure/gcp-production-profile-preflight.mjs';
 const PREFLIGHT_CONFIG = '/etc/hsr-gcp-production/worker-preflight.json';
 const PREFLIGHT_SHA = '4d8fac701742e667874ea4c9358e842fd2463d4d0831ebbc93c85f3f9008de63';
+export const EXPECTED_UNIT_CAT_SHA256 = '5d24c6595b099cb2c4632c1394282d38f942bc3b5897f271d5fe235acde835ea';
 const ENVIRONMENT = '/etc/hsr-gcp-production/worker.env';
 const fail = message => { throw new Error(message); };
 const properties = text => Object.fromEntries(text.trim().split('\n').filter(Boolean).map(line => { const i = line.indexOf('='); return [line.slice(0, i), line.slice(i + 1)]; }));
@@ -24,11 +25,25 @@ const WRITER = /(?:^|\/)(?:worker-server|transfer|adopt-mapping|connector-login|
 const chrome = p => p.args.some(a => /(?:^|\/)(?:chrome(?:-headless-shell)?|chromium(?:-browser)?|chrome_crashpad_handler)$/.test(a));
 const writer = p => p.args.some(a => WRITER.test(a));
 const publisher = p => p.args.includes(SOURCE + '/scripts/worker-server.mjs');
+const exactArgv = (value, expected, label) => {
+  const entries = [...String(value ?? '').matchAll(/argv\[\]=([^;]*?)\s*;/g)].map(match => match[1]);
+  if (entries.length !== 1 || entries[0] !== expected || !/^\{[^{}]*\}$/.test(String(value).trim())
+      || !/;\s*ignore_errors=no\s*;/.test(value)) fail(`Unsafe ${label} command set`);
+};
+const noCommands = (value, label) => {
+  if (typeof value !== 'string' || value.trim() !== '') fail(`Unsafe ${label} command set`);
+};
+export function assertUnitContract(text) {
+  if (typeof text !== 'string' || sha(text) !== EXPECTED_UNIT_CAT_SHA256) fail('Service unit/drop-in raw contract changed');
+}
 
 export function assertServicePolicy(unit) {
   if (unit.LoadState !== 'loaded' || unit.KillMode !== 'mixed' || unit.SendSIGKILL !== 'no'
       || !['4min', '240s', '240000000'].includes(unit.TimeoutStopUSec) || unit.Restart !== 'no'
-      || unit.User !== 'hsr-worker' || unit.WorkingDirectory !== SOURCE) fail('Unsafe service stop/start policy');
+      || unit.User !== 'hsr-worker' || unit.Group !== 'hsr-worker' || unit.WorkingDirectory !== SOURCE) fail('Unsafe service stop/start policy');
+  exactArgv(unit.ExecStart, `/usr/bin/flock --no-fork --nonblock --conflict-exit-code 75 ${PUBLISHER_LOCK} ${NODE} ${SOURCE}/scripts/worker-server.mjs`, 'ExecStart');
+  exactArgv(unit.ExecStartPre, `${NODE} ${PREFLIGHT} ${PREFLIGHT_CONFIG}`, 'ExecStartPre');
+  noCommands(unit.ExecStartPost, 'ExecStartPost'); noCommands(unit.ExecStop, 'ExecStop'); noCommands(unit.ExecStopPost, 'ExecStopPost');
 }
 export function assertProcessEvidence({ unit, processes, cgroupPids, stopped, original, allowFailedStart = false }) {
   if (stopped) {
@@ -111,27 +126,25 @@ export async function createLinuxRestartOperations() {
   if (!token || !/^[\x21-\x7e]{24,256}$/.test(token) || env.CURRENCY_WAR_STATE_PATH !== paths.transfers
       || env.CURRENCY_WAR_JOB_STATE_PATH !== paths.jobs || env.CURRENCY_WAR_PROFILE_DIR !== PROFILE
       || (env.CURRENCY_WAR_WORKER_HOST ?? '127.0.0.1') !== '127.0.0.1' || (env.CURRENCY_WAR_WORKER_PORT ?? '8787') !== '8787') fail('Pinned state/profile/loopback environment required');
-  async function request(path, method = 'GET', body) {
+  async function request(path, method = 'GET', body, signal) {
     const response = await fetch('http://127.0.0.1:8787' + path, { method, headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
-      body: body === undefined ? undefined : JSON.stringify(body), signal: AbortSignal.timeout(5000), redirect: 'error' });
+      body: body === undefined ? undefined : JSON.stringify(body), signal: signal ?? AbortSignal.timeout(5000), redirect: 'error' });
     if (!response.ok) fail('Authenticated maintenance request failed');
     const text = await response.text(); if (text.length > 8 * 1024 * 1024) fail('Unbounded worker response'); return JSON.parse(text);
   }
-  const show = async () => properties((await run('/usr/bin/systemctl', ['show', SERVICE, '--property=LoadState,ActiveState,SubState,MainPID,ControlPID,Result,Job,ControlGroup,InvocationID,KillMode,SendSIGKILL,TimeoutStopUSec,Restart,User,Group,WorkingDirectory,ExecStart,ExecStartPre,EnvironmentFiles'], { timeout: 10000, maxBuffer: 65536 })).stdout);
+  const show = async () => properties((await run('/usr/bin/systemctl', ['show', SERVICE, '--property=LoadState,ActiveState,SubState,MainPID,ControlPID,Result,Job,ControlGroup,InvocationID,KillMode,SendSIGKILL,TimeoutStopUSec,Restart,User,Group,WorkingDirectory,ExecStart,ExecStartPre,ExecStartPost,ExecStop,ExecStopPost,EnvironmentFiles'], { timeout: 10000, maxBuffer: 65536 })).stdout);
   async function contract() {
     await verifySharedLock(); const unit = await show(); assertServicePolicy(unit);
     if (unit.ControlGroup && unit.ControlGroup !== '/system.slice/' + SERVICE) fail('Unexpected service cgroup');
-    const expectedStart = `/usr/bin/flock --no-fork --nonblock --conflict-exit-code 75 ${PUBLISHER_LOCK} ${NODE} ${SOURCE}/scripts/worker-server.mjs`;
-    const expectedPreflight = `${NODE} ${PREFLIGHT} ${PREFLIGHT_CONFIG}`;
-    const argv = value => value?.match(/argv\[\]=(.*?)\s*;/)?.[1];
-    if (argv(unit.ExecStart) !== expectedStart || argv(unit.ExecStartPre) !== expectedPreflight
-        || unit.Group !== 'hsr-worker' || unit.EnvironmentFiles !== `${ENVIRONMENT} (ignore_errors=no)`) fail('Service entrypoint/preflight/environment changed');
+    if (unit.EnvironmentFiles !== `${ENVIRONMENT} (ignore_errors=no)`) fail('Service environment changed');
+    const cat = (await run('/usr/bin/systemctl', ['cat', SERVICE], { timeout: 10000, maxBuffer: 131072 })).stdout;
+    assertUnitContract(cat);
     const preflightText = await readRestartFile(PREFLIGHT, { owner: 0, privateMode: false });
     if (sha(preflightText) !== PREFLIGHT_SHA) fail('Strict deployed preflight changed');
     const configText = await readRestartFile(PREFLIGHT_CONFIG, { owner: 0, privateMode: false, maximum: 16384 });
     const config = JSON.parse(configText);
     if (digest(config) !== digest({ version: 1, project: 'hsr-currency-war-worker', zone: 'us-central1-a', instance: 'hsr-worker-standby', instanceId: '4111188809525812699', nodeBinary: NODE, stateDirectory: STATE, profileDirectory: PROFILE })) fail('Strict preflight configuration changed');
-    return digest({ cat: (await run('/usr/bin/systemctl', ['cat', SERVICE], { timeout: 10000, maxBuffer: 131072 })).stdout,
+    return digest({ unitCatSha256: EXPECTED_UNIT_CAT_SHA256,
       preflight: sha(preflightText), config: sha(configText), environment: sha(await readRestartFile(ENVIRONMENT, { owner: 0, maximum: 65536 })) });
   }
   async function observation(stopped, original, options = {}) {
@@ -161,7 +174,33 @@ export async function createLinuxRestartOperations() {
     stop: () => run('/usr/bin/systemctl', ['stop', SERVICE], { timeout: 510000, maxBuffer: 65536 }),
     start: () => run('/usr/bin/systemctl', ['start', SERVICE], { timeout: 30000, maxBuffer: 65536 }),
     preflight: async () => { stateProof(await readRestartState(paths, uid)); /* systemd alone invokes the unchanged non-root ExecStartPre. */ },
-    health: async () => { const health = await request('/health'); if (health.status !== 'ok') fail('Worker unhealthy'); await request('/admin'); },
+    health: () => waitForAuthenticatedHealth({ request: (path, signal) => request(path, 'GET', undefined, signal) }),
     sleep: () => new Promise(r => setTimeout(r, 1000)), now: () => Date.now(),
   };
+}
+
+export async function waitForAuthenticatedHealth({ request, maxAttempts = 20, intervalMs = 500, sleep = ms => new Promise(resolve => setTimeout(resolve, ms)) }) {
+  if (typeof request !== 'function' || !Number.isInteger(maxAttempts) || maxAttempts < 1 || maxAttempts > 60
+      || !Number.isInteger(intervalMs) || intervalMs < 0 || intervalMs > 5000) fail('Invalid bounded health readiness polling');
+  let lastError; const deadline = Date.now() + 10000;
+  const read = path => {
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) throw new Error('Readiness deadline expired');
+    return request(path, AbortSignal.timeout(remaining));
+  };
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    try {
+      const health = await read('/health');
+      if (health?.status !== 'ok') throw new Error('Worker health not ready');
+      const admin = await read('/admin');
+      if (!admin?.settings || !admin?.stats || !Array.isArray(admin.jobs)) throw new Error('Authenticated worker state not ready');
+      return { health, admin };
+    } catch (error) {
+      lastError = error;
+      if (Date.now() >= deadline) break;
+      if (attempt + 1 < maxAttempts) await sleep(Math.min(intervalMs, deadline - Date.now()));
+    }
+  }
+  const error = new Error('Worker readiness was not confirmed within the bounded window');
+  error.cause = lastError; throw error;
 }

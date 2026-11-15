@@ -10,7 +10,7 @@ import { JsonWorkerJobStore, TransferJobQueue, createWorkerHandler } from '../sr
 import { JsonTransferStore } from '../src/store.mjs';
 import { coordinatedRestart, parseRestartArguments } from '../scripts/infrastructure/coordinated-worker-restart.mjs';
 import { createRestartJournal, stateProof, assertPreserved, readRestartState } from '../scripts/infrastructure/restart-control-state.mjs';
-import { assertServicePolicy, assertProcessEvidence, verifySharedLock, assertRestartLocks } from '../scripts/infrastructure/restart-linux.mjs';
+import { assertServicePolicy, assertProcessEvidence, verifySharedLock, assertRestartLocks, waitForAuthenticatedHealth, assertUnitContract } from '../scripts/infrastructure/restart-linux.mjs';
 
 // Disk, stores, queue, HTTP authentication and durable journal are real. Only the
 // systemd boundary is synthetic; it never calls a real service or cloud API.
@@ -40,7 +40,7 @@ async function fixture(t, enabled = true) {
     const response = await fetch(url + path, { method, headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) });
     if (!response.ok) throw new Error('Authenticated request failed'); return response.json();
   }
-  let running = true, starts = 0, stops = 0, held = false, admissionMutations = 0;
+  let running = true, starts = 0, stops = 0, held = false, admissionMutations = 0, admissionHook = async () => {};
   let identity = 'original-publisher'; let sleepHook = async () => {}; let startHook = async () => {}; let healthHook = async () => {};
   const journal = createRestartJournal({ directory, service: 'synthetic.service' });
   const ops = {
@@ -54,7 +54,7 @@ async function fixture(t, enabled = true) {
     setAdmission: async value => {
       const j = JSON.parse(await readFile(join(directory, 'journal.json'), 'utf8'));
       assert.equal(typeof j.originalAdmission, 'boolean', 'original policy durable before mutation');
-      admissionMutations++; await request('/admin', 'PUT', { publicSubmissionsEnabled: value });
+      admissionMutations++; await request('/admin', 'PUT', { publicSubmissionsEnabled: value }); await admissionHook(value);
     },
     state: () => readRestartState(paths),
     stop: async () => { stops++; running = false; },
@@ -69,6 +69,7 @@ async function fixture(t, enabled = true) {
     counts: () => ({ starts, stops, replay, admissionMutations }),
     record: async () => JSON.parse(await readFile(join(directory, 'journal.json'), 'utf8')),
     setSleep: hook => { sleepHook = hook; }, setStart: hook => { startHook = hook; }, setHealth: hook => { healthHook = hook; },
+    setAdmissionHook: hook => { admissionHook = hook; },
     collide: () => { held = true; },
   };
 }
@@ -131,6 +132,29 @@ test('definitely ended startup permits one new explicitly authorised recovery at
   await assert.rejects(f.run(), /startup/); assert.equal(f.counts().starts, 1); assert.equal((await f.record()).phase, 'starting');
   f.setStart(async () => {}); await f.run({ recover: true }); assert.equal(f.counts().starts, 2); assert.equal((await f.record()).startAttempts, 2);
 });
+test('failed-start terminal proof survives a failed recovery preflight for the next explicit recovery', async t => {
+  const f = await fixture(t); f.setStart(async () => { throw new Error('startup failure'); }); await assert.rejects(f.run(), /startup/);
+  const stopped = f.ops.assertStopped;
+  f.ops.assertStopped = async (original, options) => { assert.equal(options.allowFailedStart, true, 'failed/failed requires retained terminal evidence'); await stopped(original); };
+  const preflight = f.ops.preflight; f.ops.preflight = async () => { throw new Error('temporary preflight failure'); };
+  await assert.rejects(f.run({ recover: true }), /preflight/); assert.equal((await f.record()).phase, 'stopped'); assert.equal(f.counts().starts, 1);
+  f.ops.preflight = preflight; f.setStart(async () => {}); await f.run({ recover: true });
+  assert.equal((await f.record()).phase, 'complete'); assert.equal(f.counts().starts, 2);
+});
+test('read-only authenticated readiness tolerates initial ECONNREFUSED with one start only', async t => {
+  const f = await fixture(t); let requests = 0, pauses = 0;
+  f.ops.health = () => waitForAuthenticatedHealth({
+    request: async path => { requests++; if (requests <= 2) throw Object.assign(new Error('connect ECONNREFUSED'), { code: 'ECONNREFUSED' }); return f.request(path); },
+    sleep: async () => { pauses++; },
+  });
+  await f.run(); assert.equal(requests, 4); assert.equal(pauses, 2); assert.equal(f.counts().starts, 1);
+});
+test('authenticated readiness is bounded and never changes admission or repeats start on exhaustion', async t => {
+  const f = await fixture(t); let requests = 0, pauses = 0;
+  f.ops.health = () => waitForAuthenticatedHealth({ request: async () => { requests++; throw new Error('ECONNREFUSED'); }, maxAttempts: 3, sleep: async () => { pauses++; } });
+  await assert.rejects(f.run(), /readiness/); assert.equal(requests, 3); assert.equal(pauses, 2);
+  assert.equal(f.counts().starts, 1); assert.equal(f.counts().admissionMutations, 1); assert.equal((await f.record()).phase, 'started');
+});
 test('explicit recovery never retries startup while the first outcome or processes are ambiguous', async t => {
   const f = await fixture(t); f.setStart(async () => { throw new Error('start timeout'); }); await assert.rejects(f.run());
   f.ops.assertStopped = async () => { throw new Error('Ambiguous outstanding start job or Chrome owner'); };
@@ -165,6 +189,25 @@ test('health failure after known start recovers same publisher without a second 
   await assert.rejects(f.run(), /health/); assert.equal((await f.record()).phase, 'started');
   f.setHealth(async () => {}); await f.run({ recover: true }); assert.equal(f.counts().starts, 1);
 });
+test('reopen checkpoint is durable and accepted jobs after admission restore do not strand recovery', async t => {
+  const f = await fixture(t); let accepted;
+  f.setAdmissionHook(async enabled => {
+    if (!enabled) return;
+    const record = await f.record(); assert.equal(record.phase, 'restoring'); assert.equal(record.verified.admission, false); assert.equal(record.verified.active, 0);
+    accepted = await f.store.createOrGetActive('9'.repeat(24));
+  });
+  await f.run(); assert.equal((await f.record()).phase, 'complete'); assert.equal((await f.store.get(accepted.job.id)).status, 'queued');
+  assert.equal(f.counts().starts, 1); assert.equal(f.counts().stops, 1); assert.equal(f.counts().replay, 0);
+});
+test('explicit recovery completes interrupted restoring after new jobs arrive without stop or replay', async t => {
+  const f = await fixture(t); let crash = true;
+  f.setAdmissionHook(async enabled => {
+    if (!enabled || !crash) return; crash = false; await f.store.createOrGetActive('8'.repeat(24)); throw new Error('controller lost acknowledgement after open');
+  });
+  await assert.rejects(f.run(), /acknowledgement/); assert.equal((await f.record()).phase, 'restoring');
+  const count = f.counts(); await f.run({ recover: true }); assert.equal((await f.record()).phase, 'complete');
+  assert.equal(f.counts().starts, count.starts); assert.equal(f.counts().stops, count.stops); assert.equal(f.counts().admissionMutations, count.admissionMutations); assert.equal(f.counts().replay, 0);
+});
 test('backup collision and unfinished backup journal block every mutation without falsifying backup status', async t => {
   const f = await fixture(t); f.collide(); await assert.rejects(f.run(), /collision/); assert.equal(f.counts().admissionMutations, 0);
   const g = await fixture(t); const file = join(g.backupDirectory, 'journal.json'); const value = JSON.parse(await readFile(file, 'utf8')); value.phase = 'starting'; await writeFile(file, JSON.stringify(value));
@@ -195,6 +238,14 @@ test('journal write failure prevents closing and unfinished journal requires exp
   const g = await fixture(t); g.ops.stop = async () => { throw new Error('shutdown crash'); }; await assert.rejects(g.run());
   await assert.rejects(g.run(), /unfinished|recover/i); assert.equal(g.counts().admissionMutations, 1);
 });
+test('journal binds original admission to initial state and requires closed baseline', async t => {
+  const f = await fixture(t); const initial = stateProof(await f.ops.state(), now);
+  await assert.rejects(f.ops.journal.begin({ contract: 'test', originalProcess: { identity: 'owner' }, initial, originalAdmission: false }), /original admission/i);
+  await f.ops.journal.begin({ contract: 'test', originalProcess: { identity: 'owner' }, initial });
+  await assert.rejects(f.ops.journal.phase('drained', { baseline: { admission: true } }), /closed baseline/i);
+  const file = join(f.directory, 'journal.json'); const record = await f.record(); record.originalAdmission = false;
+  await writeFile(file, JSON.stringify(record)); await assert.rejects(f.ops.journal.read(), /original admission/i);
+});
 test('state proof permits only expired quota removal, rejects quota reset/addition, jobs/security/mapping/settings changes', async t => {
   const f = await fixture(t, false); const raw = await f.ops.state(); raw.jobs.quota = { blockedUntil: 5, events: [{ at: now - 86400001, clientKey: 'expired' }, { at: now, clientKey: 'live' }] };
   const proof = stateProof(raw, now); const expired = structuredClone(raw); expired.jobs.quota.events.shift(); assertPreserved(proof, stateProof(expired, now), now);
@@ -210,9 +261,14 @@ test('reopened admission or service/preflight drift is never overwritten', async
 });
 
 test('Linux policy and process checks reject escalation, duplicate publisher and surviving Chrome', () => {
-  const policy = { LoadState: 'loaded', KillMode: 'mixed', SendSIGKILL: 'no', TimeoutStopUSec: '4min', Restart: 'no', User: 'hsr-worker', WorkingDirectory: '/opt/hsr-transfer-worker-staging' };
+  const policy = { LoadState: 'loaded', KillMode: 'mixed', SendSIGKILL: 'no', TimeoutStopUSec: '4min', Restart: 'no', User: 'hsr-worker', Group: 'hsr-worker', WorkingDirectory: '/opt/hsr-transfer-worker-staging',
+    ExecStart: '{ path=/usr/bin/flock ; argv[]=/usr/bin/flock --no-fork --nonblock --conflict-exit-code 75 /var/lib/hsr-transfer-worker-staging/login/.production-worker.flock /opt/node-v24.22.3-linux-x64/bin/node /opt/hsr-transfer-worker-staging/scripts/worker-server.mjs ; ignore_errors=no ; }',
+    ExecStartPre: '{ path=/opt/node-v24.22.3-linux-x64/bin/node ; argv[]=/opt/node-v24.22.3-linux-x64/bin/node /opt/hsr-transfer-worker-staging/scripts/infrastructure/gcp-production-profile-preflight.mjs /etc/hsr-gcp-production/worker-preflight.json ; ignore_errors=no ; }', ExecStartPost: '', ExecStop: '', ExecStopPost: '' };
   assert.doesNotThrow(() => assertServicePolicy(policy));
-  for (const patch of [{ KillMode: 'control-group' }, { SendSIGKILL: 'yes' }, { TimeoutStopUSec: '90s' }, { Restart: 'always' }]) assert.throws(() => assertServicePolicy({ ...policy, ...patch }));
+  for (const patch of [{ KillMode: 'control-group' }, { SendSIGKILL: 'yes' }, { TimeoutStopUSec: '90s' }, { Restart: 'always' },
+    { ExecStop: '{ path=/bin/kill ; argv[]=/bin/kill -9 $MAINPID ; }' }, { ExecStopPost: '{ path=/bin/rm ; argv[]=/bin/rm -rf /tmp/profile ; }' },
+    { ExecStartPost: '{ path=/usr/bin/touch ; argv[]=/usr/bin/touch /tmp/started ; }' },
+    { ExecStartPre: policy.ExecStartPre + ' { path=/bin/true ; argv[]=/bin/true ; }' }, { ExecStart: policy.ExecStart + ' { path=/bin/true ; argv[]=/bin/true ; }' }]) assert.throws(() => assertServicePolicy({ ...policy, ...patch }));
   const unit = { ActiveState: 'inactive', SubState: 'dead', MainPID: '0', ControlPID: '0', Result: 'success' };
   assert.doesNotThrow(() => assertProcessEvidence({ unit, processes: [], cgroupPids: [], stopped: true }));
   for (const processes of [[{ pid: 42, args: ['/opt/chrome/chrome'] }], [{ pid: 43, args: ['node', '/opt/hsr-transfer-worker-staging/scripts/worker-server.mjs'] }]]) assert.throws(() => assertProcessEvidence({ unit, processes, cgroupPids: [], stopped: true }), /live|process|publisher/i);
@@ -222,6 +278,9 @@ test('Linux policy and process checks reject escalation, duplicate publisher and
   assert.doesNotThrow(() => assertProcessEvidence({ unit: active, processes: [worker], cgroupPids: [42], stopped: false }));
   assert.throws(() => assertProcessEvidence({ unit: active, processes: [worker, { ...worker, pid: 43 }], cgroupPids: [42, 43], stopped: false }), /publisher/);
   assert.throws(() => assertProcessEvidence({ unit: { ...unit, ActiveState: 'activating', Job: '123/start' }, processes: [], cgroupPids: [], stopped: true, allowFailedStart: true }), /terminal/);
+});
+test('raw unit contract rejects unapproved stop or startup policy before trusting the current unit', () => {
+  for (const text of ['[Service]\nExecStop=/bin/kill -9 $MAINPID\n', '[Service]\nTimeoutStartSec=1\n', '[Service]\nExecStartPre=/bin/true\n']) assert.throws(() => assertUnitContract(text), /contract changed/);
 });
 
 test('real Linux flock rejects missing inherited lock and collides with backup holder', { skip: process.platform !== 'linux' }, async t => {

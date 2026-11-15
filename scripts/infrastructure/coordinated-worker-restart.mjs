@@ -51,6 +51,7 @@ export async function coordinatedRestart({ operations: ops, authorised = false, 
     return { runId: record.runId, phase: record.phase, originalAdmission: record.originalAdmission, startAttempts: record.startAttempts, outcome };
   }
   async function closedProof(record) {
+    if (record.originalAdmission !== record.initial.admission || record.baseline?.admission !== false) throw new Error('Invalid restart admission checkpoint');
     const state = await ops.state(); const proof = stateProof(state, ops.now());
     assertPreserved(record.baseline, proof, ops.now()); return proof;
   }
@@ -68,8 +69,22 @@ export async function coordinatedRestart({ operations: ops, authorised = false, 
       if (['prepared', 'closing', 'draining', 'aborting'].includes(record.phase)) return await restoreBeforeStop('recovered_before_stop');
       if (!['drained', 'stopping', 'stopped', 'starting', 'started', 'restoring'].includes(record.phase)) throw new Error('Incomplete drain or uncertain admission; manual reconciliation required');
       if (record.phase === 'drained') await ops.assertRunning(record.originalProcess);
-      else if (['stopping', 'stopped', 'starting'].includes(record.phase)) await ops.assertStopped(record.originalProcess, { allowFailedStart: record.phase === 'starting' });
-      else await ops.assertRunning(record.startedProcess);
+      else if (['stopping', 'stopped', 'starting'].includes(record.phase)) await ops.assertStopped(record.originalProcess, { allowFailedStart: record.phase === 'starting' || record.explicitFailedStartRecovery === true });
+      else if (record.phase === 'restoring') {
+        if (!record.verified || record.verified.admission !== false || record.baseline?.admission !== false) throw new Error('Invalid restoring checkpoint');
+        await ops.assertRunning(record.startedProcess); await ops.health();
+        let restored = dashboard(await ops.dashboard());
+        if (restored.settings.publicSubmissionsEnabled !== record.originalAdmission) {
+          if (record.originalAdmission !== true || restored.settings.publicSubmissionsEnabled !== false) throw new Error('Admission outcome is ambiguous; manual reconciliation required');
+          await closedProof(record);
+          if (dashboardProof(restored) !== record.dashboard) throw new Error('Authenticated dashboard changed before restoring admission');
+          await ops.assertRunning(record.startedProcess); await sameContract(record); check();
+          await ops.setAdmission(true); restored = dashboard(await ops.dashboard(), true);
+        }
+        await ops.assertRunning(record.startedProcess); await sameContract(record);
+        record = await ops.journal.phase('complete', { outcome: 'recovered_after_restore', finalAdmission: restored.settings.publicSubmissionsEnabled });
+        return { runId: record.runId, phase: record.phase, originalAdmission: record.originalAdmission, startAttempts: record.startAttempts, outcome: record.outcome };
+      } else await ops.assertRunning(record.startedProcess);
       await closedProof(record);
       if (record.phase === 'starting') record = await ops.journal.phase('stopped', { explicitFailedStartRecovery: true });
     } else {
@@ -116,11 +131,9 @@ export async function coordinatedRestart({ operations: ops, authorised = false, 
       if (dashboardProof(d) !== record.dashboard) throw new Error('Authenticated dashboard changed after start');
       record = await ops.journal.phase('restoring', { verified: proof }); check();
       await ops.setAdmission(record.originalAdmission);
-      const restored = dashboard(await ops.dashboard(), record.originalAdmission); const finalState = await ops.state();
-      assertDashboardState(restored, finalState, ops.now()); const final = stateProof(finalState, ops.now());
-      assertPreserved(record.baseline, final, ops.now(), { admission: record.originalAdmission });
+      const restored = dashboard(await ops.dashboard(), record.originalAdmission);
       await ops.assertRunning(record.startedProcess); await sameContract(record);
-      record = await ops.journal.phase('complete', { final });
+      record = await ops.journal.phase('complete', { finalAdmission: restored.settings.publicSubmissionsEnabled });
     }
     return { runId: record.runId, phase: record.phase, originalAdmission: record.originalAdmission, startAttempts: record.startAttempts };
   } catch (error) {

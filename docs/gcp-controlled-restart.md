@@ -30,6 +30,12 @@ installation and each Production execution require separate owner authorisation.
   `4d8fac701742e667874ea4c9358e842fd2463d4d0831ebbc93c85f3f9008de63` from the
   November 15 private deployment evidence. The command preserves and relies on
   systemd executing that strict preflight; it does not bypass or relax it.
+- Combined `systemctl cat` unit/drop-in SHA-256 is pinned to
+  `5d24c6595b099cb2c4632c1394282d38f942bc3b5897f271d5fe235acde835ea`. Exactly
+  one expected `ExecStart` and `ExecStartPre` are accepted; `ExecStop`,
+  `ExecStopPost` and `ExecStartPost` must be empty in the loaded unit. Any changed
+  unit policy requires fresh review of that contract; current contents do not
+  automatically become an approved baseline.
 
 The independent reviewer must validate these deployment assumptions on Ubuntu.
 Root-group-writable deployed preflight files are accepted only with root ownership,
@@ -81,10 +87,15 @@ The restart tool never writes `/var/lib/hsr-worker-backup-control/journal.json` 
    one `systemctl start`. Verify exactly one publisher, its pinned executable/uid,
    new invocation identity, cgroup ownership and its publisher flock.
 6. Check health and authenticated dashboard while admission is still closed.
+   After the single start, read-only readiness polls at 500 ms intervals with a
+   ten-second deadline (at most 20 attempts), allowing Type=simple to bind its
+   HTTP listener. This never retries start or admission mutations.
    `/health` alone is public and only says `status: ok`; authenticated `/admin`,
    durable files and OS ownership provide the additional evidence.
-7. Restore original admission, including original `false`, confirm the same sole
-   publisher and durable state, then mark maintenance complete.
+7. Durably record the verified closed-state proof before restoring original
+   admission, including original `false`. Afterwards confirm only the original
+   admission setting and same sole publisher, then mark maintenance complete.
+   New legitimate jobs and state changes after admission reopens are permitted.
 
 `journal.json` uses mode 0600, atomic rename, file fsync and directory fsync on Linux.
 It records phases, original admission, invocation/PID start identities, attempt
@@ -129,11 +140,16 @@ sudo /bin/sh /opt/hsr-transfer-worker-staging/scripts/infrastructure/gcp-coordin
   or `failed/failed`, zero PIDs, no outstanding job), all process/lock checks pass
   and the drained hashes are unchanged. Each explicit invocation increments the
   durable attempt count; another failure requires another owner review.
+  Terminal failed-start evidence remains valid at the stopped checkpoint if the
+  recovery preflight itself fails; another explicit recovery repeats all
+  no-process/lock/hash checks before attempting start.
 - `started`: verify the exact already-recorded publisher and health/state, then
   restore admission; do not stop it or start another publisher.
-- `restoring`: continue only while admission is still closed and the exact publisher
-  and state are proven. If a previous PUT may already have restored admission,
-  refuse ambiguity for manual reconciliation rather than guessing the outcome.
+- `restoring`: require the durable pre-reopen verification and exact recorded
+  publisher. If admission is still closed, recheck preserved state before reopening.
+  If the original setting is already restored, complete without another PUT,
+  stop or start; new jobs may already exist. Missing verification or an unexpected
+  admission setting remains a refusal for manual reconciliation.
 - `prepared`/`closing`/`draining`/`aborting`: explicit recovery may only restore
   original admission without a stop/start, after proving the same original healthy
   publisher, closed admission and unchanged policy/service contract. An uncertain
