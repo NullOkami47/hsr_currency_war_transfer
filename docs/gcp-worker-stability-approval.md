@@ -53,9 +53,10 @@ backup encryption/key changes and merging PR #10 remain outside this approval.
 6. Create one native Google HTTPS uptime check from the reviewed payload builder:
    host `worker.35-223-56-40.sslip.io`, exact probe path, port 443, strict TLS,
    exact healthy body, dedicated Basic credential, 60-second period and three
-   checker regions. Create one sustained-failure policy: at least two failing
-   locations for 180 seconds, one resource/check incident, OPENED/CLOSED notices,
-   no repeated renotify. Reuse authorised channel
+   checker regions. Create one sustained-failure policy: fewer than two fresh
+   successful locations for 180 seconds, with missing data treated as unhealthy,
+   one resource/check incident, OPENED/CLOSED notices and no repeated renotify.
+   A disappearing failed series must not count as recovery. Reuse authorised channel
    `projects/hsr-currency-war-worker/notificationChannels/13378772448236455951`.
    New resource IDs exist only after creation and must be recorded then.
 

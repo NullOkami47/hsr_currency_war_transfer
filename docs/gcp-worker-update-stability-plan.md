@@ -28,8 +28,9 @@ diff is limited to the stabilisation work. Retarget after normal integration.
    one exact Caddy path. The separate loopback process checks the actual worker
    service and existing fixed loopback health response. It does not read the
    worker administrator credential. Google Cloud uptime checks inspect this
-   HTTPS path every minute from multiple locations. A sustained failure opens
-   one incident; recovery closes it. The probe has no worker administration
+   HTTPS path every minute from multiple locations. Fewer than two fresh
+   successful locations for three minutes opens one incident; fresh successful
+   observations permit recovery. Missing data is unhealthy. The probe has no worker administration
    credential. Use a separate read-only probe credential for the uptime check.
 
 The alternatives were using the worker administrator token directly in an uptime
@@ -43,10 +44,10 @@ probe and native external uptime check avoid both problems without another VM.
 - [x] Read actual needrestart/APT/systemd/drop-ins/preflight/timer configuration,
   hashes, incident logs and current authenticated worker health without restarting.
 - [x] Establish isolated D-drive branch and passing baseline test suite.
-- [ ] Implement exact needrestart selection and reversible, drift-aware install.
-- [ ] Implement restart/recovery command and state/ownership regression tests.
-- [ ] Implement independent probe, uptime policy and synthetic failure tests.
-- [ ] Validate Caddy candidate, systemd units and least-privilege probe credentials.
+- [x] Implement exact needrestart selection and reversible, drift-aware install.
+- [x] Implement restart/recovery command and state/ownership regression tests.
+- [x] Implement independent probe, uptime policy and synthetic failure tests.
+- [x] Validate Caddy candidate, systemd units and least-privilege probe credentials.
 - [ ] Run full relevant suite and exact-commit fresh Ubuntu/Box verification.
 - [ ] Obtain independent reviews; correct findings; commit and open follow-up PR.
 - [ ] Present reviewed live changes, hashes and rollback with the approval request.
