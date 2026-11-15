@@ -116,6 +116,8 @@ export async function createLinuxRestartOperations() {
   await verifySharedLock();
   const { stdout: uidText } = await run('/usr/bin/id', ['-u', 'hsr-worker'], { timeout: 5000 });
   const uid = Number(uidText.trim()); if (!Number.isInteger(uid) || uid <= 0) fail('Non-root worker owner required');
+  const gid = Number((await run('/usr/bin/id', ['-g', 'hsr-worker'], { timeout: 5000 })).stdout.trim());
+  if (!Number.isInteger(gid) || gid <= 0) fail('Non-root worker group required');
   const paths = { jobs: STATE + '/jobs.json', transfers: STATE + '/transfers.json', security: STATE + '/jobs.json.security.json' };
   const environmentText = await readRestartFile(ENVIRONMENT, { owner: 0, maximum: 65536 });
   const env = {};
@@ -144,7 +146,7 @@ export async function createLinuxRestartOperations() {
     assertUnitContract(cat);
     const preflightText = await readRestartFile(PREFLIGHT, { owner: 0, privateMode: false });
     if (sha(preflightText) !== PREFLIGHT_SHA) fail('Strict deployed preflight changed');
-    const configText = await readRestartFile(PREFLIGHT_CONFIG, { owner: 0, privateMode: false, maximum: 16384 });
+    const configText = await readRestartFile(PREFLIGHT_CONFIG, { owner: 0, maximum: 16384, readOnlyGroup: gid });
     const config = JSON.parse(configText);
     if (digest(config) !== digest({ version: 1, project: 'hsr-currency-war-worker', zone: 'us-central1-a', instance: 'hsr-worker-standby', instanceId: '4111188809525812699', nodeBinary: NODE, stateDirectory: STATE, profileDirectory: PROFILE })) fail('Strict preflight configuration changed');
     return digest({ unitCatSha256: EXPECTED_UNIT_CAT_SHA256,

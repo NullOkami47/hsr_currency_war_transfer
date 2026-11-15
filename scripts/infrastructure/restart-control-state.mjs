@@ -14,11 +14,15 @@ const fail = message => { throw new Error(message); };
 const sameFile = (a, b) => ['dev', 'ino', 'size', 'mtimeMs', 'ctimeMs'].every(k => a[k] === b[k]);
 
 // No chmod, repair, missing-file defaults, shell evaluation or state writes.
-export async function readRestartFile(path, { owner, maximum = 8 * 1024 * 1024, privateMode = true } = {}) {
+export async function readRestartFile(path, { owner, maximum = 8 * 1024 * 1024, privateMode = true, readOnlyGroup } = {}) {
   if (await realpath(dirname(path)) !== resolve(dirname(path))) fail('Symlinked state/configuration ancestor');
   const before = await lstat(path);
+  // The pinned preflight configuration is root-owned 0640, readable by the
+  // non-root worker group. This exception grants no group write or other access.
+  const groupReadConfiguration = owner === 0 && before.uid === 0 && Number.isInteger(readOnlyGroup)
+    && readOnlyGroup > 0 && before.gid === readOnlyGroup && (before.mode & 0o7777) === 0o640;
   if (!before.isFile() || before.isSymbolicLink() || before.nlink !== 1 || before.size > maximum || before.size < 1
-      || process.platform !== 'win32' && ((owner !== undefined && before.uid !== owner) || (before.mode & (privateMode ? 0o077 : 0o002)) || !privateMode && before.gid !== 0)) fail('Protected bounded regular file required');
+      || process.platform !== 'win32' && !groupReadConfiguration && ((owner !== undefined && before.uid !== owner) || (before.mode & (privateMode ? 0o077 : 0o002)) || !privateMode && before.gid !== 0)) fail('Protected bounded regular file required');
   const handle = await open(path, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0) | (process.platform === 'win32' ? 0 : constants.O_NONBLOCK));
   try {
     if (!sameFile(before, await handle.stat())) fail('State changed during read');
