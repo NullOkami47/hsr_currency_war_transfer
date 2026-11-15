@@ -66,6 +66,17 @@ snippet clearing the exception, an existing conflicting rule, changed existing
 overrides, or an unsupported implementation blocks approval. This is a synthetic
 selection proof, not a scan proving a running process currently needs restart.
 
+The JSON field `exactOnly` covers the fixed sampled service names and the checked
+configuration snapshot. It is not a universal guarantee for every installed or
+possible service name. Preserving override entries does not establish that
+selection is unchanged for unsampled services: inserting a Perl hash key can
+change iteration order, affecting an unsampled service with overlapping rules
+whose values conflict. The production snapshot reviewed for this deployment had
+only false (`0`) override values, so that particular ambiguity was absent. Keep
+approval scoped to that exact reviewed snapshot and the checker-generated plan;
+changed configuration invalidates the plan and must be reviewed again. The
+checker does not prove absence of conflicting overlaps for all service names.
+
 **`needrestart -b -r l` is not exclusion evidence.** In this package the batch
 branch prints `NEEDRESTART-SVC` then skips `override_rc` selection. An optional
 separately authorised live inspection can use `needrestart -r l -m u -u
