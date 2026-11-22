@@ -3,7 +3,7 @@ import {
   addSubmissionHistoryEntry,
   clearSubmissionHistory,
   loadSubmissionHistory,
-} from "./history.js?v=2";
+} from "./history.js?v=3";
 
 const messages = {
   "zh-Hant": {
@@ -29,6 +29,8 @@ const messages = {
     historyStatusPartial: "部分完成",
     historyStatusQueued: "處理中",
     historyStatusFailed: "未能完成",
+    historyStatusPendingReview: "待公開",
+    historyPendingReviewNote: "國際服攻略已建立，可能仍在審核中。請稍後回到搜尋頁，再次提交同一篇攻略。",
     copy: "複製攻略碼",
     copied: "已複製",
     themeToDark: "切換至深色模式",
@@ -59,6 +61,8 @@ const messages = {
     historyStatusPartial: "部分完成",
     historyStatusQueued: "处理中",
     historyStatusFailed: "未能完成",
+    historyStatusPendingReview: "待公开",
+    historyPendingReviewNote: "国际服攻略已创建，可能仍在审核中。请稍后回到搜索页，再次提交同一篇攻略。",
     copy: "复制攻略码",
     copied: "已复制",
     themeToDark: "切换到深色模式",
@@ -89,6 +93,8 @@ const messages = {
     historyStatusPartial: "Partially completed",
     historyStatusQueued: "Processing",
     historyStatusFailed: "Failed",
+    historyStatusPendingReview: "Awaiting publication",
+    historyPendingReviewNote: "The Global strategy has been created and may still be under review. Return to search and submit the same strategy again later.",
     copy: "Copy strategy code",
     copied: "Copied",
     themeToDark: "Switch to dark mode",
@@ -165,7 +171,10 @@ function statusPanel(title, body) {
   return panel;
 }
 
-function historyStatus(status) {
+function historyStatus(status, errorCode = null) {
+  if (status === "failed" && errorCode === "publication_pending_review") {
+    return t("historyStatusPendingReview");
+  }
   const keys = {
     created: "historyStatusCreated",
     updated: "historyStatusUpdated",
@@ -211,7 +220,7 @@ function renderHistory() {
     heading.textContent = entry.sourceTitle || entry.sourceId;
     const status = document.createElement("span");
     status.className = "status-badge";
-    status.textContent = historyStatus(entry.status);
+    status.textContent = historyStatus(entry.status, entry.errorCode);
     headingRow.append(heading, status);
     const timestamp = entry.completedAt ?? entry.submittedAt;
     const formattedTime = new Intl.DateTimeFormat(dateLocale, {
@@ -222,6 +231,13 @@ function renderHistory() {
     metadata.className = "history-record__meta";
     metadata.textContent = `${t(entry.completedAt ? "historyCompletedAt" : "historySubmittedAt", { date: formattedTime })} · ${t("historySourceId", { id: entry.sourceId })}`;
     content.append(headingRow, metadata);
+
+    if (entry.status === "failed" && entry.errorCode === "publication_pending_review") {
+      const note = document.createElement("p");
+      note.className = "history-record__meta";
+      note.textContent = t("historyPendingReviewNote");
+      content.append(note);
+    }
 
     if (entry.shareCode) {
       const code = document.createElement("code");
@@ -281,6 +297,7 @@ async function resumeSubmission(entry) {
     addSubmissionHistoryEntry({
       ...entry,
       status: data.status,
+      ...(data.status === "failed" && data.error?.code ? { errorCode: data.error.code } : {}),
       ...(data.shareCode ? { shareCode: data.shareCode } : {}),
       ...(data.globalUrl ? { globalUrl: data.globalUrl } : {}),
       completedAt: new Date().toISOString(),

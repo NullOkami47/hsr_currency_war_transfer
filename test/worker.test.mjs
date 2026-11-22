@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
+import { createTransfersHandler, getTransferFromWorker } from "../src/http.mjs";
 import {
   createWorkerHandler,
   JsonWorkerJobStore,
@@ -392,4 +393,77 @@ test("disables public submissions when migrating a legacy allow-list", async (t)
   assert.equal(dashboard.settings.sourceBlacklistEnabled, true);
   assert.deepEqual(dashboard.settings.sourceBlacklist, []);
   assert.equal("sourceAllowlist" in dashboard.settings, false);
+});
+
+test("exposes publication_pending_review safely on worker job and admin responses", async (t) => {
+  const directory = await mkdtemp(join(tmpdir(), "currency-war-worker-pending-"));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const store = new JsonWorkerJobStore(join(directory, "jobs.json"));
+  const queue = new TransferJobQueue({
+    store,
+    transferFn: async () => {
+      const error = new Error("internal upstream token detail should never leak");
+      error.reason = "publication_pending_review";
+      throw error;
+    },
+  });
+  const handler = createWorkerHandler({
+    queue,
+    store,
+    token: "a-long-worker-token-for-tests",
+  });
+
+  const accepted = await queue.submit(SOURCE_ID);
+  const publicResult = await waitForResult(queue, accepted.jobId);
+  const message = "The Global strategy was created and is not public yet. It may still be under review. Please retry later.";
+  assert.equal(publicResult.status, "failed");
+  assert.equal(publicResult.error.code, "publication_pending_review");
+  await store.update(accepted.jobId, { result: {
+    status: "created", globalId: "6a4dfde2ce98d01a5bac0999", shareCode: "stale-share-code",
+  } });
+
+  const jobResponse = responseRecorder();
+  const proxy = createTransfersHandler({
+    getTransferFn: (id, context) => getTransferFromWorker(id, {
+      ...context,
+      workerUrl: "https://worker.example/jobs",
+      workerToken: "a-long-worker-token-for-tests",
+      fetchFn: async (url, request) => {
+        await handler({ ...request, url: new URL(url).pathname }, jobResponse);
+        return {
+          ok: jobResponse.statusCode === 200,
+          status: jobResponse.statusCode,
+          json: async () => jobResponse.json(),
+        };
+      },
+    }),
+  });
+  const browserResponse = responseRecorder();
+  await proxy({ method: "GET", url: `/api/transfers?jobId=${accepted.jobId}` }, browserResponse);
+  assert.equal(jobResponse.statusCode, 200);
+  const failedJob = {
+    status: "failed", jobId: accepted.jobId,
+    error: { code: "publication_pending_review", message },
+  };
+  assert.deepEqual(jobResponse.json(), failedJob);
+  assert.deepEqual(publicResult, failedJob);
+  assert.equal(browserResponse.statusCode, 200);
+  assert.deepEqual(browserResponse.json(), {
+    ...failedJob, shareCode: null, globalUrl: null, ignored: [],
+  });
+
+  const dashboard = responseRecorder();
+  await handler(
+    {
+      method: "GET",
+      url: "/admin",
+      headers: { authorization: "Bearer a-long-worker-token-for-tests" },
+    },
+    dashboard,
+  );
+  assert.equal(dashboard.statusCode, 200);
+  assert.equal(dashboard.json().jobs[0].error.code, "publication_pending_review");
+  assert.equal(dashboard.json().jobs[0].error.message, message);
+  assert.equal(dashboard.json().jobs[0].result, null);
+  assert.doesNotMatch(dashboard.body, /internal upstream|stale-share-code/);
 });

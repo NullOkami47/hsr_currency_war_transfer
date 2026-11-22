@@ -1,3 +1,6 @@
+export const PUBLICATION_PENDING_REVIEW_MESSAGE =
+  "The Global strategy was created and is not public yet. It may still be under review. Please retry later.";
+
 export class PublicInputError extends TypeError {
   constructor(message, reason = "invalid_request", options = {}) {
     super(message, options);

@@ -97,3 +97,32 @@ test("keeps the newest fifty records and clears them explicitly", () => {
   assert.deepEqual(clearSubmissionHistory(storage), []);
   assert.deepEqual(loadSubmissionHistory(storage), []);
 });
+
+test("preserves only allow-listed errorCode for failed history records", () => {
+  const storage = memoryStorage();
+  addSubmissionHistoryEntry({
+    id: "job-pending-review",
+    jobId: "job-pending-review",
+    sourceId: "6a56fe3021253d0e1a9f4761",
+    sourceTitle: "Review strategy",
+    status: "failed",
+    errorCode: "publication_pending_review",
+    submittedAt: "2026-08-03T01:00:00.000Z",
+    completedAt: "2026-08-03T01:01:00.000Z",
+  }, storage);
+  addSubmissionHistoryEntry({
+    id: "job-other-failure",
+    jobId: "job-other-failure",
+    sourceId: "6a56fe3021253d0e1a9f4762",
+    sourceTitle: "Other failure",
+    status: "failed",
+    errorCode: "unexpected_internal_code",
+    submittedAt: "2026-08-03T01:02:00.000Z",
+    completedAt: "2026-08-03T01:03:00.000Z",
+  }, storage);
+
+  const saved = loadSubmissionHistory(storage);
+  assert.equal(saved.length, 2);
+  assert.equal(saved[0].errorCode, undefined);
+  assert.equal(saved[1].errorCode, "publication_pending_review");
+});

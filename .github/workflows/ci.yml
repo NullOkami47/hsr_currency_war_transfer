@@ -31,6 +31,9 @@ jobs:
         run: npm ci
       - name: Run tests
         run: npm test
+      - name: Check the pending review dialog in Chrome
+        if: runner.os == 'Linux' && matrix.node-version == 22
+        run: node scripts/qa/pending-review-browser.mjs
       - name: Audit high-severity dependencies
         if: runner.os == 'Linux' && matrix.node-version == 22
         run: npm audit --audit-level=high

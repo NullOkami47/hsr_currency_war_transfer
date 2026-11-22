@@ -8,6 +8,7 @@ const COMPLETED_STATUSES = new Set([
   "partial",
 ]);
 const RECOVERABLE_STATUSES = new Set(["queued", "failed"]);
+const PUBLIC_HISTORY_ERROR_CODES = new Set(["publication_pending_review"]);
 
 function validDate(value) {
   const date = new Date(value ?? "");
@@ -51,6 +52,9 @@ export function normaliseSubmissionHistoryEntry(value) {
     const completedAt = status === "failed"
       ? validDate(value?.completedAt ?? value?.submittedAt)
       : null;
+    const errorCode = status === "failed" && PUBLIC_HISTORY_ERROR_CODES.has(value?.errorCode)
+      ? String(value.errorCode)
+      : null;
     if (!/^[A-Za-z0-9_-]{1,100}$/.test(jobId) || !submittedAt) return null;
     return {
       id: String(value?.id ?? jobId).slice(0, 100),
@@ -58,6 +62,7 @@ export function normaliseSubmissionHistoryEntry(value) {
       sourceId,
       sourceTitle,
       status,
+      ...(errorCode ? { errorCode } : {}),
       submittedAt: submittedAt.toISOString(),
       ...(completedAt ? { completedAt: completedAt.toISOString() } : {}),
     };

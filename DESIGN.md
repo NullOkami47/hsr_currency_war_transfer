@@ -229,13 +229,16 @@ Base unit: `4px`.
 - Appears only after selection. Desktop is sticky in the right rail; mobile is a fixed bottom sheet with safe-area padding.
 - Shows selected title, roster summary, disclaimer, and primary submit button. Loading locks duplicate submissions, adds the existing button spinner, and shows a working status panel with a token-coloured progress sweep. A queued transfer keeps the tray open, shows its job ID, and polls without asking the user to resubmit. Success exposes the returned global share code in the official `##…=##` wrapper, a copy button, and a secondary link button that opens the completed strategy on the official Global compendium in a new tab. Partial success lists every ignored item; failure and timeout states remain retryable.
 
+- When a saved Global strategy is still unavailable to the public, a native dialog explains that it may be under review. Closing it returns focus to the submit button and leaves the notice in the tray. Only a manual submission checks again; the share code appears after verification.
+
 ### Local submission history
 
 - A dedicated `/history` page lists completed submissions newest first; history
   is never appended below the search workspace. The primary page exposes a
   compact history navigation action in the header, while the history page
   provides a clear route back to strategy search.
-- Each semantic record contains the original Chinese strategy
+- An attempt that ended while the strategy was awaiting publication keeps that label in history and has no share code or public link.
+- Each successful record contains the original Chinese strategy
   title, completion time, public result status, source ID, Global share code,
   a copy-code action, and an official Global strategy link.
 - The history is browser-local, capped at 50 records, and never contains worker

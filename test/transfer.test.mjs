@@ -9,6 +9,7 @@ import { JsonTransferStore } from "../src/store.mjs";
 import {
   applySourceAttribution,
   buildGlobalTitlePrefix,
+  PublicationPendingReviewError,
   transferStrategy,
 } from "../src/transfer.mjs";
 
@@ -607,4 +608,210 @@ test("resumes verification of a stale pending edit without repeating the edit", 
   assert.equal(deps.calls.create.length, 0);
   assert.equal(deps.calls.edit.length, 0);
   assert.equal(deps.calls.set.at(-1).value.verificationPending, undefined);
+});
+
+test("classifies unavailable newly created publication (-515) as pending review", async () => {
+  const deps = dependencies();
+  const fetchDetail = deps.options.fetchLineupDetailFn;
+  deps.options.fetchLineupDetailFn = async (region, id) => {
+    if (region === "global") {
+      throw new CurrencyWarApiError("Lineup does not exist", { retcode: -515 });
+    }
+    return fetchDetail(region, id);
+  };
+
+  await assert.rejects(
+    () => transferStrategy(SOURCE_ID, deps.options),
+    (error) =>
+      error instanceof PublicationPendingReviewError
+      && error.reason === "publication_pending_review"
+      && error.retcode === -515
+      && error.lineupId === GLOBAL_ID,
+  );
+  assert.equal(deps.calls.create.length, 1);
+  assert.equal(deps.calls.set[0].value.verificationPending, true);
+});
+
+test("classifies still-pending unchanged and changed source retries as pending review without duplicate writes", async () => {
+  for (const [sourceTitle, injectedError] of [
+    ["【1列车同行】攻略標題", new CurrencyWarApiError("Lineup does not exist", { retcode: -515 })],
+    ["【1列车同行】修訂標題", new CurrencyWarApiError("Not found", { status: 404 })],
+  ]) {
+    const first = dependencies();
+    first.options.fetchLineupDetailFn = async (region, id) => {
+      if (region === "global") {
+        throw new CurrencyWarApiError("Lineup does not exist", { retcode: -515 });
+      }
+      return { lineup: source() };
+    };
+    await assert.rejects(() => transferStrategy(SOURCE_ID, first.options));
+    const checkpoint = first.calls.set[0].value;
+
+    const retry = dependencies({
+      previous: checkpoint,
+      sourceLineup: source(sourceTitle),
+    });
+    const fetchRetry = retry.options.fetchLineupDetailFn;
+    retry.options.mappedReadRetry = { attempts: 1, retryDelayMs: 0 };
+    retry.options.fetchLineupDetailFn = async (region, id) => {
+      if (region === "global") throw injectedError;
+      return fetchRetry(region, id);
+    };
+
+    await assert.rejects(
+      () => transferStrategy(SOURCE_ID, retry.options),
+      (error) =>
+        error instanceof PublicationPendingReviewError
+        && error.reason === "publication_pending_review"
+        && error.lineupId === GLOBAL_ID,
+    );
+    assert.equal(retry.calls.create.length, 0);
+    assert.equal(retry.calls.edit.length, 0);
+  }
+});
+
+test("does not classify transient post-create network failure as pending review", async () => {
+  const deps = dependencies();
+  const fetchDetail = deps.options.fetchLineupDetailFn;
+  deps.options.fetchLineupDetailFn = async (region, id) => {
+    if (region === "global") {
+      throw new TypeError("fetch failed");
+    }
+    return fetchDetail(region, id);
+  };
+
+  await assert.rejects(
+    () => transferStrategy(SOURCE_ID, deps.options),
+    (error) =>
+      !(error instanceof PublicationPendingReviewError)
+      && error.reason !== "publication_pending_review"
+      && /fetch failed/.test(error.message),
+  );
+});
+
+test("requires explicit invisibility on every detail attempt for pending review", async () => {
+  const missing = new CurrencyWarApiError("Lineup does not exist", { retcode: -515 });
+  const notFound = new CurrencyWarApiError("Not found", { status: 404 });
+  const failures = [
+    new TypeError("fetch failed"),
+    new CurrencyWarApiError("Authentication required", { retcode: -100 }),
+    new CurrencyWarApiError("Service unavailable", { status: 503 }),
+    null, // Upstream reports success but returns no lineup.
+  ];
+  const initial = dependencies();
+  await transferStrategy(SOURCE_ID, initial.options);
+
+  for (const mode of ["new", "unchanged source", "changed source"]) {
+    for (const [outcomes, expectedFailure] of [
+      [[missing, notFound], undefined],
+      ...failures.flatMap((failure) => [
+        [[missing, failure], failure],
+        [[failure, notFound], failure],
+        [[failure, failure], failure],
+      ]),
+    ]) {
+      const deps = dependencies({
+        previous: mode === "new" ? null : initial.calls.set[0].value,
+        sourceLineup: mode === "changed source" ? source("【1列车同行】修訂標題") : source(),
+      });
+      const fetchDetail = deps.options.fetchLineupDetailFn;
+      let reads = 0;
+      deps.options.verification = { attempts: 2, retryDelayMs: 0 };
+      deps.options.mappedReadRetry = { attempts: 2, retryDelayMs: 0 };
+      deps.options.fetchLineupDetailFn = async (region, id) => {
+        if (region === "cn") return fetchDetail(region, id);
+        assert.equal(id, GLOBAL_ID);
+        assert.equal((await deps.options.store.get(SOURCE_ID))?.verificationPending, true);
+        const outcome = outcomes[reads++];
+        if (outcome) throw outcome;
+        return {};
+      };
+
+      await assert.rejects(() => transferStrategy(SOURCE_ID, deps.options), (error) => {
+        assert.equal(error instanceof PublicationPendingReviewError, expectedFailure === undefined,
+          `${mode}: ${outcomes.map((outcome) => outcome?.message ?? "missing lineup").join(" then ")}`);
+        if (expectedFailure === undefined) assert.equal(error.lineupId, GLOBAL_ID);
+        else if (expectedFailure) assert.equal(error, expectedFailure);
+        else assert.match(error.message, /lineup/i);
+        return true;
+      });
+      assert.equal(reads, 2);
+      assert.equal(deps.calls.create.length, mode === "new" ? 1 : 0);
+      assert.equal(deps.calls.edit.length, 0);
+      assert.equal(deps.calls.set.length, mode === "new" ? 1 : 0);
+    }
+  }
+});
+
+test("does not replace a verified mapping when its detail response omits lineup", async () => {
+  const deps = dependencies({ previous: {
+    globalId: GLOBAL_ID, sourceHash: "previous-hash", shareCode: "old-code",
+  } });
+  const fetchDetail = deps.options.fetchLineupDetailFn;
+  deps.options.mappedReadRetry = { attempts: 1 };
+  deps.options.fetchLineupDetailFn = async (region, id) => {
+    if (region === "global" && deps.calls.create.length === 0) return {};
+    return fetchDetail(region, id);
+  };
+
+  await assert.rejects(() => transferStrategy(SOURCE_ID, deps.options),
+    (error) => !error.reason && /lineup/i.test(error.message));
+  assert.equal(deps.calls.create.length, 0);
+  assert.equal(deps.calls.edit.length, 0);
+  assert.equal(deps.calls.set.length, 0);
+});
+
+test("keeps the observed payload mismatch when a later verification read returns 404", async () => {
+  const deps = dependencies();
+  const fetchDetail = deps.options.fetchLineupDetailFn;
+  let reads = 0;
+  deps.options.verification = { attempts: 2, retryDelayMs: 0 };
+  deps.options.fetchLineupDetailFn = async (region, id) => {
+    if (region === "cn") return fetchDetail(region, id);
+    if (++reads === 2) throw new CurrencyWarApiError("Not found", { status: 404 });
+    const { lineup } = await fetchDetail(region, id);
+    return { lineup: { ...lineup, description: "stale description" } };
+  };
+
+  await assert.rejects(() => transferStrategy(SOURCE_ID, deps.options),
+    (error) => error.name === "TransferVerificationError"
+      && error.differences.some(({ path }) => path === "$.description"));
+  assert.equal(reads, 2);
+  assert.equal(deps.calls.create.length, 1);
+  assert.equal(deps.calls.set.at(-1).value.verificationPending, true);
+});
+
+test("does not probe public detail when the publication checkpoint fails to persist", async () => {
+  const deps = dependencies();
+  const fetchDetail = deps.options.fetchLineupDetailFn;
+  const failure = new Error("checkpoint write failed");
+  let reads = 0;
+  deps.options.store.set = async () => { throw failure; };
+  deps.options.fetchLineupDetailFn = async (region, id) => {
+    if (region === "global") reads += 1;
+    return fetchDetail(region, id);
+  };
+
+  await assert.rejects(() => transferStrategy(SOURCE_ID, deps.options), (error) => error === failure);
+  assert.equal(deps.calls.create.length, 1);
+  assert.equal(reads, 0);
+});
+
+test("rejects a publisher success without a Global ID before checkpointing or reading", async () => {
+  const deps = dependencies();
+  const fetchDetail = deps.options.fetchLineupDetailFn;
+  deps.options.publisher.create = async () => ({});
+  let reads = 0;
+  deps.options.fetchLineupDetailFn = async (region, id) => {
+    if (region === "global") {
+      reads += 1;
+      throw new CurrencyWarApiError("Not found", { status: 404 });
+    }
+    return fetchDetail(region, id);
+  };
+
+  await assert.rejects(() => transferStrategy(SOURCE_ID, deps.options),
+    (error) => !error.reason && /Global strategy ID/i.test(error.message));
+  assert.equal(deps.calls.set.length, 0);
+  assert.equal(reads, 0);
 });
