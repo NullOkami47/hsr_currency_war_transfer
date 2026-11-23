@@ -1944,6 +1944,74 @@ html[data-theme="dark"] .route-line span:last-child {
   text-align: center;
 }
 
+.transfer-dialog {
+  width: min(30rem, calc(100% - 2 * var(--space-4)));
+  max-height: calc(100% - 2 * var(--space-4));
+  margin: auto;
+  padding: 0;
+  color: var(--colour-ink);
+  background: var(--colour-paper);
+  border: 1px solid var(--colour-rule-strong);
+  border-radius: var(--radius-panel);
+  box-shadow: var(--shadow-floating);
+}
+
+.transfer-dialog::backdrop {
+  background: rgb(17 23 20 / 0.56);
+}
+
+.transfer-dialog[open] {
+  animation: pop-in var(--duration-normal) var(--ease-standard);
+}
+
+.transfer-dialog__card {
+  display: grid;
+  gap: var(--space-4);
+  padding: var(--space-6);
+}
+
+.transfer-dialog__header {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.transfer-dialog__icon {
+  width: 2.5rem;
+  height: 2.5rem;
+  display: grid;
+  place-items: center;
+  color: var(--colour-teal);
+  background: var(--colour-teal-pale);
+  border-radius: var(--radius-control);
+}
+
+.transfer-dialog__title,
+.transfer-dialog__body {
+  margin: 0;
+}
+
+.transfer-dialog__title {
+  font-family: var(--font-display);
+  font-size: var(--text-3);
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.transfer-dialog__body {
+  color: var(--colour-ink-soft);
+  font-size: var(--text-1);
+  line-height: 1.6;
+}
+
+.transfer-dialog__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  padding-top: var(--space-1);
+}
+
 @media (max-width: 74.99rem) {
   .app-layout {
     grid-template-columns: var(--filter-width) minmax(0, 1fr);
@@ -2271,6 +2339,14 @@ html[data-theme="dark"] .route-line span:last-child {
   .showcase {
     width: min(100% - var(--space-4), var(--content-width));
     padding-block: var(--space-8);
+  }
+
+  .transfer-dialog__card {
+    padding: var(--space-5);
+  }
+
+  .transfer-dialog__actions .button {
+    width: 100%;
   }
 }
 

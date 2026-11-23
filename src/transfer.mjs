@@ -27,6 +27,25 @@ class PublishedStrategyNotFoundError extends Error {
   }
 }
 
+export class PublicationPendingReviewError extends Error {
+  constructor(lineupId, options = {}) {
+    super(
+      `Published global strategy ${lineupId} is created but not publicly readable yet (likely under review)`,
+      options,
+    );
+    this.name = "PublicationPendingReviewError";
+    this.reason = "publication_pending_review";
+    this.lineupId = lineupId;
+    const { retcode, status } = options.cause ?? {};
+    if (retcode !== undefined) this.retcode = retcode;
+    if (status !== undefined) this.status = status;
+  }
+}
+
+function isUnavailablePublicationError(error) {
+  return error?.retcode === -515 || error?.status === 404;
+}
+
 export function buildGlobalTitlePrefix(sourceLineup, globalTitleConfig) {
   const sourceMatch = String(sourceLineup.title ?? "").match(/^【([^】]+)】/u);
   if (!sourceMatch) {
@@ -174,21 +193,39 @@ function normalisePublished(lineup, globalConfig) {
   };
 }
 
+async function readPublishedLineup(fetchLineupDetailFn, lineupId) {
+  const result = await fetchLineupDetailFn("global", lineupId);
+  if (!result?.lineup) {
+    throw new Error("Public Global strategy response did not include a lineup");
+  }
+  return result.lineup;
+}
+
 async function fetchPublished(
   fetchLineupDetailFn,
   lineupId,
   retryOptions = { attempts: 3, retryDelayMs: 500 },
+  verificationPending = false,
 ) {
+  let unexpectedError;
   try {
     return await retryRead(async () => {
-      const result = await fetchLineupDetailFn("global", lineupId);
-      if (!result?.lineup) {
-        throw new PublishedStrategyNotFoundError(lineupId);
+      try {
+        return await readPublishedLineup(fetchLineupDetailFn, lineupId);
+      } catch (error) {
+        const absent = verificationPending
+          ? isUnavailablePublicationError(error)
+          : error?.status === 404;
+        if (!absent) unexpectedError ??= error;
+        throw error;
       }
-      return result.lineup;
     }, retryOptions);
   } catch (error) {
-    if (error instanceof PublishedStrategyNotFoundError) throw error;
+    // A later 404 cannot turn an ambiguous round into a confirmed absence.
+    if (unexpectedError) throw unexpectedError;
+    if (verificationPending && isUnavailablePublicationError(error)) {
+      throw new PublicationPendingReviewError(lineupId, { cause: error });
+    }
     if (error?.status === 404) {
       throw new PublishedStrategyNotFoundError(lineupId, { cause: error });
     }
@@ -211,15 +248,12 @@ async function fetchVerifiedPublication(
   } = {},
 ) {
   let lastError;
+  let unexpectedError;
   let lastActualPayload;
 
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
     try {
-      const result = await fetchLineupDetailFn("global", lineupId);
-      const lineup = result?.lineup;
-      if (!lineup) {
-        throw new Error("Published global strategy was not readable");
-      }
+      const lineup = await readPublishedLineup(fetchLineupDetailFn, lineupId);
 
       const actualPayload = normalisePublished(lineup, globalConfig);
       const differences = diffPayloads(expectedPayload, actualPayload);
@@ -227,11 +261,9 @@ async function fetchVerifiedPublication(
         return lineup;
       }
       lastActualPayload = actualPayload;
-      lastError = new Error(
-        `Published strategy is not current yet (${differences.length} differences)`,
-      );
     } catch (error) {
       lastError = error;
+      if (!isUnavailablePublicationError(error)) unexpectedError ??= error;
     }
 
     if (attempt < attempts) {
@@ -245,6 +277,10 @@ async function fetchVerifiedPublication(
   if (lastActualPayload) {
     // Surface the exact failed paths instead of a generic cache timeout.
     verifyTransferPayload(expectedPayload, lastActualPayload);
+  }
+  if (unexpectedError) throw unexpectedError;
+  if (isUnavailablePublicationError(lastError)) {
+    throw new PublicationPendingReviewError(lineupId, { cause: lastError });
   }
   throw lastError;
 }
@@ -338,6 +374,7 @@ async function transferResolved(
             fetchLineupDetailFn,
             previous.globalId,
             mappedReadRetry,
+            previous.verificationPending,
           );
     } catch (error) {
       // A successful write may not be publicly visible yet. Keep its ID even
@@ -387,7 +424,10 @@ async function transferResolved(
   const publication = existingLineup
     ? await publisher.edit(previous.globalId, payload)
     : await publisher.create(payload);
-  const globalId = publication.lineupId;
+  const globalId = publication?.lineupId;
+  if (typeof globalId !== "string" || !/^[a-f0-9]{24}$/i.test(globalId)) {
+    throw new Error("Publisher did not return a valid Global strategy ID");
+  }
   // Persist the successful write before any public read. If verification times
   // out or the worker restarts, the next attempt must resume this publication.
   await store.set(sourceId, {

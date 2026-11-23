@@ -4,7 +4,7 @@ import { readPrivateJson, writePrivateJson, serialiseState } from "./private-jso
 import { JsonSecurityStore } from "./security-state.mjs";
 import { createRequestBudget, createConcurrencyGate, REQUEST_BUDGETS } from "./request-budget.mjs";
 import { parseChinaLineupInput } from "./api.mjs";
-import { WorkerPolicyError } from "./errors.mjs";
+import { PUBLICATION_PENDING_REVIEW_MESSAGE, WorkerPolicyError } from "./errors.mjs";
 
 const ACTIVE_JOB_STATUSES = new Set(["queued", "running"]);
 const TERMINAL_JOB_STATUSES = new Set(["completed", "failed"]);
@@ -142,12 +142,15 @@ function publicJob(job) {
     return { status: "queued", jobId: job.id };
   }
   if (job.status === "failed") {
+    const code = job.error?.code ?? "transfer_failed";
     return {
       status: "failed",
       jobId: job.id,
       error: {
-        code: job.error?.code ?? "transfer_failed",
-        message: "The strategy could not be transferred",
+        code,
+        message: code === "publication_pending_review"
+          ? PUBLICATION_PENDING_REVIEW_MESSAGE
+          : "The strategy could not be transferred",
       },
     };
   }
@@ -164,6 +167,7 @@ function safeAdminError(error) {
   const code = String(error?.code ?? "transfer_failed");
   const messages = {
     expired_source: "The China strategy has expired",
+    publication_pending_review: PUBLICATION_PENDING_REVIEW_MESSAGE,
     publishing_session_error: "The publishing session requires administrator attention",
   };
   return {
@@ -359,7 +363,7 @@ export class JsonWorkerJobStore {
         status: ACTIVE_JOB_STATUSES.has(job.status) ? "queued" : job.status,
         createdAt: job.createdAt,
         updatedAt: job.updatedAt,
-        result: job.result
+        result: job.status !== "failed" && job.result
           ? {
               status: job.result.status,
               globalId: job.result.globalId ?? null,

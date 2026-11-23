@@ -5,7 +5,7 @@ import {
   searchChinaStrategies,
 } from "./search.mjs";
 import { parseChinaLineupInput } from "./api.mjs";
-import { PublicInputError } from "./errors.mjs";
+import { PUBLICATION_PENDING_REVIEW_MESSAGE, PublicInputError } from "./errors.mjs";
 import { requestAddress } from "./request-address.mjs";
 import { withDeadline } from "./deadline.mjs";
 import { createRequestBudget, createConcurrencyGate, REQUEST_BUDGETS } from "./request-budget.mjs";
@@ -401,6 +401,23 @@ function publicTransferResult(value) {
     );
   }
 
+  if (status === "failed") {
+    const code = String(value?.error?.code ?? "transfer_failed");
+    return {
+      status,
+      jobId: value?.jobId ? String(value.jobId) : null,
+      shareCode: null,
+      globalUrl: null,
+      ignored: [],
+      error: {
+        code,
+        message: code === "publication_pending_review"
+          ? PUBLICATION_PENDING_REVIEW_MESSAGE
+          : "The strategy could not be transferred",
+      },
+    };
+  }
+
   const rawShareCode = String(value?.shareCode ?? "");
   if (["created", "updated", "unchanged", "partial"].includes(status)
       && !rawShareCode) {
@@ -434,12 +451,7 @@ function publicTransferResult(value) {
           reason: String(item?.reason ?? "unknown"),
         }))
       : [],
-    error: status === "failed"
-      ? {
-          code: String(value?.error?.code ?? "transfer_failed"),
-          message: "The strategy could not be transferred",
-        }
-      : null,
+    error: null,
   };
 }
 

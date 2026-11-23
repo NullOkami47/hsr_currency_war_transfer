@@ -678,6 +678,49 @@ test("reports a malformed completed worker result as unavailable", async () => {
   assert.equal(response.json().error.code, "transfer_service_unavailable");
 });
 
+test("forwards failed jobs with a safe message and without sharing fields", async () => {
+  for (const [code, message] of [
+    ["publication_pending_review", "The Global strategy was created and is not public yet. It may still be under review. Please retry later."],
+    ["transfer_failed", "The strategy could not be transferred"],
+  ]) {
+    const result = await getTransferFromWorker("job-pending", {
+      workerUrl: "https://worker.example/jobs",
+      workerToken: "server-secret",
+      fetchFn: async () => ({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          status: "failed",
+          jobId: "job-pending",
+          shareCode: "sensitive-share-code",
+          globalId: "6a4dfde2ce98d01a5bac0999",
+          globalUrl: "https://act.hoyolab.com/example",
+          error: { code, message: "sensitive raw internal detail" },
+        }),
+      }),
+    });
+
+    const expected = {
+      status: "failed", jobId: "job-pending", shareCode: null, globalUrl: null,
+      ignored: [], error: { code, message },
+    };
+    assert.deepEqual(result, expected);
+
+    const handler = createTransfersHandler({
+      getTransferFn: async () => ({
+        ...result, shareCode: "sensitive-share-code", globalId: "6a4dfde2ce98d01a5bac0999",
+      }),
+    });
+    const response = responseRecorder();
+    await handler(
+      { method: "GET", url: "/api/transfers?jobId=job-pending" },
+      response,
+    );
+    assert.equal(response.statusCode, 200);
+    assert.deepEqual(response.json(), expected);
+  }
+});
+
 test("rejects an untrusted completed Global strategy URL", async () => {
   const handler = createTransfersHandler({
     getTransferFn: async () => ({

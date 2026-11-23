@@ -8,8 +8,8 @@
     <meta name="description" content="搜尋中國服貨幣戰爭攻略，選擇候選後提交至國際服轉移服務。">
     <title>貨幣戰爭攻略轉移</title>
     <script src="/theme-init.js?v=5"></script>
-    <link rel="stylesheet" href="/styles.css?v=25">
-    <script type="module" src="/app.js?v=25"></script>
+    <link rel="stylesheet" href="/styles.css?v=26">
+    <script type="module" src="/app.js?v=26"></script>
   </head>
   <body>
     <header class="app-header">
@@ -185,5 +185,29 @@
         </div>
       </div>
     </footer>
+
+    <dialog
+      id="transfer-dialog"
+      class="transfer-dialog"
+      role="alertdialog"
+      aria-labelledby="transfer-dialog-title"
+      aria-describedby="transfer-dialog-body"
+    >
+      <div class="transfer-dialog__card">
+        <div class="transfer-dialog__header">
+          <span class="transfer-dialog__icon" aria-hidden="true">
+            <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+              <circle cx="12" cy="12" r="9" stroke-width="1.8"/>
+              <path d="M12 7v5l3 2" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </span>
+          <h2 id="transfer-dialog-title" class="transfer-dialog__title" data-i18n="transferPendingReviewTitle">攻略已建立，尚未公開</h2>
+        </div>
+        <p id="transfer-dialog-body" class="transfer-dialog__body" data-i18n="transferPendingReviewBody">HoYoLAB 可能仍在審核中。請稍後再按「提交轉移」，會沿用同一篇國際服攻略，不會重複發文。</p>
+        <div class="transfer-dialog__actions">
+          <button id="transfer-dialog-close" class="button button--primary" type="button" data-i18n="dialogClose" autofocus>我知道了</button>
+        </div>
+      </div>
+    </dialog>
   </body>
 </html>

@@ -2,7 +2,7 @@ import {
   getSearchErrorPresentation,
   retainKnownRoleIds,
 } from "./search-error.js?v=1";
-import { addSubmissionHistoryEntry } from "./history.js?v=2";
+import { addSubmissionHistoryEntry } from "./history.js?v=3";
 
 const messages = {
   "zh-Hant": {
@@ -226,6 +226,9 @@ Object.assign(messages["zh-Hant"], {
   scanningMore: "正在掃描…",
   noResultsScanMoreTitle: "前 {count} 筆攻略中未找到符合條件的結果",
   noResultsScanMoreBody: "可點擊「掃描更多攻略」繼續搜尋後續內容，或調整搜尋條件。",
+  transferPendingReviewTitle: "攻略已建立，尚未公開",
+  transferPendingReviewBody: "HoYoLAB 可能仍在審核中。請稍後再按「提交轉移」，會沿用同一篇國際服攻略，不會重複發文。",
+  dialogClose: "我知道了",
 });
 Object.assign(messages["zh-Hans"], {
   adminConsole: "管理员控制台",
@@ -254,6 +257,9 @@ Object.assign(messages["zh-Hans"], {
   scanningMore: "正在扫描…",
   noResultsScanMoreTitle: "前 {count} 条攻略中未找到符合条件的结果",
   noResultsScanMoreBody: "可点击“扫描更多攻略”继续搜索后续内容，或调整搜索条件。",
+  transferPendingReviewTitle: "攻略已创建，尚未公开",
+  transferPendingReviewBody: "HoYoLAB 可能仍在审核中。请稍后再点“提交转移”，会沿用同一篇国际服攻略，不会重复发帖。",
+  dialogClose: "知道了",
 });
 Object.assign(messages.en, {
   adminConsole: "Administrator console",
@@ -282,6 +288,9 @@ Object.assign(messages.en, {
   scanningMore: "Scanning more…",
   noResultsScanMoreTitle: "No matching strategies found in the first {count} scanned",
   noResultsScanMoreBody: "Click \"Scan more strategies\" to scan further, or adjust your criteria.",
+  transferPendingReviewTitle: "Strategy created, awaiting publication",
+  transferPendingReviewBody: "The strategy may still be under review by HoYoLAB. Submit the transfer again later to check the same strategy without creating another post.",
+  dialogClose: "OK",
 });
 
 const state = {
@@ -312,7 +321,7 @@ const state = {
 };
 
 const elements = Object.fromEntries([
-  "locale-select", "theme-toggle", "global-archive-link", "search-form", "source-input", "source-field", "source-error", "keyword-input", "author-input", "details-error", "role-trigger", "role-trigger-label", "role-popover", "role-filter", "role-clear", "role-filters", "role-grid", "role-status", "bond-trigger", "bond-trigger-label", "bond-popover", "bond-filter", "bond-clear", "bond-grid", "bond-status", "search-button", "search-status", "results-header", "result-count", "candidate-list", "scan-more-container", "scan-more-button", "scan-more-label", "transfer-tray", "tray-title", "tray-roster", "transfer-status", "selection-clear", "transfer-submit", "share-code-wrap", "share-code", "copy-code", "view-global-strategy",
+  "locale-select", "theme-toggle", "global-archive-link", "search-form", "source-input", "source-field", "source-error", "keyword-input", "author-input", "details-error", "role-trigger", "role-trigger-label", "role-popover", "role-filter", "role-clear", "role-filters", "role-grid", "role-status", "bond-trigger", "bond-trigger-label", "bond-popover", "bond-filter", "bond-clear", "bond-grid", "bond-status", "search-button", "search-status", "results-header", "result-count", "candidate-list", "scan-more-container", "scan-more-button", "scan-more-label", "transfer-tray", "tray-title", "tray-roster", "transfer-status", "selection-clear", "transfer-submit", "share-code-wrap", "share-code", "copy-code", "view-global-strategy", "transfer-dialog", "transfer-dialog-close",
 ].map((id) => [id, document.getElementById(id)]));
 
 function t(key, variables = {}) {
@@ -1005,6 +1014,7 @@ function renderTray() {
 function resetTransferUi() {
   state.transferController?.abort();
   state.transferController = null;
+  if (elements["transfer-dialog"].open) elements["transfer-dialog"].close();
   elements["transfer-status"].replaceChildren();
   elements["share-code"].value = "";
   elements["view-global-strategy"].removeAttribute("href");
@@ -1140,17 +1150,45 @@ async function pollTransfer(jobId, signal) {
   throw error;
 }
 
+function showTransferFailure(errorCode) {
+  if (errorCode === "publication_pending_review") {
+    const notice = statusPanel("", t("transferPendingReviewTitle"), t("transferPendingReviewBody"));
+    notice.querySelector(".status-panel__title").dataset.i18n = "transferPendingReviewTitle";
+    notice.querySelector(".status-panel__body").dataset.i18n = "transferPendingReviewBody";
+    elements["transfer-status"].replaceChildren(notice);
+    elements["transfer-dialog"].showModal();
+    return;
+  }
+  const unavailable = errorCode === "transfer_service_unavailable";
+  const timedOut = errorCode === "transfer_timeout";
+  const policyBlocked = [
+    "public_submissions_disabled",
+    "source_blocked",
+    "source_not_allowed",
+    "rate_limited",
+    "daily_quota_reached",
+    "queue_full",
+  ].includes(errorCode);
+  elements["transfer-status"].replaceChildren(statusPanel(
+    "error",
+    t(timedOut ? "transferTimeoutTitle" : unavailable ? "transferUnavailableTitle" : policyBlocked ? "transferPolicyTitle" : "transferFailedTitle"),
+    t(timedOut ? "transferTimeoutBody" : unavailable ? "transferUnavailableBody" : policyBlocked ? "transferPolicyBody" : "transferFailedBody"),
+  ));
+}
+
 function renderTransferResult(data, candidate, pendingEntry = null) {
   elements["transfer-status"].replaceChildren();
   if (data.status === "failed") {
+    const errorCode = data.error?.code;
     if (pendingEntry) {
       addSubmissionHistoryEntry({
         ...pendingEntry,
         status: "failed",
+        ...(errorCode === "publication_pending_review" ? { errorCode } : {}),
         completedAt: new Date().toISOString(),
       });
     }
-    elements["transfer-status"].append(statusPanel("error", t("transferFailedTitle"), t("transferFailedBody")));
+    showTransferFailure(errorCode);
     return;
   }
   if (data.shareCode) {
@@ -1222,21 +1260,7 @@ async function submitTransfer() {
     renderTransferResult(data, candidate, pendingEntry);
   } catch (error) {
     if (error.name === "AbortError") return;
-    const unavailable = error.code === "transfer_service_unavailable";
-    const timedOut = error.code === "transfer_timeout";
-    const policyBlocked = [
-      "public_submissions_disabled",
-      "source_blocked",
-      "source_not_allowed",
-      "rate_limited",
-      "daily_quota_reached",
-      "queue_full",
-    ].includes(error.code);
-    elements["transfer-status"].replaceChildren(statusPanel(
-      "error",
-      t(timedOut ? "transferTimeoutTitle" : unavailable ? "transferUnavailableTitle" : policyBlocked ? "transferPolicyTitle" : "transferFailedTitle"),
-      t(timedOut ? "transferTimeoutBody" : unavailable ? "transferUnavailableBody" : policyBlocked ? "transferPolicyBody" : "transferFailedBody"),
-    ));
+    showTransferFailure(error.code);
   } finally {
     if (state.transferController === controller) {
       state.transferController = null;
@@ -1267,9 +1291,14 @@ document.addEventListener("click", (event) => {
   if (!clickedInsideRolePicker) { closeRolePicker(); closeBondPicker(); }
 });
 document.addEventListener("keydown", (event) => {
+  if (elements["transfer-dialog"].open) return;
   if (event.key !== "Escape") return;
   if (!elements["role-popover"].hidden) { closeRolePicker(); elements["role-trigger"].focus(); }
   else if (!elements["bond-popover"].hidden) { closeBondPicker(); elements["bond-trigger"].focus(); }
+});
+elements["transfer-dialog-close"].addEventListener("click", () => elements["transfer-dialog"].close());
+elements["transfer-dialog"].addEventListener("close", () => {
+  if (!elements["transfer-tray"].hidden) elements["transfer-submit"].focus();
 });
 window.addEventListener("resize", () => { constrainRolePopoverToViewport(); constrainBondPopoverToViewport(); });
 window.visualViewport?.addEventListener("resize", () => { constrainRolePopoverToViewport(); constrainBondPopoverToViewport(); });
