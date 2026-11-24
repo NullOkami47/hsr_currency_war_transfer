@@ -1,0 +1,21 @@
+{
+  "displayName": "HSR GCP production backup unhealthy",
+  "enabled": true,
+  "combiner": "OR",
+  "conditions": [{
+    "displayName": "Current GCP backup failed, missing, corrupt or recovery evidence invalid",
+    "conditionThreshold": {
+      "filter": "metric.type=\"custom.googleapis.com/hsr/gcp_backup_unhealthy\" AND resource.type=\"global\"",
+      "comparison": "COMPARISON_GT",
+      "thresholdValue": 0,
+      "duration": "0s",
+      "aggregations": [{ "alignmentPeriod": "60s", "perSeriesAligner": "ALIGN_MAX" }],
+      "trigger": { "count": 1 }
+    }
+  }],
+  "alertStrategy": { "autoClose": "604800s" },
+  "documentation": {
+    "mimeType": "text/markdown",
+    "content": "Current production: GCE hsr-worker-standby, us-central1-a. Daily encrypted backup at 03:00 Asia/Hong_Kong; deadline 05:00. Inspect hsr-gcp-state-backup.service and hsr-worker-production.service plus Cloud Run hsr-backup-monitor. Check GCS gcp-production/hsr-state/ and matching status event. Do not start a second publisher, replay jobs, delete recovery keys, or clear unknown Chrome locks. This metric aggregates the condition into one incident; no repeat-notification interval is configured. Existing independent watchdog-silence policy remains enabled."
+  }
+}

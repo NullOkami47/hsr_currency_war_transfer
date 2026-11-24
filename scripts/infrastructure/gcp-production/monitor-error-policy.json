@@ -1,0 +1,19 @@
+{
+  "displayName": "HSR GCP backup monitor persistent error",
+  "enabled": true,
+  "combiner": "OR",
+  "conditions": [{
+    "displayName": "Monitor cannot verify backup or report health after bounded retries",
+    "conditionMatchedLog": {
+      "filter": "resource.type=\"cloud_run_revision\" AND resource.labels.service_name=\"hsr-backup-monitor\" AND severity>=ERROR AND jsonPayload.event=\"hsr_gcp_backup_monitor_error\" AND jsonPayload.source=\"gcp\" AND NOT jsonPayload.test=true"
+    }
+  }],
+  "alertStrategy": {
+    "notificationRateLimit": { "period": "86400s" },
+    "autoClose": "604800s"
+  },
+  "documentation": {
+    "mimeType": "text/markdown",
+    "content": "The GCP backup monitor exhausted bounded reads or could not write its health metric. Inspect IAM, GCS permissions and Cloud Run logs. No dynamic reason labels: one incident, notification at most once per 24 hours. This fallback also covers a failure to emit metrics. It does not report a completed restore without external decryption evidence."
+  }
+}

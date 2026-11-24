@@ -52,6 +52,9 @@ if (
 
 const publisher = new BrowserSessionPublisher({
   profileDir,
+  chromiumSandbox: true,
+  // The worker drains HTTP/browser work before closing the persistent profile.
+  handleProcessSignals: false,
   headless: process.env.CURRENCY_WAR_HEADLESS === "1",
 });
 const transferStore = new JsonTransferStore(transferStatePath);
@@ -99,20 +102,25 @@ server.listen(port, host, () => {
   console.log(`Job state: ${jobStatePath}`);
 });
 
-let closing = false;
-async function close() {
-  if (closing) return;
-  closing = true;
-  stopSessionKeepalive();
-  await new Promise((resolveClose) => server.close(resolveClose));
-  await publisher.close();
+let shutdownPromise;
+function close() {
+  shutdownPromise ??= (async () => {
+    stopSessionKeepalive();
+    await new Promise((resolveClose) => server.close(resolveClose));
+    await publisher.close();
+  })();
+  return shutdownPromise;
 }
 
-process.once("SIGINT", async () => {
-  await close();
-  process.exit(0);
-});
-process.once("SIGTERM", async () => {
-  await close();
-  process.exit(0);
-});
+function handleShutdownSignal() {
+  close().then(
+    () => process.exit(0),
+    () => {
+      console.error("Worker shutdown failed");
+      process.exit(1);
+    },
+  );
+}
+
+process.on("SIGINT", handleShutdownSignal);
+process.on("SIGTERM", handleShutdownSignal);
